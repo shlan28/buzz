@@ -662,6 +662,23 @@ mod tests {
     }
 
     #[test]
+    fn runtime_key_and_probe_base_preserve_loopback_community_host() {
+        let pubkey = "aa".repeat(32);
+        let localhost = ManagedAgentRuntimeKey::new(&pubkey, "ws://localhost:3000").unwrap();
+        let ipv4 = ManagedAgentRuntimeKey::new(&pubkey, "ws://127.0.0.1:3000").unwrap();
+        let ipv6 = ManagedAgentRuntimeKey::new(&pubkey, "ws://[::1]:3000").unwrap();
+
+        assert_eq!(localhost.relay_url, "ws://localhost:3000");
+        assert_eq!(
+            crate::relay::relay_http_base_url(&localhost.relay_url),
+            "http://localhost:3000"
+        );
+        assert_ne!(localhost, ipv4);
+        assert_ne!(localhost, ipv6);
+        assert_ne!(ipv4, ipv6);
+    }
+
+    #[test]
     fn observer_lifecycle_key_preserves_exact_canonical_pair() {
         let first = payload(
             "WSS://Relay.Example:443/",
