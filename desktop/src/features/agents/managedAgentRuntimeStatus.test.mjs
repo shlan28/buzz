@@ -78,9 +78,10 @@ test("selects one relay without collapsing same-pubkey pairs", () => {
 });
 
 test("canonicalRelayUrl mirrors the backend pair-key normalization", () => {
-  // Loopback folding + default-port and trailing-slash stripping — the
-  // standard dev setup that previously broke pair matching.
-  assert.equal(canonicalRelayUrl("ws://localhost:3000"), "ws://127.0.0.1:3000");
+  // Host identity is preserved while default ports and trailing slashes are
+  // stripped. Buzz derives the community boundary from Host, including local
+  // development hosts.
+  assert.equal(canonicalRelayUrl("ws://localhost:3000"), "ws://localhost:3000");
   assert.equal(
     canonicalRelayUrl("WSS://Relay.Example:443/"),
     "wss://relay.example",
@@ -93,21 +94,33 @@ test("canonicalRelayUrl mirrors the backend pair-key normalization", () => {
     canonicalRelayUrl("wss://relay.example/path/"),
     "wss://relay.example/path",
   );
-  assert.equal(canonicalRelayUrl("ws://[::1]:3000"), "ws://127.0.0.1:3000");
+  assert.equal(canonicalRelayUrl("ws://[::1]:3000"), "ws://[::1]:3000");
+  assert.equal(canonicalRelayUrl("ws://127.0.0.1:3000"), "ws://127.0.0.1:3000");
   assert.equal(canonicalRelayUrl("https://relay.example"), null);
   assert.equal(canonicalRelayUrl("not a url"), null);
 });
 
-test("matches a stored community URL against canonical backend rows", () => {
+test("does not match runtimes across host-derived local communities", () => {
   const runtimes = [
     runtime({ relayUrl: "ws://127.0.0.1:3000", lifecycle: "ready" }),
   ];
   assert.equal(
-    findManagedAgentRuntime(runtimes, "aa", "ws://localhost:3000")?.lifecycle,
-    "ready",
+    findManagedAgentRuntime(runtimes, "aa", "ws://localhost:3000"),
+    undefined,
   );
   assert.equal(
     findManagedAgentRuntime(runtimes, "aa", "ws://localhost:3001"),
     undefined,
+  );
+});
+
+test("matches harmless spelling differences within the same community host", () => {
+  const runtimes = [
+    runtime({ relayUrl: "wss://relay.example", lifecycle: "ready" }),
+  ];
+  assert.equal(
+    findManagedAgentRuntime(runtimes, "aa", "WSS://Relay.Example:443/")
+      ?.lifecycle,
+    "ready",
   );
 });
