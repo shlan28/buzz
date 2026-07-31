@@ -254,10 +254,16 @@ Forum event kinds:
 2. **Channel discovery** — Queries the relay REST API for accessible channels, subscribes to each.
 3. **Event loop** — Listens for @mention events (kind 9 with the agent's pubkey in a `#p` tag). Events queue per channel.
 4. **Prompting** — When events are pending and no prompt is in flight for that channel, drains all queued events for the oldest channel into a single batched prompt via ACP `session/prompt`.
-5. **Agent response** — The agent processes the prompt and uses the Buzz CLI (`send_message`, `get_messages`, etc.) to interact with Buzz.
-6. **Recovery** — If the agent crashes, the harness respawns it. If the relay disconnects, the harness reconnects with a `since` filter to avoid missing events.
+5. **Agent response** — The agent processes the prompt and uses the Buzz CLI (`buzz messages send`, `buzz messages get`, etc.) to interact with Buzz.
+6. **Delivery confirmation** — For a message-triggered turn, ACP text shown in Agent Activity is not treated as a delivered reply. The harness waits for a successful `buzz messages send` tool result. If it is missing, the harness asks the agent once to publish its answer; if the second prompt still does not send, the harness publishes the final ACP text with the managed agent's identity to the original channel and thread.
+7. **Recovery** — If the agent crashes, the harness respawns it. If the relay disconnects, the harness reconnects with a `since` filter to avoid missing events.
 
 Each channel has at most one prompt in flight. Multiple channels can be processed concurrently when agents > 1.
+
+Queued events for the same channel may still be combined into one prompt and one
+integrated reply. Delivery confirmation does not change batching, queue, or
+mid-turn steering behavior. Heartbeat and other channel-less internal turns do
+not trigger reply correction or fallback publishing.
 
 > **Note:** On startup, the harness replays all unprocessed @mentions since the last run. Expect a burst of activity if there are stale events in the channel.
 

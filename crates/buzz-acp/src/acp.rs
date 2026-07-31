@@ -8,6 +8,8 @@
 //! 4. [`AcpClient::session_prompt_with_idle_timeout`] — send prompt with idle/hard deadline, return stop reason
 //! 5. [`AcpClient::session_cancel`] / [`AcpClient::cancel_with_cleanup`] — cancel in-flight turn
 
+use std::collections::HashSet;
+
 use futures_util::StreamExt;
 use tokio::io::AsyncWriteExt;
 use tokio::process::{Child, ChildStdin, ChildStdout};
@@ -55,6 +57,114 @@ pub enum StopReason {
     /// Agent refused the prompt (`"refusal"`).
     /// Note: refused turns are dropped from history by the agent.
     Refusal,
+}
+
+/// Delivery evidence collected while one `session/prompt` request is active.
+///
+/// ACP text chunks are observer output, not proof that a Buzz message reached
+/// the relay. A turn counts as delivered only after a matching
+/// `buzz messages send` tool call completes successfully.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PromptDelivery {
+    pub visible_text: String,
+    pub message_sent: bool,
+}
+
+#[derive(Debug, Default)]
+struct PromptDeliveryTracker {
+    visible_text: String,
+    message_send_calls: HashSet<String>,
+    successful_calls: HashSet<String>,
+}
+
+impl PromptDeliveryTracker {
+    fn reset(&mut self) {
+        *self = Self::default();
+    }
+
+    fn snapshot(&self) -> PromptDelivery {
+        PromptDelivery {
+            visible_text: self.visible_text.trim().to_owned(),
+            message_sent: self
+                .message_send_calls
+                .iter()
+                .any(|id| self.successful_calls.contains(id)),
+        }
+    }
+
+    fn observe_message_chunk(&mut self, text: &str) {
+        self.visible_text.push_str(text);
+    }
+
+    fn observe_tool_call(&mut self, update: &serde_json::Value) {
+        let Some(tool_id) = update.get("toolCallId").and_then(|v| v.as_str()) else {
+            return;
+        };
+        let Some(raw_input) = update.get("rawInput") else {
+            return;
+        };
+        if value_invokes_buzz_message_send(raw_input) {
+            self.message_send_calls.insert(tool_id.to_owned());
+        }
+    }
+
+    fn observe_tool_call_update(&mut self, update: &serde_json::Value) {
+        if update.get("status").and_then(|v| v.as_str()) != Some("completed") {
+            return;
+        }
+        if update
+            .pointer("/rawOutput/isError")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            return;
+        }
+        if let Some(tool_id) = update.get("toolCallId").and_then(|v| v.as_str()) {
+            self.successful_calls.insert(tool_id.to_owned());
+        }
+    }
+}
+
+fn value_invokes_buzz_message_send(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::String(text) => command_invokes_buzz_message_send(text),
+        serde_json::Value::Array(values) => {
+            let command = values
+                .iter()
+                .filter_map(|value| value.as_str())
+                .collect::<Vec<_>>()
+                .join(" ");
+            command_invokes_buzz_message_send(&command)
+        }
+        serde_json::Value::Object(values) => ["command", "cmd", "script"]
+            .iter()
+            .filter_map(|key| values.get(*key))
+            .any(value_invokes_buzz_message_send),
+        _ => false,
+    }
+}
+
+fn command_invokes_buzz_message_send(command: &str) -> bool {
+    command
+        .split(['\n', ';', '|', '&'])
+        .filter_map(|segment| {
+            let tokens: Vec<&str> = segment
+                .split_whitespace()
+                .map(|token| token.trim_matches(|c: char| matches!(c, '\'' | '"' | '(' | ')')))
+                .filter(|token| !token.is_empty())
+                .collect();
+            let first = tokens.first()?;
+            first
+                .rsplit('/')
+                .next()
+                .is_some_and(|binary| binary == "buzz")
+                .then_some(tokens)
+        })
+        .any(|tokens| {
+            tokens
+                .windows(2)
+                .any(|window| window == ["messages", "send"])
+        })
 }
 
 impl StopReason {
@@ -211,6 +321,8 @@ pub struct AcpClient {
     /// deltas. Both goose and buzz-agent emit this notification; goose gates
     /// on client capability advertisement, buzz-agent emits unconditionally.
     goose_usage: UsageTracker,
+    /// Prompt-scoped proof that a channel-visible Buzz message was sent.
+    prompt_delivery: PromptDeliveryTracker,
 }
 
 /// Recursively merge `overlay` into `base`, with `overlay` winning on scalar/shape
@@ -550,6 +662,7 @@ impl AcpClient {
             steering_supported: false,
             steer_rx: None,
             goose_usage: UsageTracker::default(),
+            prompt_delivery: PromptDeliveryTracker::default(),
         })
     }
 
@@ -567,6 +680,11 @@ impl AcpClient {
     /// Return a clone of the observer handle, if attached.
     pub(crate) fn observer_handle(&self) -> Option<ObserverHandle> {
         self.observer.clone()
+    }
+
+    /// Return the delivery evidence collected for the most recent prompt.
+    pub(crate) fn prompt_delivery(&self) -> PromptDelivery {
+        self.prompt_delivery.snapshot()
     }
 
     /// Return the pool slot index for this agent process.
@@ -751,6 +869,7 @@ impl AcpClient {
         idle_timeout: std::time::Duration,
         max_duration: std::time::Duration,
     ) -> Result<StopReason, AcpError> {
+        self.prompt_delivery.reset();
         let params = build_prompt_params(session_id, prompt_blocks);
         let hard_deadline = tokio::time::Instant::now() + max_duration;
         self.current_hard_deadline = Some(hard_deadline);
@@ -1714,11 +1833,13 @@ impl AcpClient {
         match update_type {
             "agent_message_chunk" => {
                 if let Some(text) = update["content"]["text"].as_str() {
+                    self.prompt_delivery.observe_message_chunk(text);
                     tracing::info!(target: "acp::stream", "{text}");
                 }
                 false
             }
             "tool_call" => {
+                self.prompt_delivery.observe_tool_call(update);
                 let title = update
                     .get("title")
                     .and_then(|v| v.as_str())
@@ -1731,6 +1852,7 @@ impl AcpClient {
                 true
             }
             "tool_call_update" => {
+                self.prompt_delivery.observe_tool_call_update(update);
                 let tool_id = update
                     .get("toolCallId")
                     .and_then(|v| v.as_str())
@@ -2222,6 +2344,79 @@ fn configure_no_window(cmd: &mut tokio::process::Command) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn delivery_tracker_text_is_not_delivery() {
+        let mut tracker = PromptDeliveryTracker::default();
+        tracker.observe_message_chunk("answer in Activity");
+
+        assert_eq!(
+            tracker.snapshot(),
+            PromptDelivery {
+                visible_text: "answer in Activity".to_owned(),
+                message_sent: false,
+            }
+        );
+    }
+
+    #[test]
+    fn delivery_tracker_requires_successful_message_send_completion() {
+        let mut tracker = PromptDeliveryTracker::default();
+        tracker.observe_tool_call(&serde_json::json!({
+            "toolCallId": "send-1",
+            "rawInput": {
+                "command": "/tmp/bin/buzz messages send --channel channel-id --content hello"
+            }
+        }));
+        tracker.observe_tool_call_update(&serde_json::json!({
+            "toolCallId": "send-1",
+            "status": "completed",
+            "rawOutput": {"isError": true}
+        }));
+        assert!(!tracker.snapshot().message_sent);
+
+        tracker.observe_tool_call_update(&serde_json::json!({
+            "toolCallId": "send-1",
+            "status": "completed",
+            "rawOutput": {"isError": false}
+        }));
+        assert!(tracker.snapshot().message_sent);
+    }
+
+    #[test]
+    fn delivery_tracker_handles_completion_before_tool_call_and_reset() {
+        let mut tracker = PromptDeliveryTracker::default();
+        tracker.observe_tool_call_update(&serde_json::json!({
+            "toolCallId": "send-1",
+            "status": "completed",
+            "rawOutput": {"isError": false}
+        }));
+        tracker.observe_tool_call(&serde_json::json!({
+            "toolCallId": "send-1",
+            "rawInput": {"command": "buzz messages send --channel c --content hi"}
+        }));
+        assert!(tracker.snapshot().message_sent);
+
+        tracker.reset();
+        assert_eq!(tracker.snapshot(), PromptDelivery::default());
+    }
+
+    #[test]
+    fn delivery_tracker_ignores_other_shell_commands() {
+        let mut tracker = PromptDeliveryTracker::default();
+        tracker.observe_tool_call(&serde_json::json!({
+            "toolCallId": "read-1",
+            "rawInput": {
+                "command": "echo 'buzz messages send is required'; buzz messages get --channel c"
+            }
+        }));
+        tracker.observe_tool_call_update(&serde_json::json!({
+            "toolCallId": "read-1",
+            "status": "completed",
+            "rawOutput": {"isError": false}
+        }));
+        assert!(!tracker.snapshot().message_sent);
+    }
 
     #[test]
     fn stop_reason_parses_all_known_values() {
