@@ -30,7 +30,8 @@ use uuid::Uuid;
 
 use crate::acp::{
     extract_model_config_options, extract_model_state, model_in_catalog,
-    resolve_model_switch_method, AcpClient, AcpError, McpServer, ModelSwitchMethod, StopReason,
+    resolve_model_switch_method, AcpClient, AcpError, McpServer, ModelSwitchMethod, PromptDelivery,
+    StopReason,
 };
 use crate::config::{compose_session_title, DedupMode, PermissionMode};
 use crate::observer;
@@ -2051,7 +2052,13 @@ pub async fn run_prompt_task(
                             &source,
                             &control_signal,
                         );
-                        let usage = agent.acp.take_turn_usage();
+                        let usage = ensure_channel_message_delivery(
+                            &mut agent,
+                            batch.as_ref(),
+                            &ctx,
+                            &session_id,
+                        )
+                        .await;
                         publish_agent_turn_metric(
                             &ctx,
                             usage,
@@ -2079,6 +2086,12 @@ pub async fn run_prompt_task(
     match prompt_result {
         Ok(stop_reason) => {
             log_stop_reason(&source, &stop_reason);
+
+            let usage = if matches!(stop_reason, StopReason::EndTurn) {
+                ensure_channel_message_delivery(&mut agent, batch.as_ref(), &ctx, &session_id).await
+            } else {
+                agent.acp.take_turn_usage()
+            };
 
             let should_rotate = matches!(
                 stop_reason,
@@ -2113,7 +2126,6 @@ pub async fn run_prompt_task(
             }
 
             let core_stop = acp_stop_to_core(&stop_reason);
-            let usage = agent.acp.take_turn_usage();
             publish_agent_turn_metric(
                 &ctx,
                 usage,
@@ -2298,6 +2310,187 @@ pub async fn run_prompt_task(
         }
     }
     // _reaction_guard drops here → spawns clear_reactions for all exit paths.
+}
+
+/// Ensure a completed channel prompt produced one relay-visible Buzz message.
+///
+/// The first missing send gets one corrective prompt in the same ACP session.
+/// If the agent still only emits ACP text, the harness publishes the final
+/// visible text itself with the managed agent's key. Heartbeats have no batch
+/// and bypass this path.
+async fn ensure_channel_message_delivery(
+    agent: &mut OwnedAgent,
+    batch: Option<&FlushBatch>,
+    ctx: &PromptContext,
+    session_id: &str,
+) -> Option<crate::usage::TurnUsage> {
+    let initial_usage = agent.acp.take_turn_usage();
+    let Some(batch) = batch else {
+        return initial_usage;
+    };
+
+    let initial = agent.acp.prompt_delivery();
+    if initial.message_sent {
+        return initial_usage;
+    }
+
+    let thread_tags = batch
+        .events
+        .last()
+        .map(|event| crate::queue::parse_thread_tags(&event.event))
+        .unwrap_or_default();
+    let reply_instruction = thread_tags
+        .parent_event_id
+        .as_deref()
+        .map(|event_id| format!(" Include `--reply-to {event_id}`."))
+        .unwrap_or_default();
+    let corrective_prompt = format!(
+        "[Delivery Required]\nYour prior answer only appeared in Agent Activity and was not sent \
+         to the conversation. Publish the answer now with `buzz messages send --channel {}`.{} \
+         Do not merely repeat the answer as ACP text; the successful tool result is required.",
+        batch.channel_id, reply_instruction
+    );
+
+    tracing::warn!(
+        target: "pool::delivery",
+        channel = %batch.channel_id,
+        "agent ended turn without a successful buzz messages send; requesting delivery"
+    );
+    let correction_result = agent
+        .acp
+        .session_prompt_with_idle_timeout(
+            session_id,
+            &corrective_prompt,
+            ctx.idle_timeout,
+            ctx.max_turn_duration,
+        )
+        .await;
+    match &correction_result {
+        Err(AcpError::IdleTimeout(_) | AcpError::HardTimeout { .. }) => {
+            tracing::warn!(
+                target: "pool::delivery",
+                channel = %batch.channel_id,
+                "delivery correction prompt timed out; cancelling it before fallback"
+            );
+            if let Err(error) = agent
+                .acp
+                .cancel_with_cleanup(session_id, ctx.idle_timeout)
+                .await
+            {
+                tracing::error!(
+                    target: "pool::delivery",
+                    channel = %batch.channel_id,
+                    "delivery correction cleanup failed: {error}; stopping agent process"
+                );
+                agent.state.invalidate_all();
+                agent.acp.shutdown().await;
+            } else {
+                agent
+                    .state
+                    .invalidate(&PromptSource::Channel(batch.channel_id));
+            }
+        }
+        Err(AcpError::AgentExited) => {
+            tracing::warn!(
+                target: "pool::delivery",
+                channel = %batch.channel_id,
+                "agent exited during delivery correction"
+            );
+            agent.state.invalidate_all();
+        }
+        Err(error) => {
+            tracing::warn!(
+                target: "pool::delivery",
+                channel = %batch.channel_id,
+                "delivery correction prompt failed: {error}"
+            );
+            agent
+                .state
+                .invalidate(&PromptSource::Channel(batch.channel_id));
+        }
+        Ok(_) => {}
+    }
+    let correction = agent.acp.prompt_delivery();
+    let correction_usage = agent.acp.take_turn_usage();
+    let usage = merge_delivery_usage(initial_usage, correction_usage);
+
+    if correction.message_sent {
+        return usage;
+    }
+
+    let content = fallback_delivery_content(&initial, &correction);
+    match publish_channel_message(&ctx.rest_client, batch.channel_id, &thread_tags, content).await {
+        Ok(()) => tracing::warn!(
+            target: "pool::delivery",
+            channel = %batch.channel_id,
+            "published ACP fallback because the agent did not send its answer"
+        ),
+        Err(error) => tracing::error!(
+            target: "pool::delivery",
+            channel = %batch.channel_id,
+            "ACP fallback publish failed: {error}"
+        ),
+    }
+
+    usage
+}
+
+fn fallback_delivery_content<'a>(
+    initial: &'a PromptDelivery,
+    correction: &'a PromptDelivery,
+) -> &'a str {
+    if !correction.visible_text.trim().is_empty() {
+        correction.visible_text.trim()
+    } else if !initial.visible_text.trim().is_empty() {
+        initial.visible_text.trim()
+    } else {
+        "I could not deliver my response to this conversation. Please try again."
+    }
+}
+
+fn merge_delivery_usage(
+    initial: Option<crate::usage::TurnUsage>,
+    correction: Option<crate::usage::TurnUsage>,
+) -> Option<crate::usage::TurnUsage> {
+    match (initial, correction) {
+        (Some(first), Some(second)) => {
+            let delta_reliable = first.delta_reliable && second.delta_reliable;
+            Some(crate::usage::TurnUsage {
+                session_id: first.session_id,
+                turn_seq: first.turn_seq,
+                delta_reliable,
+                turn_input_tokens: delta_reliable
+                    .then(|| {
+                        first
+                            .turn_input_tokens?
+                            .checked_add(second.turn_input_tokens?)
+                    })
+                    .flatten(),
+                turn_output_tokens: delta_reliable
+                    .then(|| {
+                        first
+                            .turn_output_tokens?
+                            .checked_add(second.turn_output_tokens?)
+                    })
+                    .flatten(),
+                turn_total_tokens: first
+                    .turn_total_tokens
+                    .zip(second.turn_total_tokens)
+                    .and_then(|(a, b)| a.checked_add(b)),
+                turn_cost_usd: first
+                    .turn_cost_usd
+                    .zip(second.turn_cost_usd)
+                    .map(|(a, b)| a + b),
+                cumulative_input_tokens: second.cumulative_input_tokens,
+                cumulative_output_tokens: second.cumulative_output_tokens,
+                cumulative_total_tokens: second.cumulative_total_tokens,
+                cumulative_cost_usd: second.cumulative_cost_usd,
+                model: second.model.or(first.model),
+            })
+        }
+        (usage @ Some(_), None) | (None, usage @ Some(_)) => usage,
+        (None, None) => None,
+    }
 }
 
 /// Retry wrapper for context fetches: one retry with `CONTEXT_FETCH_RETRY_DELAY`
@@ -3625,6 +3818,17 @@ pub(crate) async fn post_failure_notice(
     thread_tags: &ThreadTags,
     content: &str,
 ) {
+    if let Err(error) = publish_channel_message(rest, channel_id, thread_tags, content).await {
+        tracing::warn!(channel = %channel_id, "failure notice failed: {error}");
+    }
+}
+
+async fn publish_channel_message(
+    rest: &crate::relay::RestClient,
+    channel_id: Uuid,
+    thread_tags: &ThreadTags,
+    content: &str,
+) -> Result<(), String> {
     let thread_ref = thread_tags.root_event_id.as_deref().and_then(|root| {
         let root_id = nostr::EventId::from_hex(root).ok()?;
         let parent_id = thread_tags
@@ -3640,22 +3844,19 @@ pub(crate) async fn post_failure_notice(
     let builder =
         match buzz_sdk::build_message(channel_id, content, thread_ref.as_ref(), &[], false, &[]) {
             Ok(b) => b,
-            Err(e) => {
-                tracing::warn!(channel = %channel_id, "failure notice: build failed: {e}");
-                return;
-            }
+            Err(e) => return Err(format!("build failed: {e}")),
         };
     let event = match builder.sign_with_keys(&rest.keys) {
         Ok(e) => e,
-        Err(e) => {
-            tracing::warn!(channel = %channel_id, "failure notice: sign failed: {e}");
-            return;
-        }
+        Err(e) => return Err(format!("sign failed: {e}")),
     };
     match tokio::time::timeout(Duration::from_secs(5), rest.submit_event(&event)).await {
-        Ok(Ok(_)) => {}
-        Ok(Err(e)) => tracing::warn!(channel = %channel_id, "failure notice failed: {e}"),
-        Err(_) => tracing::warn!(channel = %channel_id, "failure notice timed out"),
+        Ok(Ok(response)) if response.get("accepted").and_then(|v| v.as_bool()) == Some(false) => {
+            Err(format!("relay rejected event: {response}"))
+        }
+        Ok(Ok(_)) => Ok(()),
+        Ok(Err(e)) => Err(e.to_string()),
+        Err(_) => Err("publish timed out".to_owned()),
     }
 }
 
@@ -3779,6 +3980,129 @@ mod tests {
     use super::*;
     use nostr::{EventBuilder, Keys, Kind, Tag, Timestamp};
     use serde_json::json;
+
+    #[test]
+    fn fallback_prefers_correction_then_initial_then_explicit_failure() {
+        let initial = PromptDelivery {
+            visible_text: "initial answer".to_owned(),
+            message_sent: false,
+        };
+        let correction = PromptDelivery {
+            visible_text: "corrected answer".to_owned(),
+            message_sent: false,
+        };
+        assert_eq!(
+            fallback_delivery_content(&initial, &correction),
+            "corrected answer"
+        );
+
+        let empty = PromptDelivery::default();
+        assert_eq!(
+            fallback_delivery_content(&initial, &empty),
+            "initial answer"
+        );
+        assert!(fallback_delivery_content(&empty, &empty).contains("could not deliver"));
+    }
+
+    async fn message_publish_server(
+        response_body: &'static str,
+    ) -> (
+        RestClient,
+        tokio::sync::oneshot::Receiver<serde_json::Value>,
+    ) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind message publish server");
+        let base_url = format!("http://{}", listener.local_addr().expect("server address"));
+        let (body_tx, body_rx) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept publish request");
+            let mut request = vec![0; 16_384];
+            let read = socket
+                .read(&mut request)
+                .await
+                .expect("read publish request");
+            let request = &request[..read];
+            let body_start = request
+                .windows(4)
+                .position(|window| window == b"\r\n\r\n")
+                .map(|index| index + 4)
+                .expect("HTTP request body");
+            let body = serde_json::from_slice(&request[body_start..]).expect("event JSON");
+            let _ = body_tx.send(body);
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                response_body.len(),
+                response_body
+            );
+            socket
+                .write_all(response.as_bytes())
+                .await
+                .expect("write publish response");
+        });
+
+        (
+            RestClient {
+                http: reqwest::Client::new(),
+                base_url,
+                keys: Keys::generate(),
+                auth_tag_json: None,
+            },
+            body_rx,
+        )
+    }
+
+    #[tokio::test]
+    async fn fallback_publish_preserves_channel_and_thread_tags() {
+        let (rest, body_rx) =
+            message_publish_server(r#"{"accepted":true,"message":"stored"}"#).await;
+        let channel_id = Uuid::new_v4();
+        let root = EventBuilder::text_note("root")
+            .sign_with_keys(&Keys::generate())
+            .expect("root event");
+        let parent = EventBuilder::text_note("parent")
+            .sign_with_keys(&Keys::generate())
+            .expect("parent event");
+        let tags = ThreadTags {
+            root_event_id: Some(root.id.to_hex()),
+            parent_event_id: Some(parent.id.to_hex()),
+            mentioned_pubkeys: Vec::new(),
+        };
+
+        publish_channel_message(&rest, channel_id, &tags, "fallback answer")
+            .await
+            .expect("publish fallback");
+        let event = body_rx.await.expect("captured event");
+        assert_eq!(event["kind"], 9);
+        assert_eq!(event["content"], "fallback answer");
+        let event_tags = event["tags"].as_array().expect("event tags");
+        assert!(event_tags
+            .iter()
+            .any(|tag| tag == &json!(["h", channel_id.to_string()])));
+        assert!(event_tags
+            .iter()
+            .any(|tag| tag == &json!(["e", root.id.to_hex(), "", "root"])));
+        assert!(event_tags
+            .iter()
+            .any(|tag| tag == &json!(["e", parent.id.to_hex(), "", "reply"])));
+    }
+
+    #[tokio::test]
+    async fn fallback_publish_reports_relay_rejection() {
+        let (rest, _body_rx) =
+            message_publish_server(r#"{"accepted":false,"message":"denied"}"#).await;
+        let error = publish_channel_message(
+            &rest,
+            Uuid::new_v4(),
+            &ThreadTags::default(),
+            "fallback answer",
+        )
+        .await
+        .expect_err("relay rejection must fail delivery");
+        assert!(error.contains("rejected"));
+    }
 
     // These pin the initial_message dispatch path (run_prompt_task, ~line 855):
     // a legacy agent WITH a base_prompt must get [Base] prepended to the user
