@@ -4,8 +4,29 @@
 #   BUZZ_VITE_PORT, BUZZ_HMR_PORT, VITE_PORT, VITE_HMR_PORT
 #   BUZZ_RELAY_PORT, BUZZ_RELAY_URL
 #   BUZZ_INSTANCE_SLUG, BUZZ_WORKTREE_LABEL, VITE_DEV_BRANCH (worktrees only)
-#   BUZZ_TAURI_CONFIG
+#   BUZZ_TAURI_CONFIG, BUZZ_DEV_KEYRING_SERVICE
+#   NO_PROXY, no_proxy
 #   BUZZ_PRIVATE_KEY (worktrees only, when BUZZ_SHARE_IDENTITY=1)
+
+# Keep local relay and dev-server traffic away from machine-wide HTTP proxies.
+# Preserve every caller-provided exclusion while appending any missing loopback
+# hosts, then mirror the canonical value to both common casings because client
+# libraries differ on which one they inspect.
+NO_PROXY_VALUE="${NO_PROXY:-${no_proxy:-}}"
+for LOOPBACK_HOST in localhost 127.0.0.1 ::1; do
+    case ",${NO_PROXY_VALUE}," in
+        *",${LOOPBACK_HOST},"*) ;;
+        *)
+            if [[ -n "$NO_PROXY_VALUE" ]]; then
+                NO_PROXY_VALUE="${NO_PROXY_VALUE},${LOOPBACK_HOST}"
+            else
+                NO_PROXY_VALUE="$LOOPBACK_HOST"
+            fi
+            ;;
+    esac
+done
+export NO_PROXY="$NO_PROXY_VALUE"
+export no_proxy="$NO_PROXY_VALUE"
 
 WORKTREE_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 
@@ -34,9 +55,9 @@ unset VITE_DEV_BRANCH
 # Worktree detection: compare --git-dir to --git-common-dir. In the main
 # working tree these are identical; in any worktree (whether under .worktrees/,
 # .claude/worktrees/, or elsewhere on disk) they differ.
-if git rev-parse --is-inside-work-tree &>/dev/null; then
-    GIT_DIR=$(git rev-parse --git-dir)
-    GIT_COMMON_DIR=$(git rev-parse --git-common-dir 2>/dev/null)
+if [[ -z "${BUZZ_DEV_INSTANCE_SLUG:-}" ]] && git rev-parse --is-inside-work-tree &>/dev/null; then
+    GIT_DIR=$(git rev-parse --path-format=absolute --git-dir)
+    GIT_COMMON_DIR=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
     if [[ -n "$GIT_COMMON_DIR" && "$GIT_DIR" != "$GIT_COMMON_DIR" ]]; then
         BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
         export BUZZ_WORKTREE_LABEL="${BRANCH_NAME##*/}"
@@ -94,4 +115,31 @@ if git rev-parse --is-inside-work-tree &>/dev/null; then
     fi
 fi
 
+# Explicit opt-in for reusing a stable local dev instance from any checkout.
+# This takes precedence over worktree-derived isolation but leaves the default
+# canonical/worktree behavior unchanged when unset.
+if [[ -n "${BUZZ_DEV_INSTANCE_SLUG:-}" ]]; then
+    if [[ ! "$BUZZ_DEV_INSTANCE_SLUG" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
+        echo "Error: BUZZ_DEV_INSTANCE_SLUG must be a lowercase slug (letters, digits, single hyphens)" >&2
+        return 1 2>/dev/null || exit 1
+    fi
+
+    export BUZZ_INSTANCE_SLUG="$BUZZ_DEV_INSTANCE_SLUG"
+    export BUZZ_WORKTREE_LABEL="$BUZZ_DEV_INSTANCE_SLUG"
+    export VITE_DEV_BRANCH="$BUZZ_DEV_INSTANCE_SLUG"
+
+    ICON_DIR="$WORKTREE_ROOT/desktop/src-tauri/target/dev-icons"
+    DEV_ICON="$ICON_DIR/icon.icns"
+    GENERATE_DEV_ICON="$WORKTREE_ROOT/scripts/generate-dev-icon.swift"
+    BASE_ICON="$WORKTREE_ROOT/desktop/src-tauri/icons/icon.icns"
+    mkdir -p "$ICON_DIR"
+
+    BUNDLE_CONFIG=""
+    if swift "$GENERATE_DEV_ICON" "$BASE_ICON" "$DEV_ICON" "$BUZZ_WORKTREE_LABEL"; then
+        BUNDLE_CONFIG=",\"bundle\":{\"icon\":[\"$DEV_ICON\"]}"
+    fi
+    BUZZ_TAURI_CONFIG="{\"build\":{\"devUrl\":\"${DEV_URL}\",\"beforeDevCommand\":\"exec ./node_modules/.bin/vite --port ${BUZZ_VITE_PORT} --strictPort\"},\"identifier\":\"xyz.block.buzz.app.dev.${BUZZ_INSTANCE_SLUG}\",\"productName\":\"Buzz Dev (${BUZZ_WORKTREE_LABEL})\"${BUNDLE_CONFIG}}"
+fi
+
 export BUZZ_TAURI_CONFIG
+export BUZZ_DEV_KEYRING_SERVICE="buzz-desktop-dev.${BUZZ_INSTANCE_SLUG:-main}"

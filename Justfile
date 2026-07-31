@@ -92,7 +92,11 @@ build-release:
     cargo build --workspace --release
 
 # Run repo lint and formatting checks
-check: fmt-check clippy desktop-check desktop-tauri-fmt-check desktop-tauri-clippy web-check mobile-check
+check: fmt-check clippy desktop-check desktop-tauri-fmt-check desktop-tauri-clippy web-check mobile-check instance-env-test
+
+# Verify desktop dev-instance naming and localhost proxy exclusions.
+instance-env-test:
+    ./scripts/test-instance-env.sh
 
 # Format all Rust code
 fmt:
@@ -490,7 +494,6 @@ desktop-standalone *ARGS: _ensure-sidecar-stubs
     fi
     source ../scripts/instance-env.sh
     INSTANCE_ID=$(node -e "console.log(JSON.parse(process.env.BUZZ_TAURI_CONFIG).identifier)")
-    export BUZZ_DEV_KEYRING_SERVICE="buzz-desktop-dev.${BUZZ_INSTANCE_SLUG:-main}"
     if [[ -n "{{fresh}}" ]]; then
         ../scripts/reset-desktop-standalone-state.sh "$INSTANCE_ID" "$BUZZ_DEV_KEYRING_SERVICE"
     fi
