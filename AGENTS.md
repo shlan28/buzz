@@ -88,6 +88,20 @@ See CONTRIBUTING.md for full setup details and dependency requirements.
 
 ---
 
+## Development Branch Workflow
+
+`dev` is the integration branch for local repair work.
+
+- Create every new fix branch from the latest local `dev`.
+- After a fix is complete and committed, merge its fix branch back into `dev`.
+- Do not start a fix branch directly from `main` or merge it directly into
+  `main`; promote the accumulated `dev` branch separately when requested.
+- Before branching or merging, preserve unrelated user worktree changes and
+  activate the repository Hermit environment.
+- Use signed-off commits for both fix commits and merge commits.
+
+---
+
 ## Quality Gates
 
 Run `just ci` before every PR — it runs `fmt` + `clippy` + desktop lint +
