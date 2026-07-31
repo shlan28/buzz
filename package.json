@@ -6,7 +6,9 @@
     "check": "pnpm -r check"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.6"
+    "@biomejs/biome": "^2.4.6",
+    "@rolldown/binding-darwin-arm64": "1.0.3",
+    "lightningcss-darwin-arm64": "1.32.0"
   },
   "dependencies": {
     "@tailwindcss/typography": "^0.5.19"
