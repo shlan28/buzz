@@ -182,6 +182,9 @@ enum Cmd {
     /// Create, configure, and manage channels
     #[command(subcommand)]
     Channels(ChannelsCmd),
+    /// Create, read, update, and delete your private calendar events
+    #[command(subcommand)]
+    Calendar(CalendarCmd),
     /// Get and set channel canvas documents
     #[command(subcommand)]
     Canvas(CanvasCmd),
@@ -1108,6 +1111,105 @@ pub enum NotesCmd {
 }
 
 #[derive(Subcommand)]
+pub enum CalendarCmd {
+    /// Create an event signed by the current identity.
+    Create {
+        #[arg(long)]
+        title: String,
+        /// RFC3339 timestamp, Unix seconds, or YYYY-MM-DD with --all-day.
+        #[arg(long)]
+        start: String,
+        #[arg(long)]
+        end: Option<String>,
+        #[arg(long)]
+        timezone: Option<String>,
+        #[arg(long, default_value_t = false)]
+        all_day: bool,
+        #[arg(long)]
+        description: Option<String>,
+        #[arg(long)]
+        summary: Option<String>,
+        #[arg(long = "location")]
+        locations: Vec<String>,
+        /// Participant 64-hex pubkey; may be repeated.
+        #[arg(long = "participant")]
+        participants: Vec<String>,
+        /// Calendar coordinate or identifier; may be repeated.
+        #[arg(long = "calendar")]
+        calendars: Vec<String>,
+        /// Stable id for idempotent retries; generated when omitted.
+        #[arg(long)]
+        id: Option<String>,
+    },
+    /// List your events overlapping a time window.
+    List {
+        #[arg(long)]
+        from: String,
+        #[arg(long)]
+        to: String,
+        #[arg(long = "calendar")]
+        calendar: Option<String>,
+        /// Must be `me`; private calendar reads never query another author.
+        #[arg(long, default_value = "me")]
+        author: String,
+    },
+    /// Get one of your events by stable id.
+    Get {
+        #[arg(long)]
+        id: String,
+        /// Must be `me`; private calendar reads never query another author.
+        #[arg(long, default_value = "me")]
+        author: String,
+    },
+    /// Partially update one of your events.
+    Update {
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        title: Option<String>,
+        #[arg(long)]
+        start: Option<String>,
+        #[arg(long)]
+        end: Option<String>,
+        #[arg(long, default_value_t = false, conflicts_with = "end")]
+        clear_end: bool,
+        #[arg(long)]
+        timezone: Option<String>,
+        #[arg(long)]
+        description: Option<String>,
+        #[arg(long, default_value_t = false, conflicts_with = "description")]
+        clear_description: bool,
+        #[arg(long)]
+        summary: Option<String>,
+        #[arg(long, default_value_t = false, conflicts_with = "summary")]
+        clear_summary: bool,
+        #[arg(long = "location")]
+        locations: Vec<String>,
+        #[arg(long, default_value_t = false, conflicts_with = "locations")]
+        clear_locations: bool,
+        #[arg(long = "participant")]
+        participants: Vec<String>,
+        #[arg(long, default_value_t = false, conflicts_with = "participants")]
+        clear_participants: bool,
+        #[arg(long = "calendar")]
+        calendars: Vec<String>,
+        #[arg(long, default_value_t = false, conflicts_with = "calendars")]
+        clear_calendars: bool,
+        /// Refuse to overwrite unless the current head has this event id.
+        #[arg(long)]
+        expected_event: Option<String>,
+    },
+    /// Delete one of your events by stable id.
+    Delete {
+        #[arg(long)]
+        id: String,
+        /// Refuse to delete unless the current head has this event id.
+        #[arg(long)]
+        expected_event: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
 pub enum ReposCmd {
     /// Announce a git repository (NIP-34)
     Create {
@@ -1806,6 +1908,7 @@ async fn run(cli: Cli) -> Result<(), CliError> {
         Cmd::Agents(sub) => commands::agents::dispatch(sub, &client).await,
         Cmd::Messages(sub) => commands::messages::dispatch(sub, &client, &cli.format).await,
         Cmd::Channels(sub) => commands::channels::dispatch(sub, &client, &cli.format).await,
+        Cmd::Calendar(sub) => commands::calendar::dispatch(sub, &client).await,
         Cmd::Canvas(sub) => commands::channels::dispatch_canvas(sub, &client).await,
         Cmd::Reactions(sub) => commands::reactions::dispatch(sub, &client).await,
         Cmd::Emoji(sub) => commands::emoji::dispatch(sub, &client).await,
@@ -1866,6 +1969,7 @@ mod tests {
     fn command_inventory_is_stable() {
         let expected_groups: Vec<&str> = vec![
             "agents",
+            "calendar",
             "canvas",
             "channels",
             "dms",
@@ -1972,6 +2076,10 @@ mod tests {
             ]
         );
         assert_eq!(names(&cmd, "canvas"), vec!["get", "set"]);
+        assert_eq!(
+            names(&cmd, "calendar"),
+            vec!["create", "delete", "get", "list", "update"]
+        );
         assert_eq!(names(&cmd, "reactions"), vec!["add", "get", "remove"]);
         assert_eq!(
             names(&cmd, "emoji"),
@@ -2062,6 +2170,7 @@ mod tests {
         let expected: Vec<(&str, usize)> = vec![
             ("agents", 5),
             ("canvas", 2),
+            ("calendar", 5),
             ("channels", 16),
             ("dms", 4),
             ("emoji", 5),

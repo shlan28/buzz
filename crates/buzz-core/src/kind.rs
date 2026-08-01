@@ -64,6 +64,14 @@ pub const KIND_FILE_METADATA: u32 = 1063;
 /// Parameterized replaceable (NIP-33, 30000–39999 range) — keyed by `(pubkey, kind, d_tag)`.
 /// Stored globally (channel_id = NULL); author-owned, not channel-scoped.
 pub const KIND_LONG_FORM: u32 = 30023;
+/// NIP-52: date-based calendar event (all-day or multi-day).
+pub const KIND_CALENDAR_DATE_EVENT: u32 = 31922;
+/// NIP-52: time-based calendar event.
+pub const KIND_CALENDAR_TIME_EVENT: u32 = 31923;
+/// NIP-52: calendar collection containing event coordinates.
+pub const KIND_CALENDAR: u32 = 31924;
+/// NIP-52: calendar event RSVP.
+pub const KIND_CALENDAR_RSVP: u32 = 31925;
 /// NIP-38: User status (general, music, or custom d-tag).
 /// Parameterized replaceable (NIP-33, 30000–39999 range) — keyed by `(pubkey, kind, d_tag)`.
 /// Stored globally (channel_id = NULL); user-owned personal data, not channel-scoped.
@@ -117,7 +125,14 @@ pub const KIND_PUSH_LEASE: u32 = 30350;
 ///
 /// Currently a tiny linear set. If this grows past ~4 kinds, convert to a
 /// compile-time bitset or sorted array with binary search for hot-path use.
-pub const AUTHOR_ONLY_KINDS: &[u32] = &[KIND_EVENT_REMINDER, KIND_PUSH_LEASE];
+pub const AUTHOR_ONLY_KINDS: &[u32] = &[
+    KIND_EVENT_REMINDER,
+    KIND_PUSH_LEASE,
+    KIND_CALENDAR_DATE_EVENT,
+    KIND_CALENDAR_TIME_EVENT,
+    KIND_CALENDAR,
+    KIND_CALENDAR_RSVP,
+];
 
 /// Kinds that require a result-level read gate beyond the filter-layer
 /// `#p` check: even a reader who knows an event id MUST match the event's
@@ -951,5 +966,18 @@ mod tests {
         let foreign = [0u8; 32];
         // Non-persona kinds are never blocked by this gate.
         assert!(!is_unshared_persona_event(&ev, &foreign));
+    }
+
+    #[test]
+    fn nip52_kinds_are_parameterized_and_author_only() {
+        for kind in [
+            KIND_CALENDAR_DATE_EVENT,
+            KIND_CALENDAR_TIME_EVENT,
+            KIND_CALENDAR,
+            KIND_CALENDAR_RSVP,
+        ] {
+            assert!(is_parameterized_replaceable(kind));
+            assert!(AUTHOR_ONLY_KINDS.contains(&kind));
+        }
     }
 }

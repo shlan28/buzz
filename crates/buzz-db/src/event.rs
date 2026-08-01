@@ -10,8 +10,8 @@ use sqlx::{PgPool, Postgres, QueryBuilder, Row, Transaction};
 use uuid::Uuid;
 
 use buzz_core::kind::{
-    event_kind_i32, is_ephemeral, is_parameterized_replaceable, KIND_AUTH, KIND_EVENT_REMINDER,
-    KIND_HUDDLE_STARTED,
+    event_kind_i32, is_ephemeral, is_parameterized_replaceable, KIND_AUTH,
+    KIND_CALENDAR_DATE_EVENT, KIND_CALENDAR_TIME_EVENT, KIND_EVENT_REMINDER, KIND_HUDDLE_STARTED,
 };
 use buzz_core::{CommunityId, StoredEvent};
 
@@ -86,6 +86,10 @@ pub struct EventQuery {
     /// SQL pushdown is sound.  Keeping `event_visible_to_reader` as post-filter
     /// defense-in-depth catches any residual mismatch.
     pub persona_reader: Option<Vec<u8>>,
+    /// Inclusive occurrence-window lower bound (Unix seconds).
+    pub calendar_from: Option<i64>,
+    /// Exclusive occurrence-window upper bound (Unix seconds).
+    pub calendar_to: Option<i64>,
 }
 
 impl EventQuery {
@@ -115,6 +119,8 @@ impl EventQuery {
             channel_ids: None,
             max_limit: None,
             persona_reader: None,
+            calendar_from: None,
+            calendar_to: None,
         }
     }
 }
@@ -192,6 +198,38 @@ pub fn extract_not_before(event: &Event) -> Option<i64> {
             None
         }
     })
+}
+
+/// Materialize a NIP-52 occurrence as a half-open Unix-second range.
+///
+/// Ingest validates tag syntax first. This extractor remains fallible so direct
+/// database callers cannot accidentally project malformed calendar events.
+pub fn extract_calendar_range(event: &Event) -> Option<(i64, i64)> {
+    let kind = event.kind.as_u16() as u32;
+    if !matches!(kind, KIND_CALENDAR_DATE_EVENT | KIND_CALENDAR_TIME_EVENT) {
+        return None;
+    }
+    let tag_value = |name: &str| {
+        event.tags.iter().find_map(|tag| {
+            let parts = tag.as_slice();
+            (parts.len() >= 2 && parts[0] == name).then(|| parts[1].to_string())
+        })
+    };
+    if kind == KIND_CALENDAR_TIME_EVENT {
+        let start = tag_value("start")?.parse::<i64>().ok()?;
+        let end = tag_value("end")
+            .and_then(|value| value.parse::<i64>().ok())
+            .unwrap_or_else(|| start.saturating_add(1));
+        return (end > start).then_some((start, end));
+    }
+    let start_date = chrono::NaiveDate::parse_from_str(&tag_value("start")?, "%Y-%m-%d").ok()?;
+    let end_date = match tag_value("end") {
+        Some(value) => chrono::NaiveDate::parse_from_str(&value, "%Y-%m-%d").ok()?,
+        None => start_date.succ_opt()?,
+    };
+    let start = start_date.and_hms_opt(0, 0, 0)?.and_utc().timestamp();
+    let end = end_date.and_hms_opt(0, 0, 0)?.and_utc().timestamp();
+    (end > start).then_some((start, end))
 }
 
 fn huddle_started_content_links(content: &str, ephemeral_channel_id: Uuid) -> bool {
@@ -281,10 +319,12 @@ pub async fn insert_event(
     let received_at = Utc::now();
     let d_tag = extract_d_tag(event);
     let not_before = extract_not_before(event);
+    let (calendar_start, calendar_end) =
+        extract_calendar_range(event).map_or((None, None), |(start, end)| (Some(start), Some(end)));
     let result = sqlx::query(
         r#"
-        INSERT INTO events (community_id, id, pubkey, created_at, kind, tags, content, sig, received_at, channel_id, d_tag, not_before)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        INSERT INTO events (community_id, id, pubkey, created_at, kind, tags, content, sig, received_at, channel_id, d_tag, not_before, calendar_start, calendar_end)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
         ON CONFLICT DO NOTHING
         "#,
     )
@@ -300,6 +340,8 @@ pub async fn insert_event(
     .bind(channel_id)
     .bind(d_tag.as_deref())
     .bind(not_before)
+    .bind(calendar_start)
+    .bind(calendar_end)
     .execute(pool)
     .await?;
 
@@ -496,6 +538,17 @@ pub(crate) async fn query_events_on(
             qb.push(format!(" AND {col_prefix}created_at <= "))
                 .push_bind(u);
         }
+    }
+
+    // Calendar occurrence overlap uses half-open ranges:
+    // stored_start < requested_to AND stored_end > requested_from.
+    if let Some(to) = q.calendar_to {
+        qb.push(format!(" AND {col_prefix}calendar_start < "))
+            .push_bind(to);
+    }
+    if let Some(from) = q.calendar_from {
+        qb.push(format!(" AND {col_prefix}calendar_end > "))
+            .push_bind(from);
     }
 
     if let Some(ref d) = q.d_tag {
@@ -733,6 +786,15 @@ pub(crate) async fn count_events_on(conn: &mut sqlx::PgConnection, q: &EventQuer
     if let Some(u) = q.until {
         qb.push(format!(" AND {col_prefix}created_at <= "))
             .push_bind(u);
+    }
+
+    if let Some(to) = q.calendar_to {
+        qb.push(format!(" AND {col_prefix}calendar_start < "))
+            .push_bind(to);
+    }
+    if let Some(from) = q.calendar_from {
+        qb.push(format!(" AND {col_prefix}calendar_end > "))
+            .push_bind(from);
     }
 
     if let Some(ref d) = q.d_tag {
@@ -1104,11 +1166,13 @@ async fn insert_event_with_thread_metadata_tx(
     let received_at = Utc::now();
     let d_tag = extract_d_tag(event);
     let not_before = extract_not_before(event);
+    let (calendar_start, calendar_end) =
+        extract_calendar_range(event).map_or((None, None), |(start, end)| (Some(start), Some(end)));
 
     let result = sqlx::query(
         r#"
-        INSERT INTO events (community_id, id, pubkey, created_at, kind, tags, content, sig, received_at, channel_id, d_tag, not_before)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        INSERT INTO events (community_id, id, pubkey, created_at, kind, tags, content, sig, received_at, channel_id, d_tag, not_before, calendar_start, calendar_end)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
         ON CONFLICT DO NOTHING
         "#,
     )
@@ -1124,6 +1188,8 @@ async fn insert_event_with_thread_metadata_tx(
     .bind(channel_id)
     .bind(d_tag.as_deref())
     .bind(not_before)
+    .bind(calendar_start)
+    .bind(calendar_end)
     .execute(&mut **tx)
     .await?;
 
@@ -2160,6 +2226,33 @@ mod tests {
             vec![Tag::parse(["d", "my-article-slug"]).unwrap()],
         );
         assert_eq!(extract_d_tag(&event), Some("my-article-slug".to_string()));
+    }
+
+    #[test]
+    fn extracts_calendar_time_range() {
+        let event = make_event_with_kind_and_tags(
+            KIND_CALENDAR_TIME_EVENT as u16,
+            vec![
+                Tag::parse(["start", "1717000000"]).unwrap(),
+                Tag::parse(["end", "1717003600"]).unwrap(),
+            ],
+        );
+        assert_eq!(
+            extract_calendar_range(&event),
+            Some((1_717_000_000, 1_717_003_600))
+        );
+    }
+
+    #[test]
+    fn extracts_single_day_calendar_range_without_end() {
+        let event = make_event_with_kind_and_tags(
+            KIND_CALENDAR_DATE_EVENT as u16,
+            vec![Tag::parse(["start", "2026-08-01"]).unwrap()],
+        );
+        assert_eq!(
+            extract_calendar_range(&event),
+            Some((1_785_542_400, 1_785_628_800))
+        );
     }
 
     #[test]

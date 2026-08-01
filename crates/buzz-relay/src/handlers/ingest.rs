@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use chrono::Utc;
+use chrono::{NaiveDate, Utc};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -14,6 +14,7 @@ use buzz_core::kind::{
     event_kind_u32, is_identity_archive_request_kind, is_parameterized_replaceable,
     is_relay_admin_kind, KIND_AGENT_ENGRAM, KIND_AGENT_PROFILE, KIND_AGENT_TURN_METRIC,
     KIND_APPROVAL_DENY, KIND_APPROVAL_GRANT, KIND_AUTH, KIND_BOOKMARK_LIST, KIND_BOOKMARK_SET,
+    KIND_CALENDAR, KIND_CALENDAR_DATE_EVENT, KIND_CALENDAR_RSVP, KIND_CALENDAR_TIME_EVENT,
     KIND_CANVAS, KIND_CONTACT_LIST, KIND_DELETION, KIND_DM_ADD_MEMBER, KIND_DM_HIDE, KIND_DM_OPEN,
     KIND_EMOJI_LIST, KIND_EMOJI_SET, KIND_EVENT_REMINDER, KIND_FOLLOW_SET, KIND_FORUM_COMMENT,
     KIND_FORUM_POST, KIND_FORUM_VOTE, KIND_GIFT_WRAP, KIND_GIT_ISSUE, KIND_GIT_PATCH,
@@ -214,6 +215,8 @@ fn required_scope_for_kind(kind: u32, event: &Event) -> Result<Scope, &'static s
         KIND_TEXT_NOTE | KIND_LONG_FORM => Ok(Scope::MessagesWrite),
         KIND_CONTACT_LIST | KIND_READ_STATE | KIND_USER_STATUS | KIND_AGENT_ENGRAM
         | KIND_EVENT_REMINDER | KIND_PERSONA | KIND_TEAM | KIND_MANAGED_AGENT
+        | KIND_CALENDAR_DATE_EVENT | KIND_CALENDAR_TIME_EVENT | KIND_CALENDAR
+        | KIND_CALENDAR_RSVP
         | super::push_lease::KIND_PUSH_LEASE => {
             Ok(Scope::UsersWrite)
         }
@@ -415,6 +418,11 @@ pub(crate) fn is_global_only_kind(kind: u32) -> bool {
             | KIND_AGENT_ENGRAM
             // NIP-ER event reminders are addressed by (pubkey, kind, d_tag); never channel-scoped.
             | KIND_EVENT_REMINDER
+            // NIP-52 calendars are private, author-owned global state.
+            | KIND_CALENDAR_DATE_EVENT
+            | KIND_CALENDAR_TIME_EVENT
+            | KIND_CALENDAR
+            | KIND_CALENDAR_RSVP
             // Agent profile (10100): user-owned replaceable, keyed by pubkey.
             | KIND_AGENT_PROFILE
             // NIP-AP: persona definitions (30175): owner-authored, keyed by (pubkey, kind, d_tag).
@@ -1359,6 +1367,148 @@ fn validate_event_reminder(event: &Event) -> Result<(), &'static str> {
     Ok(())
 }
 
+fn nip52_single_tag<'a>(event: &'a Event, name: &str) -> Result<Option<&'a str>, String> {
+    let mut values = event.tags.iter().filter_map(|tag| {
+        let parts = tag.as_slice();
+        (parts.len() >= 2 && parts[0] == name).then_some(parts[1].as_str())
+    });
+    let value = values.next();
+    if values.next().is_some() {
+        return Err(format!("duplicate {name} tag"));
+    }
+    Ok(value)
+}
+
+fn required_nip52_tag<'a>(event: &'a Event, name: &str) -> Result<&'a str, String> {
+    match nip52_single_tag(event, name)? {
+        Some(value) if !value.is_empty() => Ok(value),
+        Some(_) => Err(format!("empty {name} tag")),
+        None => Err(format!("missing {name} tag")),
+    }
+}
+
+fn valid_nip52_coordinate(value: &str) -> bool {
+    let mut parts = value.splitn(3, ':');
+    matches!(parts.next(), Some("31922" | "31923"))
+        && parts
+            .next()
+            .is_some_and(|pk| pk.len() == 64 && pk.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        && parts.next().is_some_and(|d| !d.is_empty())
+}
+
+/// Validate NIP-52's public event envelope before NIP-33 replacement.
+fn validate_calendar_event(event: &Event) -> Result<(), String> {
+    let kind = event.kind.as_u16() as u32;
+    required_nip52_tag(event, "d")?;
+    if event
+        .tags
+        .iter()
+        .any(|tag| tag.as_slice().first().is_some_and(|v| v == "h"))
+    {
+        return Err("calendar events must not include an h tag".into());
+    }
+
+    match kind {
+        KIND_CALENDAR_DATE_EVENT | KIND_CALENDAR_TIME_EVENT => {
+            required_nip52_tag(event, "title")?;
+            let start = required_nip52_tag(event, "start")?;
+            let end = nip52_single_tag(event, "end")?;
+            if kind == KIND_CALENDAR_DATE_EVENT {
+                let start = NaiveDate::parse_from_str(start, "%Y-%m-%d")
+                    .map_err(|_| "invalid start date; expected YYYY-MM-DD")?;
+                if let Some(end) = end {
+                    let end = NaiveDate::parse_from_str(end, "%Y-%m-%d")
+                        .map_err(|_| "invalid end date; expected YYYY-MM-DD")?;
+                    if end <= start {
+                        return Err("end must be after start".into());
+                    }
+                }
+                for forbidden in ["start_tzid", "end_tzid", "D"] {
+                    if event.tags.iter().any(|tag| {
+                        tag.as_slice()
+                            .first()
+                            .is_some_and(|value| value == forbidden)
+                    }) {
+                        return Err(format!("date-based event must not include {forbidden} tag"));
+                    }
+                }
+            } else {
+                let start = start
+                    .parse::<u64>()
+                    .map_err(|_| "invalid start timestamp")?;
+                let end = end
+                    .map(|value| value.parse::<u64>().map_err(|_| "invalid end timestamp"))
+                    .transpose()?;
+                if let Some(end) = end {
+                    if end <= start {
+                        return Err("end must be after start".into());
+                    }
+                }
+                for name in ["start_tzid", "end_tzid"] {
+                    if let Some(tzid) = nip52_single_tag(event, name)? {
+                        // Full IANA membership is a client concern until the relay
+                        // carries a timezone database; reject offsets and malformed IDs.
+                        if tzid != "UTC"
+                            && (!tzid.contains('/')
+                                || tzid.bytes().any(|b| b.is_ascii_whitespace() || b == 0))
+                        {
+                            return Err(format!("invalid {name}; expected IANA timezone ID"));
+                        }
+                    }
+                }
+                let first_day = start / 86_400;
+                let last_day = end
+                    .map(|value| value.saturating_sub(1) / 86_400)
+                    .unwrap_or(first_day);
+                let days = event.tags.iter().filter_map(|tag| {
+                    let parts = tag.as_slice();
+                    (parts.len() >= 2 && parts[0] == "D").then_some(parts[1].as_str())
+                });
+                let mut covered_days = std::collections::HashSet::new();
+                for day in days {
+                    covered_days.insert(day.parse::<u64>().map_err(|_| "invalid D tag")?);
+                }
+                if (first_day..=last_day).any(|day| !covered_days.contains(&day)) {
+                    return Err("missing D tag for event timeframe".into());
+                }
+            }
+        }
+        KIND_CALENDAR => {
+            required_nip52_tag(event, "title")?;
+            for tag in event
+                .tags
+                .iter()
+                .filter(|tag| tag.as_slice().first().is_some_and(|value| value == "a"))
+            {
+                let parts = tag.as_slice();
+                if parts.len() < 2 || !valid_nip52_coordinate(&parts[1]) {
+                    return Err("calendar a tag must reference kind 31922 or 31923".into());
+                }
+            }
+        }
+        KIND_CALENDAR_RSVP => {
+            let coordinate = required_nip52_tag(event, "a")?;
+            if !valid_nip52_coordinate(coordinate) {
+                return Err("RSVP a tag must reference kind 31922 or 31923".into());
+            }
+            let status = required_nip52_tag(event, "status")?;
+            if !matches!(status, "accepted" | "declined" | "tentative") {
+                return Err("invalid RSVP status".into());
+            }
+            if let Some(fb) = nip52_single_tag(event, "fb")? {
+                if !matches!(fb, "free" | "busy") {
+                    return Err("invalid RSVP fb value".into());
+                }
+                if status == "declined" {
+                    return Err("declined RSVP must omit fb tag".into());
+                }
+            }
+        }
+        _ => return Ok(()),
+    }
+    Ok(())
+}
+
 /// Resolve the `author_type` metric label (`"agent"` / `"human"`) for an
 /// event author, from `users.agent_owner_pubkey IS NOT NULL` via a
 /// per-community cache. Metric-labeling only — never used for authorization.
@@ -2062,6 +2212,14 @@ async fn ingest_event_inner(
 
     if kind_u32 == KIND_EVENT_REMINDER {
         validate_event_reminder(&event)
+            .map_err(|e| IngestError::Rejected(format!("invalid: {e}")))?;
+    }
+
+    if matches!(
+        kind_u32,
+        KIND_CALENDAR_DATE_EVENT | KIND_CALENDAR_TIME_EVENT | KIND_CALENDAR | KIND_CALENDAR_RSVP
+    ) {
+        validate_calendar_event(&event)
             .map_err(|e| IngestError::Rejected(format!("invalid: {e}")))?;
     }
 
@@ -3484,6 +3642,100 @@ mod tests {
         assert!(is_global_only_kind(KIND_EVENT_REMINDER));
         assert!(!requires_h_channel_scope(KIND_EVENT_REMINDER));
         assert!(is_parameterized_replaceable(KIND_EVENT_REMINDER));
+    }
+
+    #[test]
+    fn nip52_time_event_validates_required_range_and_day() {
+        let ev = make_event_with_tags(
+            KIND_CALENDAR_TIME_EVENT,
+            "description",
+            &[
+                &["d", "event-1"],
+                &["title", "Planning"],
+                &["start", "1785542400"],
+                &["end", "1785544200"],
+                &["D", "20666"],
+                &["start_tzid", "Asia/Shanghai"],
+            ],
+        );
+        assert!(validate_calendar_event(&ev).is_ok());
+    }
+
+    #[test]
+    fn nip52_time_event_requires_every_intersected_day_tag() {
+        let missing_second_day = make_event_with_tags(
+            KIND_CALENDAR_TIME_EVENT,
+            "",
+            &[
+                &["d", "overnight"],
+                &["title", "Overnight"],
+                &["start", "86399"],
+                &["end", "86401"],
+                &["D", "0"],
+            ],
+        );
+        assert_eq!(
+            validate_calendar_event(&missing_second_day),
+            Err("missing D tag for event timeframe".into())
+        );
+
+        let complete = make_event_with_tags(
+            KIND_CALENDAR_TIME_EVENT,
+            "",
+            &[
+                &["d", "overnight"],
+                &["title", "Overnight"],
+                &["start", "86399"],
+                &["end", "86401"],
+                &["D", "0"],
+                &["D", "1"],
+            ],
+        );
+        assert!(validate_calendar_event(&complete).is_ok());
+    }
+
+    #[test]
+    fn nip52_rejects_channel_scope_and_invalid_range() {
+        let ev = make_event_with_tags(
+            KIND_CALENDAR_DATE_EVENT,
+            "",
+            &[
+                &["d", "event-1"],
+                &["title", "Offsite"],
+                &["start", "2026-08-02"],
+                &["end", "2026-08-01"],
+            ],
+        );
+        assert_eq!(
+            validate_calendar_event(&ev),
+            Err("end must be after start".into())
+        );
+
+        let with_h = make_event_with_tags(
+            KIND_CALENDAR_DATE_EVENT,
+            "",
+            &[
+                &["d", "event-1"],
+                &["title", "Offsite"],
+                &["start", "2026-08-01"],
+                &["h", "00000000-0000-0000-0000-000000000000"],
+            ],
+        );
+        assert!(validate_calendar_event(&with_h).is_err());
+    }
+
+    #[test]
+    fn nip52_kinds_use_private_global_user_scope() {
+        for kind in [
+            KIND_CALENDAR_DATE_EVENT,
+            KIND_CALENDAR_TIME_EVENT,
+            KIND_CALENDAR,
+            KIND_CALENDAR_RSVP,
+        ] {
+            assert!(is_global_only_kind(kind));
+            let event = make_event_with_tags(kind, "", &[]);
+            assert_eq!(required_scope_for_kind(kind, &event), Ok(Scope::UsersWrite));
+        }
     }
 
     #[test]

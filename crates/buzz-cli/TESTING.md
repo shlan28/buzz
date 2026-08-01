@@ -545,7 +545,34 @@ env -u BUZZ_PRIVATE_KEY \
 
 ---
 
-## 9. Cleanup
+## 9. Calendar CRUD
+
+Calendar events are private and signed by the CLI identity. Use a stable id so
+the run is repeatable.
+
+```bash
+CALENDAR_EVENT_ID="cli-calendar-$(date +%s)"
+
+buzz calendar create --id "$CALENDAR_EVENT_ID" --title "CLI calendar test" \
+  --start 2026-08-03T10:00:00+08:00 --end 2026-08-03T10:30:00+08:00 \
+  --timezone Asia/Shanghai | jq .
+
+buzz calendar get --id "$CALENDAR_EVENT_ID" | jq .
+buzz calendar list --from 2026-08-01T00:00:00+08:00 \
+  --to 2026-09-01T00:00:00+08:00 | jq .
+buzz calendar update --id "$CALENDAR_EVENT_ID" --location "Room A" | jq .
+buzz calendar get --id "$CALENDAR_EVENT_ID" | jq -e \
+  '.locations == ["Room A"] and .title == "CLI calendar test"'
+buzz calendar delete --id "$CALENDAR_EVENT_ID" | jq .
+```
+
+Also verify an all-day event with an exclusive next-day end, an invalid end
+before start, a non-IANA timezone, `--author` other than `me`, stale
+`--expected-event`, and that a second identity cannot list or get the event.
+
+---
+
+## 10. Cleanup
 
 ```bash
 # Delete test channels
@@ -555,7 +582,7 @@ buzz channels delete --channel "$FORUM_ID" | jq .
 
 ---
 
-## 10. Checklist
+## 11. Checklist
 
 | # | Command | Tested | Notes |
 |---|---------|:------:|-------|
@@ -621,3 +648,7 @@ buzz channels delete --channel "$FORUM_ID" | jq .
 | 60 | `notes ls` | ☐ | Own, --author all, --tag, --limit |
 | 61 | `notes rm` | ☐ | Delete→get 404, double-delete idempotent, missing slug → NotFound |
 | 62 | `users set-status` | ☐ | Text+emoji, text only, emoji-only (`--text ""`), `--clear`, `--clear` + `--text` → exit 1 |
+| 63 | `calendar create` | ☐ | Timed, all-day, stable id, timezone validation |
+| 64 | `calendar list/get` | ☐ | Window overlap and author=self privacy |
+| 65 | `calendar update` | ☐ | Partial carry-forward, clear flags, expected-event conflict |
+| 66 | `calendar delete` | ☐ | Coordinate deletion and missing id |

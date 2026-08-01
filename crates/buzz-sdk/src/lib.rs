@@ -74,6 +74,44 @@ pub struct CustomEmoji {
     pub url: String,
 }
 
+/// A participant attached to a NIP-52 calendar event.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CalendarParticipant {
+    /// Participant public key as 64-character hexadecimal.
+    pub pubkey: String,
+    /// Optional participation role (for example `required` or `optional`).
+    pub role: Option<String>,
+}
+
+/// Complete input used to publish a NIP-52 calendar event.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CalendarEventInput {
+    /// Stable `d` identifier reused by later replacements.
+    pub id: String,
+    /// Human-readable title.
+    pub title: String,
+    /// Optional longer description, stored as event content.
+    pub description: String,
+    /// Start value: `YYYY-MM-DD` for all-day events, Unix seconds otherwise.
+    pub start: String,
+    /// Exclusive end value in the same representation as `start`.
+    pub end: Option<String>,
+    /// Whether this is a date-based (kind 31922) event.
+    pub all_day: bool,
+    /// IANA timezone for the start of a timed event.
+    pub start_tzid: Option<String>,
+    /// IANA timezone for the end of a timed event.
+    pub end_tzid: Option<String>,
+    /// Optional short summary.
+    pub summary: Option<String>,
+    /// Zero or more human-readable locations.
+    pub locations: Vec<String>,
+    /// Zero or more participant pubkeys.
+    pub participants: Vec<CalendarParticipant>,
+    /// Calendar collection identifiers containing this event.
+    pub calendar_ids: Vec<String>,
+}
+
 /// Return a channel name without client-rendered leading hash prefixes.
 pub use buzz_core::channel::canonical_channel_name;
 /// Channel type.

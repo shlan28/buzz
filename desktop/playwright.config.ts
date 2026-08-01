@@ -83,6 +83,7 @@ export default defineConfig({
         "**/thread-focus-mode.spec.ts",
         "**/animated-avatar.spec.ts",
         "**/reminders.spec.ts",
+        "**/calendar.spec.ts",
         "**/reminder-click-repro.spec.ts",
         "**/virtualization.spec.ts",
         "**/scroll-history.spec.ts",

@@ -4908,10 +4908,12 @@ impl Db {
         let sig_bytes = event.sig.serialize();
         let tags_json = serde_json::to_value(&event.tags)?;
         let received_at = chrono::Utc::now();
+        let (calendar_start, calendar_end) = event::extract_calendar_range(event)
+            .map_or((None, None), |(start, end)| (Some(start), Some(end)));
 
         let insert_result = sqlx::query(
-            "INSERT INTO events (community_id, id, pubkey, created_at, kind, tags, content, sig, received_at, channel_id, d_tag, not_before) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) \
+            "INSERT INTO events (community_id, id, pubkey, created_at, kind, tags, content, sig, received_at, channel_id, d_tag, not_before, calendar_start, calendar_end) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) \
              ON CONFLICT DO NOTHING",
         )
         .bind(community_id.as_uuid())
@@ -4926,6 +4928,8 @@ impl Db {
         .bind(channel_id)
         .bind(d_tag)
         .bind(event::extract_not_before(event))
+        .bind(calendar_start)
+        .bind(calendar_end)
         .execute(&mut *tx)
         .await?;
 

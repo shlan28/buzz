@@ -122,18 +122,8 @@ export function AppShell() {
   const location = useLocation();
   const queryClient = useQueryClient();
   useManagedAgentRuntimeReconciliation(communitiesHook.communities); // sync storage snapshot
-  const {
-    goAgents,
-    goChannel,
-    goHome,
-    goNewMessage,
-    goProjects,
-    goPulse,
-    goSettings,
-    goWorkflows,
-    closeSettings,
-    openSearchHit,
-  } = useAppNavigation();
+  // biome-ignore format: keep compact to stay within file size limit
+  const { goAgents, goCalendar, goChannel, goHome, goNewMessage, goProjects, goPulse, goSettings, goWorkflows, closeSettings, openSearchHit } = useAppNavigation();
   const { canGoBack, canGoForward, goBack, goForward } =
     useBackForwardControls();
   const { selectedChannelId, selectedView } = React.useMemo(
@@ -876,6 +866,7 @@ export function AppShell() {
                             await goChannel(directMessage.id);
                           }}
                           onSelectAgents={() => void goAgents()}
+                          onSelectCalendar={() => void goCalendar()}
                           onSelectChannel={(channelId) =>
                             void goChannel(channelId)
                           }

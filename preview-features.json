@@ -2,6 +2,12 @@
   "version": 1,
   "features": [
     {
+      "id": "calendar",
+      "name": "Calendar",
+      "description": "Private scheduling with agent-authored calendar events",
+      "platforms": ["desktop"]
+    },
+    {
       "id": "workflows",
       "name": "Workflows",
       "description": "YAML-defined automations with approval gates",

@@ -3627,6 +3627,15 @@ mod agent_draft_prompt_tests {
     }
 
     #[test]
+    fn shared_base_prompt_teaches_private_calendar_contract() {
+        let prompt = include_str!("base_prompt.md");
+        assert!(prompt.contains("buzz calendar"));
+        assert!(prompt.contains("--id <stable-id>"));
+        assert!(prompt.contains("IANA `--timezone`"));
+        assert!(prompt.contains("events signed by this agent"));
+    }
+
+    #[test]
     fn shared_base_prompt_teaches_single_command_mentions_and_preflight() {
         let prompt = include_str!("base_prompt.md");
         assert!(prompt.contains("--mention <hex-or-npub>"));

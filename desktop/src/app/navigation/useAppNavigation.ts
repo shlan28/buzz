@@ -79,6 +79,23 @@ export function useAppNavigation() {
     [commitNavigation],
   );
 
+  const goCalendar = React.useCallback(
+    (
+      options?: NavigationBehavior & {
+        date?: string;
+        view?: "day" | "week" | "month";
+      },
+    ) =>
+      commitNavigation(
+        {
+          to: "/calendar",
+          search: { date: options?.date, view: options?.view },
+        },
+        options,
+      ),
+    [commitNavigation],
+  );
+
   const goProjects = React.useCallback(
     (behavior?: NavigationBehavior) =>
       commitNavigation(
@@ -296,6 +313,7 @@ export function useAppNavigation() {
     closeSettings,
     closeWorkflowDetail,
     goAgents,
+    goCalendar,
     goChannel,
     goForumPost,
     goHome,
