@@ -99,6 +99,7 @@ Delete mutation 在发布 kind-5 前后执行：
 
 - Calendar profile 候选已改为本机 managed Agents 与 kind-10100 Relay Agents 的并集；当前 Relay kind-0 profile 继续负责 owner 过滤。
 - managed-only 的 daily-assistant 现在能进入来源列表，其他 Relay 上没有当前 owner profile 的本机 Agent仍被排除。
+- 历史迁移留下的空公钥或非法公钥 managed 记录会在 profile 查询前被过滤，不再污染整批来源发现；有效的 daily-assistant 记录保持参与查询。
 - Personal 和 owned Agent 历史查询保持逐来源隔离，daily-assistant 的 3 条 2026-08-02 日程可同时展示。
 - Delete 在发布前乐观移除目标坐标；实时 kind-5 同样直接移除缓存，不再立即 refetch 已知存在副作用竞态的坐标。
 - Delete 失败会恢复全部受影响查询缓存，并在详情中展示 Relay 错误；进行中按钮禁用，避免重复提交。

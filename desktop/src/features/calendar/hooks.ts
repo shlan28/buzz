@@ -168,9 +168,9 @@ export function useCalendar(range: CalendarRange) {
   const profileCandidatePubkeys = React.useMemo(
     () => [
       ...new Set(
-        [...(managedAgents ?? []), ...(relayAgents ?? [])].map(
-          (agent) => agent.pubkey,
-        ),
+        [...(managedAgents ?? []), ...(relayAgents ?? [])]
+          .map((agent) => agent.pubkey.trim().toLowerCase())
+          .filter((candidate) => /^[0-9a-f]{64}$/.test(candidate)),
       ),
     ],
     [managedAgents, relayAgents],
@@ -246,9 +246,10 @@ export function useCalendar(range: CalendarRange) {
           },
           (event) => {
             if (event.kind === KIND_DELETION) {
-              const coordinate = tagValue(event, "a")?.split(":");
-              if (coordinate?.length === 3) {
-                const [kind, targetAuthor, id] = coordinate;
+              const coordinate = tagValue(event, "a")?.split(":") ?? [];
+              const [kind, targetAuthor, ...idParts] = coordinate;
+              const id = idParts.join(":");
+              if (kind && targetAuthor && id) {
                 queryClient.setQueriesData<CalendarEvent[]>(
                   { queryKey: calendarQueryKey(pubkey) },
                   (current) =>
