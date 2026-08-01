@@ -165,15 +165,24 @@ export function useCalendar(range: CalendarRange) {
   const pubkey = identity.data?.pubkey;
   const managedAgents = useManagedAgentsQuery().data;
   const relayAgents = useRelayAgentsQuery().data;
+  const profileCandidatePubkeys = React.useMemo(
+    () => [
+      ...new Set(
+        [...(managedAgents ?? []), ...(relayAgents ?? [])].map(
+          (agent) => agent.pubkey,
+        ),
+      ),
+    ],
+    [managedAgents, relayAgents],
+  );
   const relayAgentProfiles = useQuery({
-    enabled: Boolean(pubkey && relayAgents?.length),
+    enabled: Boolean(pubkey && profileCandidatePubkeys.length),
     queryKey: [
       "calendar-agent-profiles",
       pubkey,
-      ...(relayAgents ?? []).map((agent) => agent.pubkey).sort(),
+      ...[...profileCandidatePubkeys].sort(),
     ],
-    queryFn: () =>
-      getUsersBatch((relayAgents ?? []).map((agent) => agent.pubkey)),
+    queryFn: () => getUsersBatch(profileCandidatePubkeys),
     staleTime: 30_000,
   });
   const ownedAgentPubkeys = React.useMemo(
@@ -235,7 +244,24 @@ export function useCalendar(range: CalendarRange) {
             authors: [author],
             limit: 0,
           },
-          () => {
+          (event) => {
+            if (event.kind === KIND_DELETION) {
+              const coordinate = tagValue(event, "a")?.split(":");
+              if (coordinate?.length === 3) {
+                const [kind, targetAuthor, id] = coordinate;
+                queryClient.setQueriesData<CalendarEvent[]>(
+                  { queryKey: calendarQueryKey(pubkey) },
+                  (current) =>
+                    current?.filter(
+                      (calendarEvent) =>
+                        String(calendarEvent.kind) !== kind ||
+                        calendarEvent.author !== targetAuthor ||
+                        calendarEvent.id !== id,
+                    ),
+                );
+              }
+              return;
+            }
             void queryClient.invalidateQueries({
               queryKey: [...calendarQueryKey(pubkey), "source", author],
             });
@@ -320,10 +346,27 @@ export function useCalendar(range: CalendarRange) {
         "Failed to delete calendar event.",
       );
     },
-    onSuccess: () =>
-      queryClient.invalidateQueries({
-        queryKey: calendarQueryKey(pubkey ?? ""),
-      }),
+    onMutate: async (event) => {
+      const queryKey = calendarQueryKey(pubkey ?? "");
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueriesData<CalendarEvent[]>({
+        queryKey,
+      });
+      queryClient.setQueriesData<CalendarEvent[]>({ queryKey }, (current) =>
+        current?.filter(
+          (calendarEvent) =>
+            calendarEvent.kind !== event.kind ||
+            calendarEvent.author !== event.author ||
+            calendarEvent.id !== event.id,
+        ),
+      );
+      return { previous };
+    },
+    onError: (_error, _event, context) => {
+      for (const [queryKey, data] of context?.previous ?? []) {
+        queryClient.setQueryData(queryKey, data);
+      }
+    },
   });
   return {
     events,

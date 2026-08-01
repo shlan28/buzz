@@ -1,12 +1,44 @@
 import { expect, test } from "@playwright/test";
+import type { RelayEvent } from "../../src/shared/api/types";
 import { installMockBridge } from "../helpers/bridge";
 
 const OTHER_RELAY_AGENT =
   "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+const DAILY_ASSISTANT =
+  "5af288a37bbe8039ac36a36fba24d2324f2b5af60ff5d83492d6ca9bff98c33e";
+const MOCK_OWNER = "deadbeef".repeat(8);
+
+function dailyAssistantEvent(
+  id: string,
+  title: string,
+  hour: number,
+): RelayEvent {
+  const start = Math.floor(new Date(2026, 7, 2, hour, 0).getTime() / 1_000);
+  return {
+    id: `mock-daily-${id}`,
+    pubkey: DAILY_ASSISTANT,
+    created_at: start - 60,
+    kind: 31923,
+    tags: [
+      ["d", id],
+      ["title", title],
+      ["start", String(start)],
+      ["end", String(start + 3_600)],
+      ["start_tzid", Intl.DateTimeFormat().resolvedOptions().timeZone],
+      ["end_tzid", Intl.DateTimeFormat().resolvedOptions().timeZone],
+    ],
+    content: "Created by daily-assistant.",
+    sig: "mocksig".repeat(20).slice(0, 128),
+  };
+}
 
 test.beforeEach(async ({ page }, testInfo) => {
   await installMockBridge(page, {
     managedAgents: [
+      {
+        pubkey: DAILY_ASSISTANT,
+        name: "daily-assistant",
+      },
       {
         pubkey: OTHER_RELAY_AGENT,
         name: "other-relay-agent",
@@ -21,6 +53,12 @@ test.beforeEach(async ({ page }, testInfo) => {
       },
     ],
     searchProfiles: [
+      {
+        pubkey: DAILY_ASSISTANT,
+        displayName: "daily-assistant",
+        ownerPubkey: MOCK_OWNER,
+        isAgent: true,
+      },
       {
         pubkey: OTHER_RELAY_AGENT,
         displayName: "other-relay-agent",
@@ -37,6 +75,19 @@ test.beforeEach(async ({ page }, testInfo) => {
     )
       ? ["a1b2c3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbccddeeff00"]
       : undefined,
+    calendarDeleteSideEffectDelayMs: testInfo.title.includes(
+      "delete stays removed",
+    )
+      ? 1_000
+      : undefined,
+    calendarDeleteErrors: testInfo.title.includes("delete failure restores")
+      ? ["mock calendar deletion rejected"]
+      : undefined,
+    calendarEvents: [
+      dailyAssistantEvent("daily-bp", "提交BP到连尚网络", 10),
+      dailyAssistantEvent("daily-liuli", "联系刘力", 11),
+      dailyAssistantEvent("daily-moma", "联系MOMA展览 舒总", 13),
+    ],
   });
 });
 
@@ -94,8 +145,12 @@ test("calendar sources default on and independently hide agent events", async ({
   await page.goto("/#/calendar?view=day&date=2026-08-01");
   const personal = page.getByRole("checkbox", { name: "Show Personal" });
   const agent = page.getByRole("checkbox", { name: "Show nadia" });
+  const dailyAssistant = page.getByRole("checkbox", {
+    name: "Show daily-assistant",
+  });
   await expect(personal).toBeChecked();
   await expect(agent).toBeChecked();
+  await expect(dailyAssistant).toBeChecked();
   await expect(
     page.getByRole("checkbox", { name: "Show other-relay-agent" }),
   ).toHaveCount(0);
@@ -120,6 +175,66 @@ test("calendar sources default on and independently hide agent events", async ({
   await expect(
     page.getByText("Agent planning block", { exact: true }),
   ).toBeVisible();
+});
+
+test("managed-only daily-assistant source shows its three historical events", async ({
+  page,
+}) => {
+  await page.goto("/#/calendar?view=day&date=2026-08-02");
+  await expect(
+    page.getByRole("checkbox", { name: "Show daily-assistant" }),
+  ).toBeChecked();
+  await expect(
+    page.getByText("提交BP到连尚网络", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("联系刘力", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("联系MOMA展览 舒总", { exact: true }),
+  ).toBeVisible();
+});
+
+test("delete stays removed while the relay side effect is delayed", async ({
+  page,
+}) => {
+  await page.goto("/#/calendar?view=day&date=2026-08-01");
+  const event = page.getByText("Personal focus block", { exact: true });
+  await event.click();
+  await page
+    .getByTestId("calendar-event-details")
+    .getByRole("button", { name: "Delete" })
+    .click();
+  await expect(page.getByTestId("calendar-event-details")).toHaveCount(0);
+  await expect(event).toHaveCount(0);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (
+            window as Window & {
+              __BUZZ_E2E_CALENDAR_DELETE_COUNT__?: number;
+            }
+          ).__BUZZ_E2E_CALENDAR_DELETE_COUNT__ ?? 0,
+      ),
+    )
+    .toBe(1);
+  await page.waitForTimeout(1_100);
+  await page.reload();
+  await expect(event).toHaveCount(0);
+});
+
+test("delete failure restores the event and shows the relay error", async ({
+  page,
+}) => {
+  await page.goto("/#/calendar?view=day&date=2026-08-01");
+  const event = page.getByText("Personal focus block", { exact: true });
+  await event.click();
+  const details = page.getByTestId("calendar-event-details");
+  await details.getByRole("button", { name: "Delete" }).click();
+  await expect(details.getByRole("alert")).toContainText(
+    "mock calendar deletion rejected",
+  );
+  await details.getByRole("button", { name: "Close" }).click();
+  await expect(event).toBeVisible();
 });
 
 test("agent source failure preserves Personal and retries independently", async ({

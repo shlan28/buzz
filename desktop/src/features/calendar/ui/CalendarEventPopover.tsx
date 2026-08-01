@@ -13,6 +13,8 @@ export function CalendarEventPopover({
   event,
   currentPubkey,
   authorLabel,
+  deletePending,
+  deleteError,
   onClose,
   onEdit,
   onDelete,
@@ -20,6 +22,8 @@ export function CalendarEventPopover({
   event: CalendarEvent | null;
   currentPubkey?: string;
   authorLabel?: string;
+  deletePending: boolean;
+  deleteError?: string;
   onClose: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -62,11 +66,20 @@ export function CalendarEventPopover({
                 ? "Created by you"
                 : `Created by ${authorLabel ?? event.author}`}
             </p>
+            {deleteError ? (
+              <p className="text-xs text-destructive" role="alert">
+                {deleteError}
+              </p>
+            ) : null}
             <DialogFooter>
-              <Button variant="destructive" onClick={onDelete}>
-                Delete
+              <Button
+                disabled={deletePending}
+                variant="destructive"
+                onClick={onDelete}
+              >
+                {deletePending ? "Deleting…" : "Delete"}
               </Button>
-              {event.author === currentPubkey ? (
+              {event.author === currentPubkey && !deletePending ? (
                 <Button onClick={onEdit}>Edit</Button>
               ) : null}
             </DialogFooter>

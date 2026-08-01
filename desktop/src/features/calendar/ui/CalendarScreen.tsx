@@ -56,6 +56,7 @@ export function CalendarScreen() {
   const [draft, setDraft] = React.useState<CalendarDraft | null>(null);
   const [selected, setSelected] = React.useState<CalendarEvent | null>(null);
   const [saveError, setSaveError] = React.useState<string>();
+  const [deleteError, setDeleteError] = React.useState<string>();
   const gridScrollTopRef = React.useRef<number | null>(null);
   const setRoute = (nextDate: Date, nextView: CalendarView = view) =>
     void navigate({
@@ -71,6 +72,10 @@ export function CalendarScreen() {
     if (!selected) return;
     setDraft({ ...selected });
     setSelected(null);
+  };
+  const openSelected = (event: CalendarEvent) => {
+    setDeleteError(undefined);
+    setSelected(event);
   };
   return (
     <div
@@ -136,7 +141,7 @@ export function CalendarScreen() {
             date={date}
             events={calendar.events}
             onCreate={(day) => openCreate(defaultDraft(day, true))}
-            onOpen={setSelected}
+            onOpen={openSelected}
           />
         ) : null}
         {!calendar.isLoading && !calendar.isError && view !== "month" ? (
@@ -146,7 +151,7 @@ export function CalendarScreen() {
             events={calendar.events}
             draft={draft}
             onDraft={openCreate}
-            onOpen={setSelected}
+            onOpen={openSelected}
             currentPubkey={calendar.pubkey}
             scrollTopRef={gridScrollTopRef}
             authorLabels={calendar.authorLabels}
@@ -182,12 +187,25 @@ export function CalendarScreen() {
         authorLabel={
           selected ? calendar.authorLabels[selected.author] : undefined
         }
-        onClose={() => setSelected(null)}
+        deletePending={calendar.remove.isPending}
+        deleteError={deleteError}
+        onClose={() => {
+          if (calendar.remove.isPending) return;
+          setDeleteError(undefined);
+          setSelected(null);
+        }}
         onEdit={editSelected}
         onDelete={() => {
           if (!selected) return;
+          setDeleteError(undefined);
           calendar.remove.mutate(selected, {
             onSuccess: () => setSelected(null),
+            onError: (error) =>
+              setDeleteError(
+                error instanceof Error
+                  ? error.message
+                  : "Could not delete event.",
+              ),
           });
         }}
       />
