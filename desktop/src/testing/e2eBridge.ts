@@ -237,6 +237,8 @@ type E2eConfig = {
     personaSharePublicationStatuses?: Array<"published" | "queued">;
     teams?: MockTeamSeed[];
     relayAgents?: MockRelayAgentSeed[];
+    /** Exhaust automatic calendar retries, then allow the manual Retry. */
+    failCalendarHistoryUntilManualRetry?: boolean;
     agentListDelayMs?: number;
     agentMemory?: RawAgentMemoryListing | Record<string, RawAgentMemoryListing>;
     addChannelMembersDelayMs?: number;
@@ -2812,6 +2814,7 @@ let mockRelayMembers: RawRelayMember[] = [];
 const mockSockets = new Map<number, MockSocket>();
 let mockWebsocketSendMutexWedged = false;
 let mockClosedChannelLiveSubscription = false;
+let mockClosedCalendarHistoryCount = 0;
 const realSockets = new Map<number, WebSocket>();
 let mockManagedAgents: MockManagedAgent[] = [];
 let mockManagedAgentRuntimes: MockManagedAgentRuntimeRow[] = [];
@@ -9136,6 +9139,34 @@ function sendToMockSocket(args: {
       filter.kinds?.includes(KIND_CALENDAR_TIME_EVENT)
     ) {
       const authors = filter.authors?.map((author) => author.toLowerCase());
+      if (
+        getConfig()?.mock?.failCalendarHistoryUntilManualRetry &&
+        mockClosedCalendarHistoryCount < 3
+      ) {
+        mockClosedCalendarHistoryCount += 1;
+        sendWsText(socket.handler, [
+          "CLOSED",
+          subId,
+          "restricted: calendar test rejection",
+        ]);
+        return;
+      }
+      const identityPubkey = getMockMemberPubkey(getConfig()).toLowerCase();
+      const hasUnauthorizedAuthor = authors?.some((author) => {
+        if (author === identityPubkey) return false;
+        return (
+          getMockProfileByPubkey(author)?.owner_pubkey?.toLowerCase() !==
+          identityPubkey
+        );
+      });
+      if (hasUnauthorizedAuthor) {
+        sendWsText(socket.handler, [
+          "CLOSED",
+          subId,
+          "restricted: calendar authors must be owned",
+        ]);
+        return;
+      }
       const start = Math.floor(new Date(2026, 7, 1, 10, 0).getTime() / 1_000);
       const event: RelayEvent = {
         id: "mock-owned-agent-calendar-event",
@@ -9416,6 +9447,7 @@ export function maybeInstallE2eTauriMocks() {
   }
 
   mockClosedChannelLiveSubscription = false;
+  mockClosedCalendarHistoryCount = 0;
   mockGlobalAgentConfig = config.mock?.globalAgentConfig
     ? { ...config.mock.globalAgentConfig }
     : null;

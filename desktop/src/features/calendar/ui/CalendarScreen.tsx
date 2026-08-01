@@ -97,7 +97,32 @@ export function CalendarScreen() {
             Loading calendar…
           </div>
         ) : null}
-        {!calendar.isLoading && view === "month" ? (
+        {calendar.isError ? (
+          <div
+            className="grid flex-1 place-items-center px-6 text-center"
+            data-testid="calendar-load-error"
+          >
+            <div className="space-y-3">
+              <div>
+                <p className="text-sm font-medium text-foreground">
+                  Calendar couldn&apos;t be loaded
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  The relay rejected or interrupted the calendar request.
+                </p>
+              </div>
+              <button
+                className="rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={calendar.isFetching}
+                onClick={() => void calendar.refetch()}
+                type="button"
+              >
+                {calendar.isFetching ? "Retrying…" : "Retry"}
+              </button>
+            </div>
+          </div>
+        ) : null}
+        {!calendar.isLoading && !calendar.isError && view === "month" ? (
           <CalendarMonthView
             date={date}
             events={calendar.events}
@@ -105,7 +130,7 @@ export function CalendarScreen() {
             onOpen={setSelected}
           />
         ) : null}
-        {!calendar.isLoading && view !== "month" ? (
+        {!calendar.isLoading && !calendar.isError && view !== "month" ? (
           <CalendarGrid
             date={date}
             view={view}

@@ -142,11 +142,11 @@ export function useCalendar(range: CalendarRange) {
   const ownedAgentPubkeys = React.useMemo(
     () =>
       mergeOwnedAgentPubkeys(
-        managedAgents,
+        undefined,
         relayAgentProfiles.data?.profiles,
         pubkey,
       ),
-    [managedAgents, pubkey, relayAgentProfiles.data?.profiles],
+    [pubkey, relayAgentProfiles.data?.profiles],
   );
   const visibleAuthors = React.useMemo(
     () =>

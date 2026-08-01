@@ -1,8 +1,17 @@
 import { expect, test } from "@playwright/test";
 import { installMockBridge } from "../helpers/bridge";
 
-test.beforeEach(async ({ page }) => {
+const OTHER_RELAY_AGENT =
+  "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+test.beforeEach(async ({ page }, testInfo) => {
   await installMockBridge(page, {
+    managedAgents: [
+      {
+        pubkey: OTHER_RELAY_AGENT,
+        name: "other-relay-agent",
+      },
+    ],
     relayAgents: [
       {
         pubkey:
@@ -11,6 +20,18 @@ test.beforeEach(async ({ page }) => {
         status: "online",
       },
     ],
+    searchProfiles: [
+      {
+        pubkey: OTHER_RELAY_AGENT,
+        displayName: "other-relay-agent",
+        ownerPubkey:
+          "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        isAgent: true,
+      },
+    ],
+    failCalendarHistoryUntilManualRetry: testInfo.title.includes(
+      "calendar load error",
+    ),
   });
 });
 
@@ -60,6 +81,21 @@ test("owner sees an owned agent event as read-only with its author name", async 
   await expect(details).toContainText("Created by nadia");
   await expect(details.getByRole("button", { name: "Edit" })).toHaveCount(0);
   await expect(details.getByRole("button", { name: "Delete" })).toBeVisible();
+});
+
+test("calendar load error is visible and Retry restores the calendar", async ({
+  page,
+}) => {
+  await page.goto("/#/calendar?view=day&date=2026-08-01");
+  const error = page.getByTestId("calendar-load-error");
+  await expect(error).toContainText("Calendar couldn't be loaded", {
+    timeout: 12_000,
+  });
+  await error.getByRole("button", { name: "Retry" }).click();
+  await expect(error).toHaveCount(0);
+  await expect(
+    page.getByText("Agent planning block", { exact: true }),
+  ).toBeVisible();
 });
 
 test("clicking a time creates a cancellable 30 minute draft", async ({
