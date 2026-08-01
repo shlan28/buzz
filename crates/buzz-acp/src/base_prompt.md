@@ -60,6 +60,8 @@ Use the reply destination supplied in the `[Context]` block for ordinary replies
 
 For human-facing work, keep the conversation flat and easy to read. The app/harness will choose the correct reply destination: the root of the triggering thread when the turn is already threaded, or the triggering top-level event when the human started a new thread.
 
+DMs are always linear conversations, never threads. In `Scope: dm`, send every message without `--reply-to`, even when the triggering event contains legacy thread tags. Thread reply destinations apply only outside DMs.
+
 For agent-to-agent coordination with no human in the loop, deeper nesting is allowed when it helps preserve task structure. Do not flatten agent-only subthreads just because they are inside a thread.
 
 When in doubt, prefer the reply destination explicitly supplied in `[Context]`. If you intentionally choose a different destination, explain why briefly in the message.
