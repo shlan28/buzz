@@ -173,6 +173,47 @@ export async function addRelayMember(
   await publishRelayAdminEvent(KIND_RELAY_ADMIN_ADD_MEMBER, targetPubkey, role);
 }
 
+type EnsureRelayMemberDependencies = {
+  relayRequiresMembership: () => Promise<boolean>;
+  fetchMembershipListEvent: () => Promise<RelayEvent | null>;
+  addRelayMember: (targetPubkey: string, role: string) => Promise<void>;
+};
+
+/**
+ * Ensures a managed-agent pubkey can authenticate to the active relay.
+ *
+ * Open relays need no NIP-43 write. On membership relays, re-adding an
+ * existing member is avoided so its current role is preserved. The relay's
+ * kind:9030 handler is also idempotent, which covers a concurrent add after
+ * the snapshot read.
+ */
+export async function ensureManagedAgentRelayMembership(
+  targetPubkey: string,
+  dependencies: EnsureRelayMemberDependencies = {
+    relayRequiresMembership,
+    fetchMembershipListEvent,
+    addRelayMember,
+  },
+): Promise<boolean> {
+  if (!(await dependencies.relayRequiresMembership())) {
+    return false;
+  }
+
+  const normalizedTarget = normalizePubkey(targetPubkey);
+  const snapshot = await dependencies.fetchMembershipListEvent();
+  const alreadyMember = snapshot
+    ? relayMembersFromEvent(snapshot).some(
+        (member) => normalizePubkey(member.pubkey) === normalizedTarget,
+      )
+    : false;
+  if (alreadyMember) {
+    return false;
+  }
+
+  await dependencies.addRelayMember(normalizedTarget, "member");
+  return true;
+}
+
 export async function removeRelayMember(targetPubkey: string): Promise<void> {
   await publishRelayAdminEvent(KIND_RELAY_ADMIN_REMOVE_MEMBER, targetPubkey);
 }
