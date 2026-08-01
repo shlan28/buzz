@@ -56,6 +56,7 @@ export function CalendarScreen() {
   const [draft, setDraft] = React.useState<CalendarDraft | null>(null);
   const [selected, setSelected] = React.useState<CalendarEvent | null>(null);
   const [saveError, setSaveError] = React.useState<string>();
+  const gridScrollTopRef = React.useRef<number | null>(null);
   const setRoute = (nextDate: Date, nextView: CalendarView = view) =>
     void navigate({
       search: { date: dateKey(nextDate), view: nextView },
@@ -112,6 +113,9 @@ export function CalendarScreen() {
             draft={draft}
             onDraft={openCreate}
             onOpen={setSelected}
+            currentPubkey={calendar.pubkey}
+            scrollTopRef={gridScrollTopRef}
+            authorLabels={calendar.authorLabels}
           />
         ) : null}
       </main>
@@ -141,6 +145,9 @@ export function CalendarScreen() {
       <CalendarEventPopover
         event={selected}
         currentPubkey={calendar.pubkey}
+        authorLabel={
+          selected ? calendar.authorLabels[selected.author] : undefined
+        }
         onClose={() => setSelected(null)}
         onEdit={editSelected}
         onDelete={() => {

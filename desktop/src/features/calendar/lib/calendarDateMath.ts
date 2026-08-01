@@ -52,6 +52,14 @@ export function snapMinutes(minutes: number): number {
   return Math.round(minutes / SLOT_MINUTES) * SLOT_MINUTES;
 }
 
+export function gridMinuteFromY(y: number, hourHeight: number): number {
+  return Math.max(0, Math.min(24 * 60, snapMinutes((y / hourHeight) * 60)));
+}
+
+export function gridOffsetForDate(date: Date, hourHeight: number): number {
+  return ((date.getHours() * 60 + date.getMinutes()) / 60) * hourHeight;
+}
+
 export function dateKey(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");

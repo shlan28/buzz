@@ -1,7 +1,7 @@
 //! `buzz calendar` — private, author-scoped NIP-52 calendar operations.
 
 use chrono::{DateTime, NaiveDate};
-use nostr::Event;
+use nostr::{Event, PublicKey};
 use serde::Serialize;
 
 use crate::{client::BuzzClient, error::CliError, CalendarCmd};
@@ -118,13 +118,19 @@ fn parse_events(raw: &str) -> Result<Vec<Event>, CliError> {
         .map_err(|error| CliError::Other(format!("failed to parse relay response: {error}")))
 }
 
-fn validate_private_author(author: &str) -> Result<(), CliError> {
-    if author != "me" {
-        return Err(CliError::Usage(
-            "private calendar queries require --author me".into(),
-        ));
+fn resolve_read_author(client: &BuzzClient, author: &str) -> Result<String, CliError> {
+    normalize_read_author(author, &client.keys().public_key().to_hex())
+}
+
+fn normalize_read_author(author: &str, me: &str) -> Result<String, CliError> {
+    if author == "me" {
+        return Ok(me.to_string());
     }
-    Ok(())
+    PublicKey::from_hex(author)
+        .map(|pubkey| pubkey.to_hex())
+        .map_err(|error| {
+            CliError::Usage(format!("--author must be `me` or a 64-hex pubkey: {error}"))
+        })
 }
 
 fn parse_date(value: &str, field: &str) -> Result<String, CliError> {
@@ -240,9 +246,17 @@ fn participants(values: Vec<String>) -> Vec<CalendarParticipant> {
 }
 
 async fn fetch_own(client: &BuzzClient, id: &str) -> Result<Option<Event>, CliError> {
+    fetch_by_author(client, id, &client.keys().public_key().to_hex()).await
+}
+
+async fn fetch_by_author(
+    client: &BuzzClient,
+    id: &str,
+    author: &str,
+) -> Result<Option<Event>, CliError> {
     let filter = serde_json::json!({
         "kinds": [KIND_CALENDAR_DATE, KIND_CALENDAR_TIME],
-        "authors": [client.keys().public_key().to_hex()],
+        "authors": [author],
         "#d": [id],
         "limit": 2,
     });
@@ -351,13 +365,13 @@ pub async fn dispatch(command: CalendarCmd, client: &BuzzClient) -> Result<(), C
             calendar,
             author,
         } => {
-            validate_private_author(&author)?;
+            let author = resolve_read_author(client, &author)?;
             let from = parse_window_boundary(&from, "from")?;
             let to = parse_window_boundary(&to, "to")?;
             if to.parse::<i64>().ok() <= from.parse::<i64>().ok() {
                 return Err(CliError::Usage("--to must be later than --from".into()));
             }
-            let mut filter = serde_json::json!({ "kinds": [KIND_CALENDAR_DATE, KIND_CALENDAR_TIME], "authors": [client.keys().public_key().to_hex()] });
+            let mut filter = serde_json::json!({ "kinds": [KIND_CALENDAR_DATE, KIND_CALENDAR_TIME], "authors": [author] });
             if let Some(calendar) = calendar {
                 filter["#a"] = serde_json::json!([calendar]);
             }
@@ -392,8 +406,8 @@ pub async fn dispatch(command: CalendarCmd, client: &BuzzClient) -> Result<(), C
             Ok(())
         }
         CalendarCmd::Get { id, author } => {
-            validate_private_author(&author)?;
-            let event = fetch_own(client, &id)
+            let author = resolve_read_author(client, &author)?;
+            let event = fetch_by_author(client, &id, &author)
                 .await?
                 .ok_or_else(|| CliError::NotFound(format!("calendar event not found: {id}")))?;
             println!(
@@ -532,9 +546,15 @@ mod tests {
     }
 
     #[test]
-    fn rejects_cross_author_private_query() {
-        assert!(validate_private_author("me").is_ok());
-        assert!(validate_private_author(&"a".repeat(64)).is_err());
+    fn read_author_accepts_hex_shape_only() {
+        let me = nostr::Keys::generate().public_key().to_hex();
+        let owned_agent = nostr::Keys::generate().public_key().to_hex();
+        assert_eq!(normalize_read_author("me", &me).unwrap(), me);
+        assert_eq!(
+            normalize_read_author(&owned_agent, &me).unwrap(),
+            owned_agent
+        );
+        assert!(normalize_read_author("display name", &me).is_err());
     }
 
     #[test]

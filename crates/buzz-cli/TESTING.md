@@ -567,8 +567,10 @@ buzz calendar delete --id "$CALENDAR_EVENT_ID" | jq .
 ```
 
 Also verify an all-day event with an exclusive next-day end, an invalid end
-before start, a non-IANA timezone, `--author` other than `me`, stale
-`--expected-event`, and that a second identity cannot list or get the event.
+before start, a non-IANA timezone, stale `--expected-event`, and these identity
+boundaries: an owner can list/get with `--author <owned-agent-pubkey>`; the
+Agent cannot read the owner's calendar; an unrelated identity cannot read
+either calendar; update/delete still target only the signing identity.
 
 ---
 

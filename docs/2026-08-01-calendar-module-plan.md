@@ -1,7 +1,7 @@
 # Buzz 日历模块实施计划
 
 > 更新日期：2026-08-01
-> 更新说明：实施前补充协议、权限、存储、CLI、日期数学、UI 交互、可访问性和视觉回归测试矩阵；确认首版不做重复日程，并支持在日/周时间网格中点击或拖拽快速创建。此前已确认日程默认仅作者可见、Agent 管理自己署名的日程、不做会议室与预约活动、外部同步延后。
+> 更新说明：确认 Agent 署名日程默认归属其注册 owner，Agent 与 owner 均可读取，且 `Who can talk to the agent` 不扩大日历可见范围；同时补充日/周视图完整 `0:00–24:00` 时间轴和首次进入定位 `7:00` 的滚动体验及测试要求。此前已确认首版不做重复日程、不做会议室与预约活动、外部同步延后。
 
 ## 1. 目标
 
@@ -23,8 +23,8 @@
 - 日程字段：标题、说明、开始、结束、全天、IANA 时区、地点、参与者、所属日历。
 - URL 保存视图状态，例如 `/calendar?view=week&date=2026-08-01&event=<coordinate>`。
 - Relay 实时事件到达后刷新当前日历视图。
-- Agent 通过 `buzz calendar` 命令直接创建、查询、更新和删除自己署名的日程。
-- 所有日程按 Buzz community 隔离；首版默认仅日程作者可读取。
+- Agent 通过 `buzz calendar` 命令直接创建、查询、更新和删除自己署名的日程；其注册 owner 能在自己的 Calendar 页面读取这些日程，并看到 Agent 作者标识。
+- 所有日程按 Buzz community 隔离；用户日程默认仅作者可读取，Agent 日程默认仅 Agent 作者与其注册 owner 可读取。
 
 ### 2.2 首版不包含
 
@@ -39,6 +39,8 @@
 ### 2.3 已确认的范围
 
 - Agent 管理自己 pubkey 署名的日程，不代替用户签名。
+- Agent 署名日程归属其注册 owner；Agent 与 owner 均可读取，其他成员默认不可见。
+- `Who can talk to the agent` 只控制入站对话资格；`owner-only`、`allowlist` 或 `anyone` 均不改变日历可见范围。
 - 不做会议室和预约活动。
 - 外部日历同步延后。
 - 不做重复日程。
@@ -81,7 +83,18 @@ Buzz 原有全局壳层保持不变。Calendar 内容区采用内部两栏：
 
 建设性建议：单击与拖拽应该同时支持。仅支持单击虽然开发简单，但用户创建 90 分钟或跨多个时间格的日程时必须再手动修改结束时间；拖拽选择能显著减少操作步骤。
 
-### 3.3 Buzz 视觉一致性
+### 3.3 完整时间轴与初始位置
+
+1. 日视图和周视图必须渲染从 `0:00` 到次日 `0:00` 的完整 24 小时时间轴，不能把 `7:00` 以前或 `21:00` 以后的时段从网格中删除。
+2. 首次打开日历页面时，滚动容器自动定位到 `7:00`，让首屏主要展示白天工作时段；这只是初始滚动位置，不改变可创建和可查看的时间范围。
+3. 用户向上滚动可以查看并创建 `0:00–7:00` 的日程，向下滚动可以查看并创建 `21:00–24:00` 的日程。
+4. 在同一次页面会话中切换 Day/Week、日期或周次时，优先保留用户当前滚动位置，避免每次操作都强制跳回 `7:00`；只有首次挂载且用户尚未滚动时自动定位。
+5. 通过路由刷新或重新进入日历页面时，可重新采用 `7:00` 的默认位置。打开深链指定的凌晨或深夜日程时，应优先滚动到该日程，而不是停在 `7:00`。
+6. 时间位置计算必须以午夜为零点，点击、拖拽、日程块定位和当前时间线都使用同一套 24 小时坐标，避免扩展网格后产生 7 小时偏移。
+
+建设性建议：这里使用连续滚动时间轴，不做真正的“分页按钮”。连续上下滚动更符合日历产品习惯，也能避免跨 `7:00` 或 `21:00` 拖拽时被分页边界截断。
+
+### 3.4 Buzz 视觉一致性
 
 - 复用 `background`、`card`、`border`、`muted`、`primary`、`sidebar` 等语义颜色。
 - 复用 shared UI 的 Button、Dialog、Input、Checkbox、Tabs/segmented control。
@@ -116,13 +129,15 @@ Buzz 原有全局壳层保持不变。Calendar 内容区采用内部两栏：
 
 - 日程以签名 Nostr event 形式存入 Buzz Relay 的 PostgreSQL `events` 表；桌面端只保留查询缓存，不作为唯一数据源。
 - 日历事件是 community 内的 global event，不使用 channel `h` tag。
-- `31922`–`31925` 加入 author-only 读取门禁；查询必须显式 `authors=[self]`，Relay 不向其他社区成员返回事件、计数或搜索结果。
+- `31922`–`31925` 加入 owner-aware 私有读取门禁：普通用户日程仅作者本人可读；Agent 日程仅 Agent 作者和 Relay 中登记的 `agent_owner_pubkey` 可读。Relay 不向其他社区成员返回事件、计数或搜索结果。
 - “仅自己可见”在首版定义为 Relay 访问控制，而不是端到端加密：Relay 服务端和数据库管理员仍可看到 NIP-52 的标题、时间、地点等公开 tag。若要求 Relay 也无法读取内容，需要单独设计加密 envelope，并会降低标准 NIP-52 互操作性和服务端范围查询能力。
 - 写入使用 `UsersWrite` scope。
 - 用户或 Agent 只能更新自己 pubkey 下的日程坐标。
 - 用户可沿用现有 owner-agent 删除规则删除其所属 Agent 的日程，但不能以用户签名替换 Agent 署名的日程。
-- 严格 author-only 模型下，用户默认看不到 Agent 署名的日程。若产品期望用户在自己的 Calendar 页面看到所属 Agent 创建的日程，需要额外增加“owner 可读 owned-agent 日程”的授权规则；这仍不赋予用户替换 Agent 签名的能力。
-- UI 必须显示日程作者；仅作者可看到编辑入口，避免“看得到就能改”的错觉。
+- Agent 的 owner 关系以 Relay 已认证、登记的 owner-agent 绑定为准，不由客户端任意传入 owner tag，也不因 Persona 是内置、共享或本地模板而改变。
+- `Who can talk to the agent` 与日历 ACL 完全分离：选择 `anyone` 只允许更多成员在 Agent 已加入的频道中触发对话，不会让这些成员读取 Agent 日程；allowlist 也不会自动成为日程读者。
+- UI 必须在 owner 日历中合并展示其 owned agents 创建的日程，并标注“由 <Agent> 创建”；owner 可查看和删除，只有 Agent 作者可以发布 replacement 更新，避免“看得到就能冒充作者修改”的错觉。
+- 若以后需要共享某条日程，必须增加独立、显式的参与者或频道共享授权；不得继承 Agent 的对话范围。
 
 ### 4.4 查询和数据库投影
 
@@ -205,16 +220,16 @@ ACP 已向 Agent 子进程注入 Relay URL、私钥和授权 tag，因此无需�
 
 ### 协议、Relay 与数据库
 
-- [ ] `crates/buzz-core/src/kind.rs`：登记 `31922`–`31925`、加入 author-only registry 和 addressable compile-time assertions。
+- [ ] `crates/buzz-core/src/kind.rs`：登记 `31922`–`31925`、加入 owner-aware private calendar registry 和 addressable compile-time assertions。
 - [ ] `crates/buzz-relay/src/handlers/ingest.rs`：加入 `UsersWrite`、global-only 规则和 NIP-52 tag/时间/时区校验。
 - [ ] `crates/buzz-db/src/event.rs`：解析日程投影并扩展按可见时间窗口查询的条件。
 - [ ] `crates/buzz-db/src/lib.rs`：把日程投影接入 parameterized replacement 写入并增加并发 replacement 测试。
 - [ ] `schema/schema.sql`：增加日程投影列和 community-leading 活跃事件范围索引。
 - [ ] `migrations/0027_calendar_event_projection.sql`：增加线上迁移、历史 NIP-52 事件回填和部分索引。
-- [ ] `crates/buzz-relay/src/handlers/req.rs`：把日历窗口过滤映射到数据库查询并保证分页不截断。
-- [ ] `crates/buzz-relay/src/handlers/count.rs`：同步日历窗口和可见性规则，保持 COUNT 与 REQ 一致。
+- [ ] `crates/buzz-relay/src/handlers/req.rs`：把日历窗口过滤映射到数据库查询，实现作者与 registered owner 的逐事件读门禁，并保证分页不截断。
+- [ ] `crates/buzz-relay/src/handlers/count.rs`：同步日历窗口和 owner-aware 可见性规则，保持 COUNT 与 REQ 一致且不泄露其他 Agent 日程数量。
 - [ ] `crates/buzz-relay/src/handlers/side_effects.rs`：增加日历坐标删除和 owner-agent 删除边界回归测试。
-- [ ] `crates/buzz-search/tests/fts_integration.rs`：禁止私有日程进入 FTS，并验证 author-only 与 community 隔离。
+- [ ] `crates/buzz-search/tests/fts_integration.rs`：禁止私有日程进入 FTS，并验证 author/registered-owner 门禁与 community 隔离。
 - [ ] `docs/nips/NIP-52-BUZZ.md`：记录 Buzz 对 NIP-52 的采用范围、权限、时区、类型转换、删除和非目标。
 
 ### SDK、CLI 与 Agent
@@ -245,11 +260,11 @@ ACP 已向 Agent 子进程注入 Relay URL、私钥和授权 tag，因此无需�
 - [ ] `desktop/src/features/calendar/lib/calendarTypes.ts`：定义视图、范围、日程 DTO 和 presentation 类型。
 - [ ] `desktop/src/features/calendar/lib/calendarDateMath.ts`：实现周/月范围、slot、日期解析和 DST 安全计算。
 - [ ] `desktop/src/features/calendar/lib/calendarDateMath.test.mjs`：覆盖跨月、跨年、DST 和本地日边界。
-- [ ] `desktop/src/features/calendar/hooks.ts`：实现窗口查询、CRUD mutation、缓存与实时失效。
+- [ ] `desktop/src/features/calendar/hooks.ts`：查询并合并当前用户及其 owned agents 的可见日程，实现 CRUD mutation、作者标识、缓存与实时失效。
 - [ ] `desktop/src/features/calendar/ui/CalendarScreen.tsx`：编排 URL 状态、响应式布局和对话框。
 - [ ] `desktop/src/features/calendar/ui/CalendarToolbar.tsx`：实现 Today、翻页、范围标题、视图切换和创建按钮。
 - [ ] `desktop/src/features/calendar/ui/CalendarSidebar.tsx`：实现迷你月历和日历显示筛选。
-- [ ] `desktop/src/features/calendar/ui/CalendarGrid.tsx`：实现日/周时间网格、全天栏、当前时间线、点击/拖拽选时、临时日程块和重叠布局。
+- [ ] `desktop/src/features/calendar/ui/CalendarGrid.tsx`：实现 `0:00–24:00` 完整时间网格、首次定位 `7:00`、滚动位置保留、全天栏、当前时间线、点击/拖拽选时、临时日程块和重叠布局。
 - [ ] `desktop/src/features/calendar/ui/CalendarMonthView.tsx`：实现月视图和日期溢出摘要。
 - [ ] `desktop/src/features/calendar/ui/CalendarEventDialog.tsx`：实现轻量快速创建与完整编辑两种模式、草稿保留、字段校验和类型转换确认。
 - [ ] `desktop/src/features/calendar/ui/CalendarEventPopover.tsx`：实现快速详情、作者标识、编辑和删除入口。
@@ -258,7 +273,7 @@ ACP 已向 Agent 子进程注入 Relay URL、私钥和授权 tag，因此无需�
 
 - [ ] `crates/buzz-test-client/tests/e2e_calendar.rs`：覆盖 CRUD、同坐标 replacement、删除、跨作者权限、范围查询和时区。
 - [ ] `desktop/src/testing/e2eBridge.ts`：为日历查询、实时事件和 CRUD 增加 mock relay 数据。
-- [ ] `desktop/tests/e2e/calendar.spec.ts`：覆盖导航、URL 恢复、三视图、单击/拖拽快速创建、取消草稿、CRUD、Agent 实时写入和响应式截图。
+- [ ] `desktop/tests/e2e/calendar.spec.ts`：覆盖导航、URL 恢复、三视图、24 小时时间轴、首次定位 `7:00`、凌晨/深夜选时、滚动位置保留、单击/拖拽快速创建、取消草稿、CRUD、Agent 实时写入和响应式截图。
 - [ ] `desktop/playwright.config.ts`：将 Calendar E2E 注册进 smoke 项目。
 
 ## 8. 验收标准
@@ -281,10 +296,10 @@ ACP 已向 Agent 子进程注入 Relay URL、私钥和授权 tag，因此无需�
 
 | 层级 | 必测场景 |
 | --- | --- |
-| Kind registry | `31922`–`31925` 无碰撞、属于 addressable range、进入 author-only 集合 |
+| Kind registry | `31922`–`31925` 无碰撞、属于 addressable range、进入 owner-aware private calendar 集合 |
 | Ingest 校验 | 缺少/重复 `d`、`title`、`start`；非法日期、时间戳、IANA 时区；`end <= start`；全天/定时 tag 混用；错误 channel `h` tag |
-| 私有读取 | 未认证请求、其他成员、混合 kind filter、COUNT、HTTP `/query`、WebSocket REQ、实时 fan-out 均不能泄露事件或数量 |
-| Agent 权限 | Agent 只能替换自己坐标；用户不能替换 Agent 坐标；owner 删除规则按最终产品决策验证 |
+| 私有读取 | 未认证请求、其他成员、其他 owner、混合 kind filter、COUNT、HTTP `/query`、WebSocket REQ、实时 fan-out 均不能泄露事件或数量；registered owner 可以读取 owned-agent 日程 |
+| Agent 权限 | Agent 只能替换自己坐标；用户不能替换 Agent 坐标；registered owner 可查看和删除；`owner-only`、`allowlist`、`anyone` 三种对话模式下日历 ACL 完全一致 |
 | Replacement | 同 `(kind,pubkey,d)` 新版本胜出、同秒 tie-break、旧 head 不再返回、失败事务不破坏旧 head |
 | 删除 | NIP-09 `a` 坐标删除成功；错误 author/kind/d 被拒绝；删除后 REQ/COUNT/范围查询均不可见 |
 | 范围投影 | 全天单日/多日、跨月/跨年、定时跨午夜、未来创建时间、历史回填和边界相交语义正确 |
@@ -294,6 +309,7 @@ ACP 已向 Agent 子进程注入 Relay URL、私钥和授权 tag，因此无需�
 | CLI 行为 | RFC3339 与全天日期解析、read-before-write、部分更新、失败 JSON、compact/full 输出和稳定 coordinate |
 | 日期数学 | 周起始、跨月/跨年、闰年、本地午夜、DST 缺失/重复小时、15 分钟吸附和 30 分钟默认时长 |
 | 快速创建 | 单击、向上/向下拖拽、跨小时、全天区、月视图日期、取消、Escape、点击外部、保存失败重试 |
+| 24 小时时间轴 | 首次打开定位 `7:00`；向上可达 `0:00`、向下可达 `24:00`；凌晨和深夜点击/拖拽时间无偏移；Day/Week 切换保留用户滚动位置 |
 | 事件布局 | 重叠、相邻不重叠、跨日、超出可见范围裁剪、当前时间线和多日全天事件 |
 | 路由状态 | `/calendar` 默认值、非法 search 参数修复、view/date/event 深链、刷新、前进/后退 |
 | 实时同步 | 本客户端写入、Agent 写入、replacement、删除到达后缓存正确更新且不重复渲染 |
@@ -311,13 +327,13 @@ ACP 已向 Agent 子进程注入 Relay URL、私钥和授权 tag，因此无需�
 
 ## 9. 产品决策状态
 
-1. **已确认**：日程默认仅作者可见。
-2. **已确认**：Agent 管理自己署名的日程，不代表用户签名。
+1. **已确认**：用户署名日程默认仅作者可见；Agent 署名日程默认仅 Agent 作者及其 registered owner 可见。
+2. **已确认**：Agent 管理自己署名的日程，不代表用户签名；owner 可以查看和删除，但不能冒充 Agent 发布 replacement。
 3. **已确认**：不做会议室和预约活动，外部同步延后。
 4. **已确认**：首版不做重复日程。
 5. **已确认**：点击日/周时间网格可以直接按所选时间段快速创建日程。
-6. **待确认**：用户是否需要读取其所属 Agent 创建的日程？严格“仅作者可见”时用户看不到 Agent 日程；建议增加 owner-read/agent-write 关系。
-7. **待确认**：“仅自己可见”是否只要求其他成员看不到，还是要求 Relay 管理员也无法看到明文？建议首版采用 Relay ACL，端到端加密另行设计。
+6. **已确认**：`Who can talk to the agent` 仅控制对话资格；`owner-only`、`allowlist`、`anyone` 均不扩大 Agent 日历可见范围。
+7. **待确认**：“私有”是否只要求其他成员看不到，还是要求 Relay 管理员也无法看到明文？建议首版采用 Relay ACL，端到端加密另行设计。
 8. **待确认**：日/周/月是否都必须首发？建议三种都做，但以周视图为主要验收视图。
 9. **待确认**：`31924` 多日历管理首版是否只提供“我的日历”，还是允许用户新建多个命名日历？
 

@@ -1,14 +1,21 @@
 import * as React from "react";
-import { addLocalDays, dateKey, startOfWeek } from "../lib/calendarDateMath";
+import {
+  addLocalDays,
+  dateKey,
+  gridMinuteFromY,
+  gridOffsetForDate,
+  startOfWeek,
+} from "../lib/calendarDateMath";
 import type {
   CalendarDraft,
   CalendarEvent,
   CalendarView,
 } from "../lib/calendarTypes";
 
-const START_HOUR = 7;
-const END_HOUR = 22;
+const START_HOUR = 0;
+const END_HOUR = 24;
 const HOUR_HEIGHT = 64;
+export const INITIAL_SCROLL_HOUR = 7;
 
 function atMinute(day: Date, minute: number) {
   return new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, minute);
@@ -21,6 +28,9 @@ export function CalendarGrid({
   draft,
   onDraft,
   onOpen,
+  currentPubkey,
+  scrollTopRef,
+  authorLabels,
 }: {
   date: Date;
   view: Exclude<CalendarView, "month">;
@@ -28,6 +38,9 @@ export function CalendarGrid({
   draft: CalendarDraft | null;
   onDraft: (draft: CalendarDraft) => void;
   onOpen: (event: CalendarEvent) => void;
+  currentPubkey?: string;
+  scrollTopRef: React.MutableRefObject<number | null>;
+  authorLabels: Readonly<Record<string, string>>;
 }) {
   const days =
     view === "day"
@@ -36,6 +49,13 @@ export function CalendarGrid({
           addLocalDays(startOfWeek(date), index),
         );
   const drag = React.useRef<{ day: Date; startMinute: number } | null>(null);
+  const scrollRef = React.useRef<HTMLDivElement>(null);
+  React.useLayoutEffect(() => {
+    const element = scrollRef.current;
+    if (!element) return;
+    element.scrollTop =
+      scrollTopRef.current ?? INITIAL_SCROLL_HOUR * HOUR_HEIGHT;
+  }, [scrollTopRef]);
   const minuteFromPointer = (element: HTMLElement, clientY: number) => {
     const y = Math.max(
       0,
@@ -44,7 +64,7 @@ export function CalendarGrid({
         clientY - element.getBoundingClientRect().top,
       ),
     );
-    return START_HOUR * 60 + Math.round((y / HOUR_HEIGHT) * 4) * 15;
+    return gridMinuteFromY(y, HOUR_HEIGHT);
   };
   const create = (day: Date, startMinute: number, endMinute: number) =>
     onDraft({
@@ -61,8 +81,12 @@ export function CalendarGrid({
   const visible = events.filter((event) => !event.allDay);
   return (
     <div
+      ref={scrollRef}
       className="min-h-0 flex-1 overflow-auto"
       data-testid={`calendar-${view}-view`}
+      onScroll={(event) => {
+        scrollTopRef.current = event.currentTarget.scrollTop;
+      }}
     >
       <div
         className="sticky top-0 z-20 ml-14 grid border-b border-border/60 bg-background"
@@ -152,12 +176,7 @@ export function CalendarGrid({
               ]
                 .filter((item) => dateKey(item.start) === dateKey(day))
                 .map((item) => {
-                  const top =
-                    ((item.start.getHours() * 60 +
-                      item.start.getMinutes() -
-                      START_HOUR * 60) /
-                      60) *
-                    HOUR_HEIGHT;
+                  const top = gridOffsetForDate(item.start, HOUR_HEIGHT);
                   const height = Math.max(
                     24,
                     ((item.end.getTime() - item.start.getTime()) / 3_600_000) *
@@ -190,6 +209,13 @@ export function CalendarGrid({
                           minute: "2-digit",
                         }).format(item.start)}
                       </span>
+                      {item.eventId !== "draft" &&
+                      item.author !== currentPubkey ? (
+                        <span className="block truncate text-2xs opacity-80">
+                          Created by{" "}
+                          {authorLabels[item.author] ?? item.author.slice(0, 8)}
+                        </span>
+                      ) : null}
                     </button>
                   );
                 })}

@@ -125,9 +125,14 @@ pub const KIND_PUSH_LEASE: u32 = 30350;
 ///
 /// Currently a tiny linear set. If this grows past ~4 kinds, convert to a
 /// compile-time bitset or sorted array with binary search for hot-path use.
-pub const AUTHOR_ONLY_KINDS: &[u32] = &[
-    KIND_EVENT_REMINDER,
-    KIND_PUSH_LEASE,
+pub const AUTHOR_ONLY_KINDS: &[u32] = &[KIND_EVENT_REMINDER, KIND_PUSH_LEASE];
+
+/// NIP-52 kinds with owner-aware private visibility.
+///
+/// Human-authored events are author-only. Agent-authored events are readable
+/// by the signing agent and `users.agent_owner_pubkey`; conversation audience
+/// settings never participate in this ACL.
+pub const PRIVATE_CALENDAR_KINDS: &[u32] = &[
     KIND_CALENDAR_DATE_EVENT,
     KIND_CALENDAR_TIME_EVENT,
     KIND_CALENDAR,
@@ -977,7 +982,8 @@ mod tests {
             KIND_CALENDAR_RSVP,
         ] {
             assert!(is_parameterized_replaceable(kind));
-            assert!(AUTHOR_ONLY_KINDS.contains(&kind));
+            assert!(PRIVATE_CALENDAR_KINDS.contains(&kind));
+            assert!(!AUTHOR_ONLY_KINDS.contains(&kind));
         }
     }
 }

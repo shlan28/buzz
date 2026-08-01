@@ -8,7 +8,7 @@ use tracing::{debug, error, info, warn};
 use buzz_core::event::StoredEvent;
 use buzz_core::kind::{
     event_kind_u32, is_ephemeral, is_unshared_persona_event, AUTHOR_ONLY_KINDS,
-    KIND_AGENT_OBSERVER_FRAME, KIND_GIFT_WRAP, KIND_PRESENCE_UPDATE,
+    KIND_AGENT_OBSERVER_FRAME, KIND_GIFT_WRAP, KIND_PRESENCE_UPDATE, PRIVATE_CALENDAR_KINDS,
 };
 use buzz_core::observer::{
     content_looks_like_nip44, OBSERVER_AGENT_TAG, OBSERVER_FRAME_CONTROL, OBSERVER_FRAME_TAG,
@@ -29,6 +29,10 @@ use super::ingest::{reject_with_transport, IngestAuth, IngestError};
 /// Increment the rejection counter with a bounded reason label.
 fn reject(reason: &'static str) {
     reject_with_transport("ws", reason);
+}
+
+fn calendar_reader_authorized(reader: &[u8], author: &[u8], owner: Option<&[u8]>) -> bool {
+    reader == author || owner.is_some_and(|owner| reader == owner)
 }
 
 /// Bound the `kind` label to prevent cardinality explosion from arbitrary Nostr kinds.
@@ -145,6 +149,32 @@ pub async fn filter_fanout_by_access(
                     .conn_manager
                     .pubkey_for_conn(*conn_id)
                     .is_some_and(|pk| pk == author)
+            })
+            .collect()
+    } else {
+        matches
+    };
+
+    // NIP-52 private calendars: a human-authored event is visible only to its
+    // author; an agent-authored event is additionally visible to the immutable
+    // registered owner. Conversation `respond_to` settings are deliberately
+    // absent from this decision.
+    let matches = if PRIVATE_CALENDAR_KINDS.contains(&event_kind_u32(&stored_event.event)) {
+        let author = stored_event.event.pubkey.to_bytes();
+        let owner = match state.db.get_agent_owner_pubkey(community_id, &author).await {
+            Ok(owner) => owner,
+            Err(e) => {
+                warn!(error = %e, "calendar fan-out owner lookup failed; withholding event");
+                return Vec::new();
+            }
+        };
+        matches
+            .into_iter()
+            .filter(|(conn_id, _)| {
+                state
+                    .conn_manager
+                    .pubkey_for_conn(*conn_id)
+                    .is_some_and(|pk| calendar_reader_authorized(&pk, &author, owner.as_deref()))
             })
             .collect()
     } else {
@@ -1172,6 +1202,25 @@ mod tests {
     use tokio::sync::{mpsc, Mutex, RwLock};
     use tokio_util::sync::CancellationToken;
     use uuid::Uuid;
+
+    #[test]
+    fn calendar_acl_allows_only_author_or_registered_owner() {
+        let author = [1u8; 32];
+        let owner = [2u8; 32];
+        let stranger = [3u8; 32];
+        assert!(super::calendar_reader_authorized(&author, &author, None));
+        assert!(super::calendar_reader_authorized(
+            &owner,
+            &author,
+            Some(&owner)
+        ));
+        assert!(!super::calendar_reader_authorized(
+            &stranger,
+            &author,
+            Some(&owner)
+        ));
+        assert!(!super::calendar_reader_authorized(&owner, &author, None));
+    }
 
     #[test]
     fn fanout_event_frame_matches_legacy_format_byte_for_byte() {

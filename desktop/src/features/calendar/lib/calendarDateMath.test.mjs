@@ -4,6 +4,8 @@ import {
   addLocalDays,
   dateKey,
   getCalendarRange,
+  gridMinuteFromY,
+  gridOffsetForDate,
   parseDateKey,
   snapMinutes,
   startOfWeek,
@@ -27,6 +29,13 @@ test("date keys reject impossible dates", () => {
 test("slot snapping uses quarter hours", () => {
   assert.equal(snapMinutes(22), 15);
   assert.equal(snapMinutes(23), 30);
+});
+
+test("time grid coordinates are measured from midnight", () => {
+  assert.equal(gridMinuteFromY(0, 64), 0);
+  assert.equal(gridMinuteFromY(7 * 64, 64), 7 * 60);
+  assert.equal(gridMinuteFromY(24 * 64, 64), 24 * 60);
+  assert.equal(gridOffsetForDate(new Date(2026, 7, 1, 23, 30), 64), 23.5 * 64);
 });
 
 test("local day arithmetic crosses year boundaries", () => {

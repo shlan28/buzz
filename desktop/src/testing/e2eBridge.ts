@@ -27,6 +27,8 @@ import {
   KIND_AGENT_OBSERVER_FRAME,
   KIND_CHANNEL_THREAD_SUMMARY,
   KIND_CHANNEL_WINDOW_BOUNDS,
+  KIND_CALENDAR_DATE_EVENT,
+  KIND_CALENDAR_TIME_EVENT,
   KIND_DM_VISIBILITY,
   KIND_EVENT_REMINDER,
   KIND_GIT_ISSUE,
@@ -9123,6 +9125,35 @@ function sendToMockSocket(args: {
       const authors = filter.authors?.map((a) => a.toLowerCase());
       for (const event of mockReminderEvents) {
         if (authors && !authors.includes(event.pubkey.toLowerCase())) continue;
+        sendWsText(socket.handler, ["EVENT", subId, event]);
+      }
+      sendWsText(socket.handler, ["EOSE", subId]);
+      return;
+    }
+
+    if (
+      filter.kinds?.includes(KIND_CALENDAR_DATE_EVENT) ||
+      filter.kinds?.includes(KIND_CALENDAR_TIME_EVENT)
+    ) {
+      const authors = filter.authors?.map((author) => author.toLowerCase());
+      const start = Math.floor(new Date(2026, 7, 1, 10, 0).getTime() / 1_000);
+      const event: RelayEvent = {
+        id: "mock-owned-agent-calendar-event",
+        pubkey: OWNED_RELAY_AGENT_PUBKEY,
+        created_at: start - 60,
+        kind: KIND_CALENDAR_TIME_EVENT,
+        tags: [
+          ["d", "owned-agent-planning"],
+          ["title", "Agent planning block"],
+          ["start", String(start)],
+          ["end", String(start + 3_600)],
+          ["start_tzid", Intl.DateTimeFormat().resolvedOptions().timeZone],
+          ["end_tzid", Intl.DateTimeFormat().resolvedOptions().timeZone],
+        ],
+        content: "Created by the owner's relay agent.",
+        sig: "mocksig".repeat(20).slice(0, 128),
+      };
+      if (!authors || authors.includes(event.pubkey.toLowerCase())) {
         sendWsText(socket.handler, ["EVENT", subId, event]);
       }
       sendWsText(socket.handler, ["EOSE", subId]);

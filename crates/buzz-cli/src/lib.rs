@@ -1149,7 +1149,7 @@ pub enum CalendarCmd {
         to: String,
         #[arg(long = "calendar")]
         calendar: Option<String>,
-        /// Must be `me`; private calendar reads never query another author.
+        /// `me` or an owned-agent 64-hex pubkey. Relay authorization is authoritative.
         #[arg(long, default_value = "me")]
         author: String,
     },
@@ -1157,7 +1157,7 @@ pub enum CalendarCmd {
     Get {
         #[arg(long)]
         id: String,
-        /// Must be `me`; private calendar reads never query another author.
+        /// `me` or an owned-agent 64-hex pubkey. Relay authorization is authoritative.
         #[arg(long, default_value = "me")]
         author: String,
     },

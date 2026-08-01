@@ -2554,6 +2554,24 @@ impl Db {
         user::is_agent_owner(&self.pool, community_id, target_pubkey, actor_pubkey).await
     }
 
+    /// List registered agents owned by `owner_pubkey` in this community.
+    pub async fn list_owned_agent_pubkeys(
+        &self,
+        community_id: CommunityId,
+        owner_pubkey: &[u8],
+    ) -> Result<Vec<Vec<u8>>> {
+        user::list_owned_agent_pubkeys(&self.pool, community_id, owner_pubkey).await
+    }
+
+    /// Resolve the immutable registered owner of an agent pubkey.
+    pub async fn get_agent_owner_pubkey(
+        &self,
+        community_id: CommunityId,
+        agent_pubkey: &[u8],
+    ) -> Result<Option<Vec<u8>>> {
+        user::get_agent_owner_pubkey(&self.pool, community_id, agent_pubkey).await
+    }
+
     /// Set the channel_add_policy for a user.
     pub async fn set_channel_add_policy(
         &self,

@@ -204,5 +204,8 @@ buzz calendar update --id planning-2026-08-03 --location "Room A"
 buzz calendar delete --id planning-2026-08-03
 ```
 
-Calendar reads are always scoped to the caller's pubkey. Omitted update fields
-are preserved; use a matching `--clear-*` flag to remove an optional field.
+Calendar reads default to the caller's pubkey. An owner may pass
+`--author <owned-agent-pubkey>` to read an owned Agent's calendar; the Relay
+rejects unrelated cross-author reads. Updates and deletes always target the
+caller's own events. Omitted update fields are preserved; use a matching
+`--clear-*` flag to remove an optional field.

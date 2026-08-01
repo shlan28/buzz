@@ -3633,6 +3633,8 @@ mod agent_draft_prompt_tests {
         assert!(prompt.contains("--id <stable-id>"));
         assert!(prompt.contains("IANA `--timezone`"));
         assert!(prompt.contains("events signed by this agent"));
+        assert!(prompt.contains("owner can read events signed by an agent it owns"));
+        assert!(prompt.contains("An agent cannot read the owner's calendar"));
     }
 
     #[test]

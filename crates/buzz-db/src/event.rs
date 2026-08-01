@@ -90,6 +90,8 @@ pub struct EventQuery {
     pub calendar_from: Option<i64>,
     /// Exclusive occurrence-window upper bound (Unix seconds).
     pub calendar_to: Option<i64>,
+    /// Reader for owner-aware private calendar visibility.
+    pub calendar_reader: Option<Vec<u8>>,
 }
 
 impl EventQuery {
@@ -121,6 +123,7 @@ impl EventQuery {
             persona_reader: None,
             calendar_from: None,
             calendar_to: None,
+            calendar_reader: None,
         }
     }
 }
@@ -590,6 +593,16 @@ pub(crate) async fn query_events_on(
         qb.push(")");
     }
 
+    if let Some(ref reader) = q.calendar_reader {
+        qb.push(format!(
+            " AND ({col_prefix}kind NOT IN (31922,31923,31924,31925) OR {col_prefix}pubkey = "
+        ));
+        qb.push_bind(reader.clone());
+        qb.push(format!(" OR EXISTS (SELECT 1 FROM users calendar_author WHERE calendar_author.community_id = {col_prefix}community_id AND calendar_author.pubkey = {col_prefix}pubkey AND calendar_author.agent_owner_pubkey = "));
+        qb.push_bind(reader.clone());
+        qb.push("))");
+    }
+
     // Composite ordering for deterministic pagination across ALL callers of
     // query_events (WebSocket REQ, REST endpoints, canvas, notes, etc.).
     // The `id ASC` tiebreaker ensures stable results when events share the
@@ -809,6 +822,16 @@ pub(crate) async fn count_events_on(conn: &mut sqlx::PgConnection, q: &EventQuer
             }
             qb.push(")");
         }
+    }
+
+    if let Some(ref reader) = q.calendar_reader {
+        qb.push(format!(
+            " AND ({col_prefix}kind NOT IN (31922,31923,31924,31925) OR {col_prefix}pubkey = "
+        ));
+        qb.push_bind(reader.clone());
+        qb.push(format!(" OR EXISTS (SELECT 1 FROM users calendar_author WHERE calendar_author.community_id = {col_prefix}community_id AND calendar_author.pubkey = {col_prefix}pubkey AND calendar_author.agent_owner_pubkey = "));
+        qb.push_bind(reader.clone());
+        qb.push("))");
     }
 
     let row = qb.build().fetch_one(&mut *conn).await?;

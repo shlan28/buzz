@@ -3,6 +3,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { relayClient } from "@/shared/api/relayClient";
 import { signRelayEvent } from "@/shared/api/tauri";
 import { useIdentityQuery } from "@/shared/api/hooks";
+import {
+  useManagedAgentsQuery,
+  useRelayAgentsQuery,
+} from "@/features/agents/hooks";
+import { mergeOwnedAgentPubkeys } from "@/features/agents/knownAgentPubkeys";
+import { getUsersBatch } from "@/shared/api/tauriProfiles";
 import type { RelayEvent } from "@/shared/api/types";
 import {
   KIND_CALENDAR_DATE_EVENT,
@@ -120,13 +126,51 @@ export const calendarQueryKey = (pubkey: string) =>
 export function useCalendar(range: CalendarRange) {
   const identity = useIdentityQuery();
   const pubkey = identity.data?.pubkey;
+  const managedAgents = useManagedAgentsQuery().data;
+  const relayAgents = useRelayAgentsQuery().data;
+  const relayAgentProfiles = useQuery({
+    enabled: Boolean(pubkey && relayAgents?.length),
+    queryKey: [
+      "calendar-agent-profiles",
+      pubkey,
+      ...(relayAgents ?? []).map((agent) => agent.pubkey).sort(),
+    ],
+    queryFn: () =>
+      getUsersBatch((relayAgents ?? []).map((agent) => agent.pubkey)),
+    staleTime: 30_000,
+  });
+  const ownedAgentPubkeys = React.useMemo(
+    () =>
+      mergeOwnedAgentPubkeys(
+        managedAgents,
+        relayAgentProfiles.data?.profiles,
+        pubkey,
+      ),
+    [managedAgents, pubkey, relayAgentProfiles.data?.profiles],
+  );
+  const visibleAuthors = React.useMemo(
+    () =>
+      pubkey
+        ? [pubkey, ...ownedAgentPubkeys].filter(
+            (value, index, all) => all.indexOf(value) === index,
+          )
+        : [],
+    [ownedAgentPubkeys, pubkey],
+  );
+  const authorLabels = React.useMemo(() => {
+    const labels: Record<string, string> = {};
+    for (const agent of managedAgents ?? []) labels[agent.pubkey] = agent.name;
+    for (const agent of relayAgents ?? []) labels[agent.pubkey] = agent.name;
+    return labels;
+  }, [managedAgents, relayAgents]);
   const queryClient = useQueryClient();
   const query = useQuery({
-    enabled: Boolean(pubkey),
+    enabled: Boolean(pubkey) && !relayAgentProfiles.isLoading,
     queryKey: [
       ...calendarQueryKey(pubkey ?? ""),
       range.start.getTime(),
       range.end.getTime(),
+      ...visibleAuthors,
     ],
     queryFn: async () => {
       // Event occurrence time is independent of created_at. Page all of the
@@ -138,7 +182,7 @@ export function useCalendar(range: CalendarRange) {
       for (;;) {
         const batch = await relayClient.fetchEvents({
           kinds: [...EVENT_KINDS],
-          authors: [pubkey ?? ""],
+          authors: visibleAuthors,
           limit: pageSize,
           ...(until === undefined ? {} : { until }),
         });
@@ -166,7 +210,7 @@ export function useCalendar(range: CalendarRange) {
       .subscribeLive(
         {
           kinds: [...EVENT_KINDS, KIND_DELETION],
-          authors: [pubkey],
+          authors: visibleAuthors,
           limit: 0,
         },
         () => {
@@ -179,7 +223,7 @@ export function useCalendar(range: CalendarRange) {
         dispose = next;
       });
     return () => dispose?.();
-  }, [pubkey, queryClient]);
+  }, [pubkey, queryClient, visibleAuthors]);
   const events = (query.data ?? []).filter(
     (event) => event.start < range.end && event.end > range.start,
   );
@@ -211,5 +255,5 @@ export function useCalendar(range: CalendarRange) {
         queryKey: calendarQueryKey(pubkey ?? ""),
       }),
   });
-  return { ...query, events, pubkey, save, remove };
+  return { ...query, events, pubkey, authorLabels, save, remove };
 }

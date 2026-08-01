@@ -12,12 +12,14 @@ import type { CalendarEvent } from "../lib/calendarTypes";
 export function CalendarEventPopover({
   event,
   currentPubkey,
+  authorLabel,
   onClose,
   onEdit,
   onDelete,
 }: {
   event: CalendarEvent | null;
   currentPubkey?: string;
+  authorLabel?: string;
   onClose: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -56,16 +58,18 @@ export function CalendarEventPopover({
               <p className="text-sm text-muted-foreground">{event.location}</p>
             ) : null}
             <p className="truncate text-xs text-muted-foreground">
-              Author: {event.author}
+              {event.author === currentPubkey
+                ? "Created by you"
+                : `Created by ${authorLabel ?? event.author}`}
             </p>
-            {event.author === currentPubkey ? (
-              <DialogFooter>
-                <Button variant="destructive" onClick={onDelete}>
-                  Delete
-                </Button>
+            <DialogFooter>
+              <Button variant="destructive" onClick={onDelete}>
+                Delete
+              </Button>
+              {event.author === currentPubkey ? (
                 <Button onClick={onEdit}>Edit</Button>
-              </DialogFooter>
-            ) : null}
+              ) : null}
+            </DialogFooter>
           </>
         ) : null}
       </DialogContent>
