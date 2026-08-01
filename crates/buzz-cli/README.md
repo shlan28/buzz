@@ -109,6 +109,11 @@ stored rules in `validation_error` so an owner can remove and repair them.
 | | `thread` | Get a message thread |
 | | `search` | Full-text search, filterable by author |
 | | `vote` | Vote on a forum post |
+| `calendar` | `create` | Create a private NIP-52 event signed by this identity |
+| | `list` | List your events overlapping a time window |
+| | `get` | Get your event by stable id |
+| | `update` | Partially update your event |
+| | `delete` | Delete your event |
 | `channels` | `list` | List channels |
 | | `get` | Get channel details |
 | | `create` | Create a channel |
@@ -181,3 +186,26 @@ stdout: raw relay JSON
 stderr: {"error": "category", "message": "detail"}
 exit:   0=ok  1=user  2=network  3=auth  4=other  5=write conflict
 ```
+
+## Calendar examples
+
+```bash
+buzz calendar create --id planning-2026-08-03 \
+  --title "Planning" \
+  --start 2026-08-03T10:00:00+08:00 \
+  --end 2026-08-03T10:30:00+08:00 \
+  --timezone Asia/Shanghai
+
+buzz calendar list \
+  --from 2026-08-01T00:00:00+08:00 \
+  --to 2026-09-01T00:00:00+08:00
+
+buzz calendar update --id planning-2026-08-03 --location "Room A"
+buzz calendar delete --id planning-2026-08-03
+```
+
+Calendar reads default to the caller's pubkey. An owner may pass
+`--author <owned-agent-pubkey>` to read an owned Agent's calendar; the Relay
+rejects unrelated cross-author reads. Updates and deletes always target the
+caller's own events. Omitted update fields are preserved; use a matching
+`--clear-*` flag to remove an optional field.

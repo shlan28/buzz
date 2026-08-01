@@ -368,6 +368,40 @@ pub async fn is_agent_owner(
     Ok(row.unwrap_or(false))
 }
 
+/// Return agent pubkeys whose immutable registered owner is `owner_pubkey`.
+pub async fn list_owned_agent_pubkeys(
+    pool: &PgPool,
+    community_id: CommunityId,
+    owner_pubkey: &[u8],
+) -> Result<Vec<Vec<u8>>> {
+    let rows =
+        sqlx::query("SELECT pubkey FROM users WHERE community_id = $1 AND agent_owner_pubkey = $2")
+            .bind(community_id.as_uuid())
+            .bind(owner_pubkey)
+            .fetch_all(pool)
+            .await?;
+    rows.into_iter()
+        .map(|row| row.try_get("pubkey").map_err(Into::into))
+        .collect()
+}
+
+/// Return the registered owner of `agent_pubkey`, or `None` for a human/missing user.
+pub async fn get_agent_owner_pubkey(
+    pool: &PgPool,
+    community_id: CommunityId,
+    agent_pubkey: &[u8],
+) -> Result<Option<Vec<u8>>> {
+    let row =
+        sqlx::query("SELECT agent_owner_pubkey FROM users WHERE community_id = $1 AND pubkey = $2")
+            .bind(community_id.as_uuid())
+            .bind(agent_pubkey)
+            .fetch_optional(pool)
+            .await?;
+    row.map(|row| row.try_get("agent_owner_pubkey"))
+        .transpose()
+        .map_err(Into::into)
+}
+
 /// Set the channel_add_policy for a user.
 /// Returns an error if the pubkey is not found (rows_affected == 0).
 /// Returns an error if `policy` is not one of the valid ENUM values.

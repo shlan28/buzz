@@ -1,4 +1,11 @@
-import { Activity, Bot, FolderGit2, Inbox, Zap } from "lucide-react";
+import {
+  Activity,
+  Bot,
+  CalendarDays,
+  FolderGit2,
+  Inbox,
+  Zap,
+} from "lucide-react";
 
 import { TopbarSearch } from "@/features/search/ui/TopbarSearch";
 import { FeatureGate } from "@/shared/features";
@@ -19,7 +26,8 @@ type SidebarSelectedView =
   | "agents"
   | "workflows"
   | "pulse"
-  | "projects";
+  | "projects"
+  | "calendar";
 
 type AppSidebarPinnedHeaderProps = {
   channelLabels: Record<string, string>;
@@ -38,6 +46,7 @@ type AppSidebarPinnedHeaderProps = {
 type AppSidebarPrimaryMenuProps = {
   homeBadgeCount: number;
   onSelectAgents: () => void;
+  onSelectCalendar: () => void;
   onSelectHome: () => void;
   onSelectProjects: () => void;
   onSelectPulse: () => void;
@@ -83,6 +92,7 @@ export function AppSidebarPinnedHeader({
 export function AppSidebarPrimaryMenu({
   homeBadgeCount,
   onSelectAgents,
+  onSelectCalendar,
   onSelectHome,
   onSelectProjects,
   onSelectPulse,
@@ -126,6 +136,20 @@ export function AppSidebarPrimaryMenu({
             >
               <Activity className="h-4 w-4" />
               <SidebarMenuLabel>Pulse</SidebarMenuLabel>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </FeatureGate>
+        <FeatureGate feature="calendar">
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              data-testid="open-calendar-view"
+              isActive={selectedView === "calendar"}
+              onClick={onSelectCalendar}
+              tooltip="Calendar"
+              type="button"
+            >
+              <CalendarDays className="h-4 w-4" />
+              <SidebarMenuLabel>Calendar</SidebarMenuLabel>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </FeatureGate>

@@ -27,6 +27,8 @@ import {
   KIND_AGENT_OBSERVER_FRAME,
   KIND_CHANNEL_THREAD_SUMMARY,
   KIND_CHANNEL_WINDOW_BOUNDS,
+  KIND_CALENDAR_DATE_EVENT,
+  KIND_CALENDAR_TIME_EVENT,
   KIND_DM_VISIBILITY,
   KIND_EVENT_REMINDER,
   KIND_GIT_ISSUE,
@@ -235,6 +237,16 @@ type E2eConfig = {
     personaSharePublicationStatuses?: Array<"published" | "queued">;
     teams?: MockTeamSeed[];
     relayAgents?: MockRelayAgentSeed[];
+    /** Exhaust automatic calendar retries, then allow the manual Retry. */
+    failCalendarHistoryUntilManualRetry?: boolean;
+    /** Authors whose calendar retries fail until the user retries manually. */
+    failCalendarAuthorsUntilManualRetry?: string[];
+    /** Delay between accepting a calendar deletion and hiding its coordinate. */
+    calendarDeleteSideEffectDelayMs?: number;
+    /** Sequenced calendar deletion publish failures. */
+    calendarDeleteErrors?: string[];
+    /** Additional calendar events returned by the mock relay. */
+    calendarEvents?: RelayEvent[];
     agentListDelayMs?: number;
     agentMemory?: RawAgentMemoryListing | Record<string, RawAgentMemoryListing>;
     addChannelMembersDelayMs?: number;
@@ -1193,6 +1205,7 @@ declare global {
     /** Count of `get_event` invocations for the current defer-target ID since
      *  the last time `__BUZZ_E2E_DEFER_GET_EVENT__` was set. */
     __BUZZ_E2E_GET_EVENT_CALL_COUNT__?: number;
+    __BUZZ_E2E_CALENDAR_DELETE_COUNT__?: number;
   }
 }
 
@@ -2810,6 +2823,8 @@ let mockRelayMembers: RawRelayMember[] = [];
 const mockSockets = new Map<number, MockSocket>();
 let mockWebsocketSendMutexWedged = false;
 let mockClosedChannelLiveSubscription = false;
+const mockClosedCalendarHistoryCounts = new Map<string, number>();
+const mockDeletedCalendarCoordinates = new Set<string>();
 const realSockets = new Map<number, WebSocket>();
 let mockManagedAgents: MockManagedAgent[] = [];
 let mockManagedAgentRuntimes: MockManagedAgentRuntimeRow[] = [];
@@ -9129,6 +9144,102 @@ function sendToMockSocket(args: {
       return;
     }
 
+    if (
+      filter.kinds?.includes(KIND_CALENDAR_DATE_EVENT) ||
+      filter.kinds?.includes(KIND_CALENDAR_TIME_EVENT)
+    ) {
+      const authors = filter.authors?.map((author) => author.toLowerCase());
+      const identityPubkey = getMockMemberPubkey(getConfig()).toLowerCase();
+      const rejectedAuthors = new Set(
+        getConfig()?.mock?.failCalendarAuthorsUntilManualRetry?.map((author) =>
+          author.toLowerCase(),
+        ) ?? [],
+      );
+      if (getConfig()?.mock?.failCalendarHistoryUntilManualRetry) {
+        rejectedAuthors.add(identityPubkey);
+      }
+      const rejectedAuthor = authors?.find((author) =>
+        rejectedAuthors.has(author),
+      );
+      const rejectionCount = rejectedAuthor
+        ? (mockClosedCalendarHistoryCounts.get(rejectedAuthor) ?? 0)
+        : 0;
+      if (rejectedAuthor && rejectionCount < 3) {
+        mockClosedCalendarHistoryCounts.set(rejectedAuthor, rejectionCount + 1);
+        sendWsText(socket.handler, [
+          "CLOSED",
+          subId,
+          "restricted: calendar test rejection",
+        ]);
+        return;
+      }
+      const hasUnauthorizedAuthor = authors?.some((author) => {
+        if (author === identityPubkey) return false;
+        return (
+          getMockProfileByPubkey(author)?.owner_pubkey?.toLowerCase() !==
+          identityPubkey
+        );
+      });
+      if (hasUnauthorizedAuthor) {
+        sendWsText(socket.handler, [
+          "CLOSED",
+          subId,
+          "restricted: calendar authors must be owned",
+        ]);
+        return;
+      }
+      const start = Math.floor(new Date(2026, 7, 1, 10, 0).getTime() / 1_000);
+      const calendarEvents: RelayEvent[] = [
+        {
+          id: "mock-personal-calendar-event",
+          pubkey: identityPubkey,
+          created_at: start - 30,
+          kind: KIND_CALENDAR_TIME_EVENT,
+          tags: [
+            ["d", "personal-focus"],
+            ["title", "Personal focus block"],
+            ["start", String(start + 3_600)],
+            ["end", String(start + 5_400)],
+            ["start_tzid", Intl.DateTimeFormat().resolvedOptions().timeZone],
+            ["end_tzid", Intl.DateTimeFormat().resolvedOptions().timeZone],
+          ],
+          content: "Created by the calendar owner.",
+          sig: "mocksig".repeat(20).slice(0, 128),
+        },
+        {
+          id: "mock-owned-agent-calendar-event",
+          pubkey: OWNED_RELAY_AGENT_PUBKEY,
+          created_at: start - 60,
+          kind: KIND_CALENDAR_TIME_EVENT,
+          tags: [
+            ["d", "owned-agent-planning"],
+            ["title", "Agent planning block"],
+            ["start", String(start)],
+            ["end", String(start + 3_600)],
+            ["start_tzid", Intl.DateTimeFormat().resolvedOptions().timeZone],
+            ["end_tzid", Intl.DateTimeFormat().resolvedOptions().timeZone],
+          ],
+          content: "Created by the owner's relay agent.",
+          sig: "mocksig".repeat(20).slice(0, 128),
+        },
+        ...(getConfig()?.mock?.calendarEvents ?? []),
+      ];
+      for (const event of calendarEvents) {
+        const dTag = event.tags.find((tag) => tag[0] === "d")?.[1];
+        const coordinate = dTag
+          ? `${event.kind}:${event.pubkey}:${dTag}`
+          : undefined;
+        if (coordinate && mockDeletedCalendarCoordinates.has(coordinate)) {
+          continue;
+        }
+        if (!authors || authors.includes(event.pubkey.toLowerCase())) {
+          sendWsText(socket.handler, ["EVENT", subId, event]);
+        }
+      }
+      sendWsText(socket.handler, ["EOSE", subId]);
+      return;
+    }
+
     if (filter.kinds?.includes(KIND_PERSONA)) {
       const authors = filter.authors?.map((author) => author.toLowerCase());
       const sourceIds = filter["#d"];
@@ -9247,6 +9358,29 @@ function sendToMockSocket(args: {
       mockReminderEvents.push(event);
       sendWsText(socket.handler, ["OK", event.id, true, ""]);
       return;
+    }
+
+    if (event.kind === KIND_DELETION) {
+      const coordinate = event.tags.find((tag) => tag[0] === "a")?.[1];
+      if (
+        coordinate?.startsWith(`${KIND_CALENDAR_DATE_EVENT}:`) ||
+        coordinate?.startsWith(`${KIND_CALENDAR_TIME_EVENT}:`)
+      ) {
+        const rejection = getConfig()?.mock?.calendarDeleteErrors?.shift();
+        if (rejection) {
+          sendWsText(socket.handler, ["OK", event.id, false, rejection]);
+          return;
+        }
+        window.__BUZZ_E2E_CALENDAR_DELETE_COUNT__ =
+          (window.__BUZZ_E2E_CALENDAR_DELETE_COUNT__ ?? 0) + 1;
+        emitMockGlobalEvent(event);
+        sendWsText(socket.handler, ["OK", event.id, true, ""]);
+        const delayMs = getConfig()?.mock?.calendarDeleteSideEffectDelayMs ?? 0;
+        window.setTimeout(() => {
+          mockDeletedCalendarCoordinates.add(coordinate);
+        }, delayMs);
+        return;
+      }
     }
 
     if (event.kind === KIND_PERSONA) {
@@ -9385,6 +9519,8 @@ export function maybeInstallE2eTauriMocks() {
   }
 
   mockClosedChannelLiveSubscription = false;
+  mockClosedCalendarHistoryCounts.clear();
+  mockDeletedCalendarCoordinates.clear();
   mockGlobalAgentConfig = config.mock?.globalAgentConfig
     ? { ...config.mock.globalAgentConfig }
     : null;
@@ -9528,6 +9664,7 @@ export function maybeInstallE2eTauriMocks() {
   };
   // get_event defer/release seam — reset counter and queue on each install.
   window.__BUZZ_E2E_GET_EVENT_CALL_COUNT__ = 0;
+  window.__BUZZ_E2E_CALENDAR_DELETE_COUNT__ = 0;
   window.__BUZZ_E2E_DEFER_GET_EVENT__ = null;
   deferredGetEventQueue = [];
   window.__BUZZ_E2E_RELEASE_GET_EVENT__ = () => {

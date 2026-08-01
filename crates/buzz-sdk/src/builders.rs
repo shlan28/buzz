@@ -23,8 +23,16 @@ use nostr::{EventBuilder, Kind, Tag};
 use uuid::Uuid;
 
 use crate::{
-    ChannelKind, CustomEmoji, DiffMeta, MemberRole, SdkError, ThreadRef, Visibility, VoteDirection,
+    CalendarEventInput, ChannelKind, CustomEmoji, DiffMeta, MemberRole, SdkError, ThreadRef,
+    Visibility, VoteDirection,
 };
+
+/// NIP-52 date-based calendar event kind.
+pub const KIND_CALENDAR_DATE: u16 = 31922;
+/// NIP-52 time-based calendar event kind.
+pub const KIND_CALENDAR_TIME: u16 = 31923;
+/// NIP-52 calendar collection kind.
+pub const KIND_CALENDAR_COLLECTION: u16 = 31924;
 
 /// Parse a tag slice, mapping errors to `SdkError::InvalidTag`.
 fn tag(parts: &[&str]) -> Result<Tag, SdkError> {
@@ -73,6 +81,174 @@ fn check_pubkey_hex(s: &str, field: &str) -> Result<String, SdkError> {
         )));
     }
     Ok(s.to_ascii_lowercase())
+}
+
+fn check_calendar_id(id: &str) -> Result<(), SdkError> {
+    if id.is_empty() || id.len() > 128 {
+        return Err(SdkError::InvalidInput(
+            "calendar event id must contain 1..=128 bytes".into(),
+        ));
+    }
+    if id.chars().any(char::is_control) || id.contains(':') {
+        return Err(SdkError::InvalidInput(
+            "calendar event id must not contain control characters or ':'".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// Build a NIP-52 date-based or time-based calendar event.
+pub fn build_calendar_event(input: &CalendarEventInput) -> Result<EventBuilder, SdkError> {
+    check_calendar_id(&input.id)?;
+    if input.title.trim().is_empty() {
+        return Err(SdkError::InvalidInput(
+            "calendar title must not be empty".into(),
+        ));
+    }
+    if input.start.is_empty() {
+        return Err(SdkError::InvalidInput(
+            "calendar start must not be empty".into(),
+        ));
+    }
+    let valid_date = |value: &str| {
+        value.len() == 10
+            && value.as_bytes().get(4) == Some(&b'-')
+            && value.as_bytes().get(7) == Some(&b'-')
+            && value
+                .chars()
+                .enumerate()
+                .all(|(index, character)| matches!(index, 4 | 7) || character.is_ascii_digit())
+    };
+    if input.all_day {
+        if !valid_date(&input.start) || input.end.as_deref().is_some_and(|end| !valid_date(end)) {
+            return Err(SdkError::InvalidInput(
+                "all-day start/end must use YYYY-MM-DD".into(),
+            ));
+        }
+    } else if input.start.parse::<u64>().is_err()
+        || input
+            .end
+            .as_deref()
+            .is_some_and(|end| end.parse::<u64>().is_err())
+    {
+        return Err(SdkError::InvalidInput(
+            "timed start/end must use Unix seconds".into(),
+        ));
+    }
+    if input.end.as_ref().is_some_and(|end| {
+        if input.all_day {
+            end <= &input.start
+        } else {
+            end.parse::<u64>().ok() <= input.start.parse::<u64>().ok()
+        }
+    }) {
+        return Err(SdkError::InvalidInput(
+            "calendar end must be later than start".into(),
+        ));
+    }
+    for tzid in [&input.start_tzid, &input.end_tzid].into_iter().flatten() {
+        if (tzid != "UTC" && !tzid.contains('/')) || tzid.chars().any(char::is_whitespace) {
+            return Err(SdkError::InvalidInput(
+                "calendar timezone must be an IANA identifier".into(),
+            ));
+        }
+    }
+    check_content(&input.description, 64 * 1024)?;
+
+    let mut tags = vec![
+        tag(&["d", &input.id])?,
+        tag(&["title", input.title.trim()])?,
+        tag(&["start", &input.start])?,
+    ];
+    if let Some(end) = input.end.as_deref() {
+        tags.push(tag(&["end", end])?);
+    }
+    if let Some(summary) = input.summary.as_deref().filter(|s| !s.is_empty()) {
+        tags.push(tag(&["summary", summary])?);
+    }
+    if !input.all_day {
+        let start = input
+            .start
+            .parse::<u64>()
+            .map_err(|_| SdkError::InvalidInput("timed start must use Unix seconds".into()))?;
+        let end = input
+            .end
+            .as_deref()
+            .map(str::parse::<u64>)
+            .transpose()
+            .map_err(|_| SdkError::InvalidInput("timed end must use Unix seconds".into()))?;
+        let first_day = start / 86_400;
+        let last_day = end
+            .map(|value| value.saturating_sub(1) / 86_400)
+            .unwrap_or(first_day);
+        for day in first_day..=last_day {
+            tags.push(tag(&["D", &day.to_string()])?);
+        }
+        if let Some(tzid) = input.start_tzid.as_deref() {
+            tags.push(tag(&["start_tzid", tzid])?);
+        }
+        if let Some(tzid) = input.end_tzid.as_deref() {
+            tags.push(tag(&["end_tzid", tzid])?);
+        }
+    }
+    for location in &input.locations {
+        tags.push(tag(&["location", location])?);
+    }
+    for participant in &input.participants {
+        let pubkey = check_pubkey_hex(&participant.pubkey, "participant pubkey")?;
+        match participant.role.as_deref() {
+            Some(role) => tags.push(tag(&["p", &pubkey, "", role])?),
+            None => tags.push(tag(&["p", &pubkey])?),
+        }
+    }
+    for calendar_id in &input.calendar_ids {
+        if calendar_id.is_empty() {
+            return Err(SdkError::InvalidInput(
+                "calendar id must not be empty".into(),
+            ));
+        }
+        tags.push(tag(&["a", calendar_id])?);
+    }
+    let kind = if input.all_day {
+        KIND_CALENDAR_DATE
+    } else {
+        KIND_CALENDAR_TIME
+    };
+    Ok(EventBuilder::new(Kind::Custom(kind), &input.description).tags(tags))
+}
+
+/// Build a NIP-52 calendar collection (kind 31924).
+pub fn build_calendar_collection(id: &str, title: &str) -> Result<EventBuilder, SdkError> {
+    check_calendar_id(id)?;
+    if title.trim().is_empty() {
+        return Err(SdkError::InvalidInput(
+            "calendar title must not be empty".into(),
+        ));
+    }
+    Ok(
+        EventBuilder::new(Kind::Custom(KIND_CALENDAR_COLLECTION), "")
+            .tags(vec![tag(&["d", id])?, tag(&["title", title.trim()])?]),
+    )
+}
+
+/// Build a NIP-09 deletion targeting an addressable calendar coordinate.
+pub fn build_delete_calendar_event(
+    kind: u16,
+    author_hex: &str,
+    id: &str,
+) -> Result<EventBuilder, SdkError> {
+    if !matches!(kind, KIND_CALENDAR_DATE | KIND_CALENDAR_TIME) {
+        return Err(SdkError::InvalidInput(
+            "unsupported calendar event kind".into(),
+        ));
+    }
+    let author = check_pubkey_hex(author_hex, "calendar author")?;
+    check_calendar_id(id)?;
+    let coordinate = format!("{kind}:{author}:{id}");
+    Ok(EventBuilder::new(Kind::EventDeletion, "").tags(vec![
+        tag(&["a", &coordinate])?,
+        tag(&["k", &kind.to_string()])?,
+    ]))
 }
 
 /// Validate an exact-length hex string (event ids), returning it lowercased.
@@ -1884,6 +2060,97 @@ mod tests {
             let s = t.as_slice();
             s.first().map(|v| v.as_str()) == Some(key) && s.get(1).map(|v| v.as_str()) == Some(val)
         })
+    }
+
+    #[test]
+    fn calendar_timed_event_has_stable_coordinate_tags() {
+        let participant = keys().public_key().to_hex();
+        let ev = sign(
+            build_calendar_event(&CalendarEventInput {
+                id: "planning-1".into(),
+                title: "Planning".into(),
+                description: "Weekly planning".into(),
+                start: "1785547800".into(),
+                end: Some("1785549600".into()),
+                all_day: false,
+                start_tzid: Some("Asia/Shanghai".into()),
+                end_tzid: Some("Asia/Shanghai".into()),
+                summary: None,
+                locations: vec!["Room A".into()],
+                participants: vec![crate::CalendarParticipant {
+                    pubkey: participant.clone(),
+                    role: Some("required".into()),
+                }],
+                calendar_ids: vec![],
+            })
+            .unwrap(),
+        );
+        assert_eq!(ev.kind.as_u16(), KIND_CALENDAR_TIME);
+        assert_eq!(ev.content, "Weekly planning");
+        assert!(has_tag(&ev, "d", "planning-1"));
+        assert!(has_tag(&ev, "start_tzid", "Asia/Shanghai"));
+        assert!(has_tag(&ev, "p", &participant));
+        assert_eq!(tag_values(&ev, "D"), vec!["20666"]);
+    }
+
+    #[test]
+    fn calendar_timed_event_emits_each_intersected_utc_day() {
+        let ev = sign(
+            build_calendar_event(&CalendarEventInput {
+                id: "overnight".into(),
+                title: "Overnight".into(),
+                description: String::new(),
+                start: "86399".into(),
+                end: Some("86401".into()),
+                all_day: false,
+                start_tzid: Some("UTC".into()),
+                end_tzid: Some("UTC".into()),
+                summary: None,
+                locations: vec![],
+                participants: vec![],
+                calendar_ids: vec![],
+            })
+            .unwrap(),
+        );
+        assert_eq!(tag_values(&ev, "D"), vec!["0", "1"]);
+    }
+
+    #[test]
+    fn calendar_date_event_omits_timezone() {
+        let ev = sign(
+            build_calendar_event(&CalendarEventInput {
+                id: "holiday".into(),
+                title: "Holiday".into(),
+                description: String::new(),
+                start: "2026-08-01".into(),
+                end: Some("2026-08-02".into()),
+                all_day: true,
+                start_tzid: Some("Asia/Shanghai".into()),
+                end_tzid: Some("Asia/Shanghai".into()),
+                summary: None,
+                locations: vec![],
+                participants: vec![],
+                calendar_ids: vec![],
+            })
+            .unwrap(),
+        );
+        assert_eq!(ev.kind.as_u16(), KIND_CALENDAR_DATE);
+        assert!(tag_values(&ev, "start_tzid").is_empty());
+    }
+
+    #[test]
+    fn calendar_delete_targets_addressable_coordinate_only() {
+        let author = keys().public_key().to_hex();
+        let ev =
+            sign(build_delete_calendar_event(KIND_CALENDAR_TIME, &author, "planning-1").unwrap());
+        assert_eq!(ev.kind, Kind::EventDeletion);
+        assert!(has_tag(
+            &ev,
+            "a",
+            &format!("{KIND_CALENDAR_TIME}:{author}:planning-1")
+        ));
+        assert!(has_tag(&ev, "k", &KIND_CALENDAR_TIME.to_string()));
+        assert!(tag_values(&ev, "e").is_empty());
     }
 
     #[test]

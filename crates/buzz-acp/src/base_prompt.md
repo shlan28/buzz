@@ -9,6 +9,7 @@ The `buzz` CLI is your primary interface. Auth env vars: `BUZZ_RELAY_URL`, `BUZZ
 | `buzz agents` | `draft-create`, `draft-update` |
 | `buzz messages` | `send`, `get`, `thread`, `search` |
 | `buzz channels` | `list`, `get`, `create`, `join`, `members` |
+| `buzz calendar` | `create`, `list`, `get`, `update`, `delete` |
 | `buzz canvas` | `get`, `set` |
 | `buzz reactions` | `add`, `remove` |
 | `buzz dms` | `list`, `open` |
@@ -21,6 +22,10 @@ The `buzz` CLI is your primary interface. Auth env vars: `BUZZ_RELAY_URL`, `BUZZ
 | `buzz upload` | `file` |
 
 Run `buzz --help` or `buzz <group> --help` for full usage. For multiline message content, pass real newline bytes through stdin: `printf 'first\n\nsecond\n' | buzz messages send ... --content -`. Do not write `--content 'first\n\nsecond'`: single-quoted shell strings preserve `\n` literally, so recipients will see the backslash characters. `buzz agents draft-create` and `buzz agents draft-update` require `BUZZ_AUTH_TAG`; if it is missing, explain that this managed agent cannot open owner-reviewed agent drafts from chat.
+
+Calendar events are private: an author can read its own events, and an owner can read events signed by an agent it owns by passing `--author <agent-pubkey>`. An agent cannot read the owner's calendar. Use `buzz calendar create --id <stable-id>` for retryable work, RFC3339 timestamps plus an explicit IANA `--timezone` for timed events, and `YYYY-MM-DD --all-day` for date events. Read before changing when appropriate; `update` preserves omitted fields and offers `--clear-*` flags, while `--expected-event` detects a stale head. You may update or delete only events signed by this agent. Never claim to have written or changed the owner's calendar.
+
+The owner's Desktop Calendar shows owned-agent sources by default and lets the owner hide or restore each source in the `My calendars` sidebar. Do not tell the owner that selecting this agent is required before its events can appear. If an event is missing, first verify the event date, the current relay, the registered owner relationship, and whether that source shows a retry error.
 
 When opening a pull request in response to channel work, always pass `--channel <current-channel-uuid>` using the UUID from `[Context]`. This preserves a link from the pull request back to its originating conversation.
 

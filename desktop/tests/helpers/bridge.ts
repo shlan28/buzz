@@ -230,6 +230,16 @@ type MockBridgeOptions = {
   personaSharePublicationStatuses?: Array<"published" | "queued">;
   teams?: MockTeamSeed[];
   relayAgents?: MockRelayAgentSeed[];
+  /** Exhaust automatic calendar retries, then allow the manual Retry. */
+  failCalendarHistoryUntilManualRetry?: boolean;
+  /** Authors whose calendar retries fail until the user retries manually. */
+  failCalendarAuthorsUntilManualRetry?: string[];
+  /** Delay between accepting a calendar deletion and hiding its coordinate. */
+  calendarDeleteSideEffectDelayMs?: number;
+  /** Sequenced calendar deletion publish failures. */
+  calendarDeleteErrors?: string[];
+  /** Additional calendar events returned by the mock relay. */
+  calendarEvents?: RelayEvent[];
   agentListDelayMs?: number;
   createManagedAgentDelayMs?: number;
   channelTemplates?: ChannelTemplate[];

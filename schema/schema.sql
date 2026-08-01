@@ -209,7 +209,7 @@ CREATE TABLE events (
     -- never matches `@@`.
     -- Keep in sync with migrations (final state: 0001 + 0005 + 0009).
     search_tsv  TSVECTOR GENERATED ALWAYS AS (
-        CASE WHEN kind IN (1059, 30300, 30350, 30622, 44100, 44101, 44200) THEN NULL::tsvector
+        CASE WHEN kind IN (1059, 30300, 30350, 30622, 31922, 31923, 31924, 31925, 44100, 44101, 44200) THEN NULL::tsvector
              ELSE to_tsvector('simple', content)
         END
     ) STORED,
@@ -220,6 +220,12 @@ CREATE TABLE events (
     d_tag       TEXT,
     not_before  BIGINT,
     delivered_at BIGINT,
+    calendar_start BIGINT,
+    calendar_end BIGINT,
+    CONSTRAINT events_calendar_projection_pair
+        CHECK ((calendar_start IS NULL) = (calendar_end IS NULL)),
+    CONSTRAINT events_calendar_projection_order
+        CHECK (calendar_start IS NULL OR calendar_end > calendar_start),
     PRIMARY KEY (community_id, created_at, id)
 ) PARTITION BY RANGE (created_at);
 
@@ -260,6 +266,9 @@ CREATE INDEX idx_events_parameterized
     WHERE d_tag IS NOT NULL AND deleted_at IS NULL;
 CREATE INDEX idx_events_not_before ON events (community_id, not_before)
     WHERE not_before IS NOT NULL AND deleted_at IS NULL AND delivered_at IS NULL;
+CREATE INDEX idx_events_calendar_occurrence
+    ON events (community_id, pubkey, calendar_start, calendar_end)
+    WHERE calendar_start IS NOT NULL AND deleted_at IS NULL;
 -- Full-text search. Minimal GIN over the generated tsvector; community scoping
 -- is supplied by the community-leading btree filters above (BitmapAnd), so this
 -- stays a single-column GIN. The search lane confirms the final spelling with

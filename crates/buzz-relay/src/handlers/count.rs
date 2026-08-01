@@ -53,6 +53,19 @@ pub async fn handle_count(
     // P-gated kinds (gift wraps, member notifications, observer frames) require
     // the caller's own pubkey in the #p tag — same enforcement as WS REQ handler.
     let authed_pubkey_hex = hex::encode(&pubkey_bytes);
+    let mut calendar_readable_authors = match state
+        .db
+        .list_owned_agent_pubkeys(conn.tenant.community(), &pubkey_bytes)
+        .await
+    {
+        Ok(authors) => authors,
+        Err(e) => {
+            warn!(sub_id = %sub_id, "Failed to resolve owned agents for calendar ACL: {e}");
+            conn.send(RelayMessage::closed(&sub_id, "error: database error"));
+            return;
+        }
+    };
+    calendar_readable_authors.push(pubkey_bytes.clone());
     if !super::req::p_gated_filters_authorized(&filters, &authed_pubkey_hex) {
         conn.send(RelayMessage::closed(
             &sub_id,
@@ -71,6 +84,13 @@ pub async fn handle_count(
         conn.send(RelayMessage::closed(
             &sub_id,
             "restricted: author-only kinds require authors=[self]",
+        ));
+        return;
+    }
+    if !super::req::calendar_filters_authorized(&filters, &calendar_readable_authors) {
+        conn.send(RelayMessage::closed(
+            &sub_id,
+            "restricted: calendar authors must be self or a registered owned agent",
         ));
         return;
     }

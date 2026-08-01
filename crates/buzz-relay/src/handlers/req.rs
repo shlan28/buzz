@@ -8,7 +8,7 @@ use tracing::{debug, warn};
 use buzz_core::filter::filters_match;
 use buzz_core::kind::{
     is_unshared_persona_event, AUTHOR_ONLY_KINDS, KIND_AGENT_ENGRAM, KIND_AGENT_TURN_METRIC,
-    KIND_DM_VISIBILITY, KIND_PERSONA, P_GATED_KINDS, RESULT_GATED_KINDS,
+    KIND_DM_VISIBILITY, KIND_PERSONA, PRIVATE_CALENDAR_KINDS, P_GATED_KINDS, RESULT_GATED_KINDS,
 };
 use buzz_core::tenant::TenantContext;
 use buzz_db::EventQuery;
@@ -108,6 +108,19 @@ pub async fn handle_req(
     }
 
     let channel_id = extract_channel_id_from_filters(&filters);
+    let mut calendar_readable_authors = match state
+        .db
+        .list_owned_agent_pubkeys(conn.tenant.community(), &pubkey_bytes)
+        .await
+    {
+        Ok(authors) => authors,
+        Err(e) => {
+            warn!(conn_id = %conn_id, "Failed to resolve owned agents for calendar ACL: {e}");
+            conn.send(RelayMessage::closed(&sub_id, "error: database error"));
+            return;
+        }
+    };
+    calendar_readable_authors.push(pubkey_bytes.clone());
 
     // Build the conformance `AbstractState` once at request entry. The
     // `Option` only goes `None` on malformed pubkey bytes (already a
@@ -202,6 +215,13 @@ pub async fn handle_req(
             ));
             return;
         }
+        if !calendar_filters_authorized(&filters, &calendar_readable_authors) {
+            conn.send(RelayMessage::closed(
+                &sub_id,
+                "restricted: calendar authors must be self or a registered owned agent",
+            ));
+            return;
+        }
     }
 
     // Search filters hit Postgres FTS and return historical hits, then EOSE.
@@ -289,6 +309,7 @@ pub async fn handle_req(
             };
             let mut params =
                 filter_to_query_params(filter, per_filter_channel, conn.tenant.community());
+            params.calendar_reader = Some(pubkey_bytes.clone());
             apply_access_scope_to_query(&mut params, per_filter_channel, &accessible_channels);
             // Persona visibility pushdown: set reader bytes so query_events appends
             // the SQL visibility clause before ORDER/LIMIT, preventing newer private
@@ -737,7 +758,9 @@ pub async fn build_event_query_from_filter(
     community: buzz_core::tenant::CommunityId,
 ) -> EventQuery {
     let channel_id = extract_channel_id_from_filter(filter);
-    filter_to_query_params(filter, channel_id, community)
+    let mut query = filter_to_query_params(filter, channel_id, community);
+    query.calendar_reader = Some(_pubkey_bytes.to_vec());
+    query
 }
 
 /// Maximum SQL candidate rows a non-pushable COUNT filter may inspect before
@@ -1267,6 +1290,30 @@ pub(crate) fn author_only_filters_authorized(filters: &[Filter], authed_pubkey_h
     })
 }
 
+/// Authorize filters that exclusively target private NIP-52 kinds.
+pub(crate) fn calendar_filters_authorized(filters: &[Filter], allowed_authors: &[Vec<u8>]) -> bool {
+    filters.iter().all(|filter| {
+        let calendar_only = filter.kinds.as_ref().is_some_and(|kinds| {
+            !kinds.is_empty()
+                && kinds
+                    .iter()
+                    .all(|kind| PRIVATE_CALENDAR_KINDS.contains(&(kind.as_u16() as u32)))
+        });
+        if !calendar_only {
+            return true;
+        }
+        filter.authors.as_ref().is_some_and(|authors| {
+            !authors.is_empty()
+                && authors.iter().all(|author| {
+                    let bytes = author.to_bytes();
+                    allowed_authors
+                        .iter()
+                        .any(|allowed| allowed == bytes.as_slice())
+                })
+        })
+    })
+}
+
 fn topic_for_subscription(channel_id: Option<uuid::Uuid>) -> EventTopic {
     match channel_id {
         Some(channel_id) => EventTopic::Channel(channel_id),
@@ -1745,6 +1792,29 @@ mod tests {
         assert!(!author_only_filters_authorized(&[foreign], &owner));
         assert!(!author_only_filters_authorized(&[bare], &owner));
         assert!(filter_can_match_author_only_kinds(&own));
+    }
+
+    #[test]
+    fn calendar_filter_gate_allows_self_and_registered_agents_only() {
+        let owner = nostr::Keys::generate();
+        let agent = nostr::Keys::generate();
+        let foreign = nostr::Keys::generate();
+        let allowed = vec![
+            owner.public_key().to_bytes().to_vec(),
+            agent.public_key().to_bytes().to_vec(),
+        ];
+        let own_and_agent = Filter::new()
+            .kind(nostr::Kind::Custom(
+                buzz_core::kind::KIND_CALENDAR_TIME_EVENT as u16,
+            ))
+            .authors([owner.public_key(), agent.public_key()]);
+        let foreign_filter = Filter::new()
+            .kind(nostr::Kind::Custom(
+                buzz_core::kind::KIND_CALENDAR_TIME_EVENT as u16,
+            ))
+            .author(foreign.public_key());
+        assert!(calendar_filters_authorized(&[own_and_agent], &allowed));
+        assert!(!calendar_filters_authorized(&[foreign_filter], &allowed));
     }
 
     #[test]

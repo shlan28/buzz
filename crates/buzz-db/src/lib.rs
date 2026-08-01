@@ -2554,6 +2554,24 @@ impl Db {
         user::is_agent_owner(&self.pool, community_id, target_pubkey, actor_pubkey).await
     }
 
+    /// List registered agents owned by `owner_pubkey` in this community.
+    pub async fn list_owned_agent_pubkeys(
+        &self,
+        community_id: CommunityId,
+        owner_pubkey: &[u8],
+    ) -> Result<Vec<Vec<u8>>> {
+        user::list_owned_agent_pubkeys(&self.pool, community_id, owner_pubkey).await
+    }
+
+    /// Resolve the immutable registered owner of an agent pubkey.
+    pub async fn get_agent_owner_pubkey(
+        &self,
+        community_id: CommunityId,
+        agent_pubkey: &[u8],
+    ) -> Result<Option<Vec<u8>>> {
+        user::get_agent_owner_pubkey(&self.pool, community_id, agent_pubkey).await
+    }
+
     /// Set the channel_add_policy for a user.
     pub async fn set_channel_add_policy(
         &self,
@@ -4908,10 +4926,12 @@ impl Db {
         let sig_bytes = event.sig.serialize();
         let tags_json = serde_json::to_value(&event.tags)?;
         let received_at = chrono::Utc::now();
+        let (calendar_start, calendar_end) = event::extract_calendar_range(event)
+            .map_or((None, None), |(start, end)| (Some(start), Some(end)));
 
         let insert_result = sqlx::query(
-            "INSERT INTO events (community_id, id, pubkey, created_at, kind, tags, content, sig, received_at, channel_id, d_tag, not_before) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) \
+            "INSERT INTO events (community_id, id, pubkey, created_at, kind, tags, content, sig, received_at, channel_id, d_tag, not_before, calendar_start, calendar_end) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) \
              ON CONFLICT DO NOTHING",
         )
         .bind(community_id.as_uuid())
@@ -4926,6 +4946,8 @@ impl Db {
         .bind(channel_id)
         .bind(d_tag)
         .bind(event::extract_not_before(event))
+        .bind(calendar_start)
+        .bind(calendar_end)
         .execute(&mut *tx)
         .await?;
 

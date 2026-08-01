@@ -1000,6 +1000,18 @@ async fn query_events_authed(
             "restricted: author-only kinds require authors=[self]",
         ));
     }
+    let mut calendar_readable_authors = state
+        .db
+        .list_owned_agent_pubkeys(tenant.community(), &pubkey_bytes)
+        .await
+        .map_err(|e| internal_error(&format!("calendar ACL lookup: {e}")))?;
+    calendar_readable_authors.push(pubkey_bytes.clone());
+    if !crate::handlers::req::calendar_filters_authorized(&filters, &calendar_readable_authors) {
+        return Err(api_error(
+            StatusCode::FORBIDDEN,
+            "restricted: calendar authors must be self or a registered owned agent",
+        ));
+    }
 
     // Get channels this user can access — same enforcement as WS REQ handler.
     let accessible_channels = state
@@ -1431,6 +1443,18 @@ async fn count_events_authed(
         return Err(api_error(
             StatusCode::FORBIDDEN,
             "restricted: author-only kinds require authors=[self]",
+        ));
+    }
+    let mut calendar_readable_authors = state
+        .db
+        .list_owned_agent_pubkeys(tenant.community(), &pubkey_bytes)
+        .await
+        .map_err(|e| internal_error(&format!("calendar ACL lookup: {e}")))?;
+    calendar_readable_authors.push(pubkey_bytes.clone());
+    if !crate::handlers::req::calendar_filters_authorized(&filters, &calendar_readable_authors) {
+        return Err(api_error(
+            StatusCode::FORBIDDEN,
+            "restricted: calendar authors must be self or a registered owned agent",
         ));
     }
 
