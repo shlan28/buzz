@@ -1,5 +1,12 @@
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  AlertTriangle,
+  Bot,
+  ChevronLeft,
+  ChevronRight,
+  LoaderCircle,
+} from "lucide-react";
 import { Button } from "@/shared/ui/button";
+import type { CalendarSource } from "../lib/calendarTypes";
 import {
   addLocalDays,
   dateKey,
@@ -10,9 +17,17 @@ import {
 export function CalendarSidebar({
   date,
   onSelectDate,
+  sources,
+  sourcesLoading,
+  onToggleSource,
+  onRetrySource,
 }: {
   date: Date;
   onSelectDate: (date: Date) => void;
+  sources: CalendarSource[];
+  sourcesLoading: boolean;
+  onToggleSource: (pubkey: string) => void;
+  onRetrySource: (pubkey: string) => void;
 }) {
   const monthStart = startOfMonth(date);
   const gridStart = startOfWeek(monthStart);
@@ -78,11 +93,55 @@ export function CalendarSidebar({
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           My calendars
         </h2>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" defaultChecked className="accent-primary" />
-          <span className="h-2.5 w-2.5 rounded-full bg-primary" />
-          Personal
-        </label>
+        <div className="space-y-1" data-testid="calendar-source-list">
+          {sources.map((source) => (
+            <div
+              className="flex min-w-0 items-center gap-2 rounded-md px-1 py-1 text-sm"
+              data-testid={`calendar-source-${source.pubkey}`}
+              key={source.pubkey}
+            >
+              <input
+                aria-label={`Show ${source.label}`}
+                checked={source.enabled}
+                className="shrink-0 accent-primary"
+                onChange={() => onToggleSource(source.pubkey)}
+                type="checkbox"
+              />
+              {source.kind === "agent" ? (
+                <Bot className="size-3 shrink-0 text-primary" />
+              ) : (
+                <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-primary" />
+              )}
+              <span className="min-w-0 flex-1 truncate" title={source.label}>
+                {source.label}
+              </span>
+              {source.status === "loading" ? (
+                <LoaderCircle
+                  aria-label={`Loading ${source.label}`}
+                  className="size-3 shrink-0 animate-spin text-muted-foreground"
+                />
+              ) : null}
+              {source.status === "error" ? (
+                <Button
+                  aria-label={`Retry ${source.label}`}
+                  className="size-5 shrink-0 text-destructive"
+                  onClick={() => onRetrySource(source.pubkey)}
+                  size="icon-xs"
+                  title={`Retry ${source.label}`}
+                  variant="ghost"
+                >
+                  <AlertTriangle />
+                </Button>
+              ) : null}
+            </div>
+          ))}
+          {sourcesLoading ? (
+            <div className="flex items-center gap-2 px-1 py-1 text-xs text-muted-foreground">
+              <LoaderCircle className="size-3 animate-spin" />
+              Loading agent calendars…
+            </div>
+          ) : null}
+        </div>
       </div>
     </aside>
   );

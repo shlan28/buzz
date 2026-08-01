@@ -22,3 +22,11 @@ export type CalendarDraft = Omit<
 > & { eventId?: string; author?: string };
 
 export type CalendarRange = { start: Date; end: Date };
+
+export type CalendarSource = {
+  pubkey: string;
+  label: string;
+  kind: "personal" | "agent";
+  enabled: boolean;
+  status: "idle" | "loading" | "ready" | "error";
+};

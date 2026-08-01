@@ -32,6 +32,11 @@ test.beforeEach(async ({ page }, testInfo) => {
     failCalendarHistoryUntilManualRetry: testInfo.title.includes(
       "calendar load error",
     ),
+    failCalendarAuthorsUntilManualRetry: testInfo.title.includes(
+      "agent source failure",
+    )
+      ? ["a1b2c3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbccddeeff00"]
+      : undefined,
   });
 });
 
@@ -81,6 +86,61 @@ test("owner sees an owned agent event as read-only with its author name", async 
   await expect(details).toContainText("Created by nadia");
   await expect(details.getByRole("button", { name: "Edit" })).toHaveCount(0);
   await expect(details.getByRole("button", { name: "Delete" })).toBeVisible();
+});
+
+test("calendar sources default on and independently hide agent events", async ({
+  page,
+}) => {
+  await page.goto("/#/calendar?view=day&date=2026-08-01");
+  const personal = page.getByRole("checkbox", { name: "Show Personal" });
+  const agent = page.getByRole("checkbox", { name: "Show nadia" });
+  await expect(personal).toBeChecked();
+  await expect(agent).toBeChecked();
+  await expect(
+    page.getByRole("checkbox", { name: "Show other-relay-agent" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByText("Personal focus block", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Agent planning block", { exact: true }),
+  ).toBeVisible();
+
+  await agent.uncheck();
+  await expect(
+    page.getByText("Agent planning block", { exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByText("Personal focus block", { exact: true }),
+  ).toBeVisible();
+
+  await page.getByRole("tab", { name: "Week" }).click();
+  await expect(agent).not.toBeChecked();
+  await agent.check();
+  await expect(
+    page.getByText("Agent planning block", { exact: true }),
+  ).toBeVisible();
+});
+
+test("agent source failure preserves Personal and retries independently", async ({
+  page,
+}) => {
+  await page.goto("/#/calendar?view=day&date=2026-08-01");
+  await expect(
+    page.getByText("Personal focus block", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByTestId("calendar-load-error")).toHaveCount(0);
+  await expect(
+    page.getByText("Agent planning block", { exact: true }),
+  ).toHaveCount(0);
+
+  const retry = page.getByRole("button", { name: "Retry nadia" });
+  await expect(retry).toBeVisible({ timeout: 12_000 });
+  await retry.click();
+  await expect(retry).toHaveCount(0);
+  await expect(
+    page.getByText("Agent planning block", { exact: true }),
+  ).toBeVisible();
 });
 
 test("calendar load error is visible and Retry restores the calendar", async ({

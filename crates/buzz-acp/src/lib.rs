@@ -3635,6 +3635,8 @@ mod agent_draft_prompt_tests {
         assert!(prompt.contains("events signed by this agent"));
         assert!(prompt.contains("owner can read events signed by an agent it owns"));
         assert!(prompt.contains("An agent cannot read the owner's calendar"));
+        assert!(prompt.contains("shows owned-agent sources by default"));
+        assert!(prompt.contains("Do not tell the owner that selecting this agent is required"));
     }
 
     #[test]

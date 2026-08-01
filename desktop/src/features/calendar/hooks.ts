@@ -1,5 +1,10 @@
 import * as React from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { relayClient } from "@/shared/api/relayClient";
 import { signRelayEvent } from "@/shared/api/tauri";
 import { useIdentityQuery } from "@/shared/api/hooks";
@@ -19,6 +24,7 @@ import type {
   CalendarDraft,
   CalendarEvent,
   CalendarRange,
+  CalendarSource,
 } from "./lib/calendarTypes";
 
 const EVENT_KINDS = [
@@ -123,6 +129,37 @@ async function publishDraft(draft: CalendarDraft): Promise<RelayEvent> {
 export const calendarQueryKey = (pubkey: string) =>
   ["calendar-events", pubkey] as const;
 
+async function fetchCalendarSource(author: string): Promise<CalendarEvent[]> {
+  // Event occurrence time is independent of created_at. Page all of this
+  // author's heads before applying the visible window locally; the relay's
+  // calendar projection can replace this with a native range filter later.
+  const pageSize = 500;
+  const byEventId = new Map<string, RelayEvent>();
+  let until: number | undefined;
+  for (;;) {
+    const batch = await relayClient.fetchEvents({
+      kinds: [...EVENT_KINDS],
+      authors: [author],
+      limit: pageSize,
+      ...(until === undefined ? {} : { until }),
+    });
+    for (const event of batch) byEventId.set(event.id, event);
+    if (batch.length < pageSize) break;
+    const oldest = Math.min(...batch.map((event) => event.created_at));
+    until = oldest - 1;
+  }
+  const heads = new Map<string, CalendarEvent>();
+  for (const raw of byEventId.values()) {
+    const event = parseEvent(raw);
+    if (!event) continue;
+    const current = heads.get(`${event.kind}:${event.id}`);
+    if (!current || current.createdAt < event.createdAt) {
+      heads.set(`${event.kind}:${event.id}`, event);
+    }
+  }
+  return [...heads.values()];
+}
+
 export function useCalendar(range: CalendarRange) {
   const identity = useIdentityQuery();
   const pubkey = identity.data?.pubkey;
@@ -148,85 +185,118 @@ export function useCalendar(range: CalendarRange) {
       ),
     [pubkey, relayAgentProfiles.data?.profiles],
   );
-  const visibleAuthors = React.useMemo(
-    () =>
-      pubkey
-        ? [pubkey, ...ownedAgentPubkeys].filter(
-            (value, index, all) => all.indexOf(value) === index,
-          )
-        : [],
-    [ownedAgentPubkeys, pubkey],
-  );
   const authorLabels = React.useMemo(() => {
     const labels: Record<string, string> = {};
     for (const agent of managedAgents ?? []) labels[agent.pubkey] = agent.name;
     for (const agent of relayAgents ?? []) labels[agent.pubkey] = agent.name;
     return labels;
   }, [managedAgents, relayAgents]);
+  const sourceDefinitions = React.useMemo(
+    () =>
+      pubkey
+        ? [
+            { pubkey, label: "Personal", kind: "personal" as const },
+            ...[...ownedAgentPubkeys].map((agentPubkey) => ({
+              pubkey: agentPubkey,
+              label: authorLabels[agentPubkey] ?? agentPubkey,
+              kind: "agent" as const,
+            })),
+          ]
+        : [],
+    [authorLabels, ownedAgentPubkeys, pubkey],
+  );
+  const [disabledSources, setDisabledSources] = React.useState<
+    ReadonlySet<string>
+  >(() => new Set());
+  const enabledAuthors = React.useMemo(
+    () =>
+      sourceDefinitions
+        .filter((source) => !disabledSources.has(source.pubkey))
+        .map((source) => source.pubkey),
+    [disabledSources, sourceDefinitions],
+  );
   const queryClient = useQueryClient();
-  const query = useQuery({
-    enabled: Boolean(pubkey) && !relayAgentProfiles.isLoading,
-    queryKey: [
-      ...calendarQueryKey(pubkey ?? ""),
-      range.start.getTime(),
-      range.end.getTime(),
-      ...visibleAuthors,
-    ],
-    queryFn: async () => {
-      // Event occurrence time is independent of created_at. Page all of the
-      // author's heads before applying the visible window locally; the relay's
-      // calendar projection can replace this with a native range filter later.
-      const pageSize = 500;
-      const byEventId = new Map<string, RelayEvent>();
-      let until: number | undefined;
-      for (;;) {
-        const batch = await relayClient.fetchEvents({
-          kinds: [...EVENT_KINDS],
-          authors: visibleAuthors,
-          limit: pageSize,
-          ...(until === undefined ? {} : { until }),
-        });
-        for (const event of batch) byEventId.set(event.id, event);
-        if (batch.length < pageSize) break;
-        const oldest = Math.min(...batch.map((event) => event.created_at));
-        until = oldest - 1;
-      }
-      const events = [...byEventId.values()];
-      const heads = new Map<string, CalendarEvent>();
-      for (const raw of events) {
-        const event = parseEvent(raw);
-        if (!event) continue;
-        const current = heads.get(`${event.kind}:${event.id}`);
-        if (!current || current.createdAt < event.createdAt)
-          heads.set(`${event.kind}:${event.id}`, event);
-      }
-      return [...heads.values()];
-    },
+  const sourceQueries = useQueries({
+    queries: sourceDefinitions.map((source) => ({
+      enabled: !disabledSources.has(source.pubkey),
+      queryKey: [...calendarQueryKey(pubkey ?? ""), "source", source.pubkey],
+      queryFn: () => fetchCalendarSource(source.pubkey),
+    })),
   });
   React.useEffect(() => {
     if (!pubkey) return;
-    let dispose: (() => void) | undefined;
-    void relayClient
-      .subscribeLive(
-        {
-          kinds: [...EVENT_KINDS, KIND_DELETION],
-          authors: visibleAuthors,
-          limit: 0,
-        },
-        () => {
-          void queryClient.invalidateQueries({
-            queryKey: calendarQueryKey(pubkey),
-          });
-        },
-      )
-      .then((next) => {
-        dispose = next;
-      });
-    return () => dispose?.();
-  }, [pubkey, queryClient, visibleAuthors]);
-  const events = (query.data ?? []).filter(
-    (event) => event.start < range.end && event.end > range.start,
+    let cancelled = false;
+    const disposers: Array<() => void> = [];
+    for (const author of enabledAuthors) {
+      void relayClient
+        .subscribeLive(
+          {
+            kinds: [...EVENT_KINDS, KIND_DELETION],
+            authors: [author],
+            limit: 0,
+          },
+          () => {
+            void queryClient.invalidateQueries({
+              queryKey: [...calendarQueryKey(pubkey), "source", author],
+            });
+          },
+        )
+        .then((dispose) => {
+          if (cancelled) dispose();
+          else disposers.push(dispose);
+        })
+        .catch(() => {
+          // The corresponding history query owns the user-visible source
+          // error. A failed live subscription must not disable other sources.
+        });
+    }
+    return () => {
+      cancelled = true;
+      for (const dispose of disposers) dispose();
+    };
+  }, [enabledAuthors, pubkey, queryClient]);
+  const sources: CalendarSource[] = sourceDefinitions.map((source, index) => {
+    const query = sourceQueries[index];
+    const enabled = !disabledSources.has(source.pubkey);
+    const status: CalendarSource["status"] = !enabled
+      ? "idle"
+      : query?.isError
+        ? "error"
+        : query?.isLoading
+          ? "loading"
+          : "ready";
+    return { ...source, enabled, status };
+  });
+  const events = sourceQueries
+    .flatMap((query, index) =>
+      sources[index]?.enabled ? (query.data ?? []) : [],
+    )
+    .filter((event) => event.start < range.end && event.end > range.start);
+  const personalIndex = sourceDefinitions.findIndex(
+    (source) => source.kind === "personal",
   );
+  const personalQuery = sourceQueries[personalIndex];
+  const personalEnabled = Boolean(sources[personalIndex]?.enabled);
+  const isLoading = personalEnabled && Boolean(personalQuery?.isLoading);
+  const isFetching = sourceQueries.some(
+    (query, index) => sources[index]?.enabled && query.isFetching,
+  );
+  const isError = personalEnabled && Boolean(personalQuery?.isError);
+  const refetch = () => personalQuery?.refetch();
+  const toggleSource = (sourcePubkey: string) => {
+    setDisabledSources((current) => {
+      const next = new Set(current);
+      if (next.has(sourcePubkey)) next.delete(sourcePubkey);
+      else next.add(sourcePubkey);
+      return next;
+    });
+  };
+  const retrySource = (sourcePubkey: string) => {
+    const index = sourceDefinitions.findIndex(
+      (source) => source.pubkey === sourcePubkey,
+    );
+    return sourceQueries[index]?.refetch();
+  };
   const save = useMutation({
     mutationFn: publishDraft,
     onSuccess: () =>
@@ -255,5 +325,19 @@ export function useCalendar(range: CalendarRange) {
         queryKey: calendarQueryKey(pubkey ?? ""),
       }),
   });
-  return { ...query, events, pubkey, authorLabels, save, remove };
+  return {
+    events,
+    pubkey,
+    authorLabels,
+    sources,
+    sourcesLoading: relayAgentProfiles.isLoading,
+    toggleSource,
+    retrySource,
+    isLoading,
+    isFetching,
+    isError,
+    refetch,
+    save,
+    remove,
+  };
 }

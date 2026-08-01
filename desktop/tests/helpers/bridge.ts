@@ -232,6 +232,8 @@ type MockBridgeOptions = {
   relayAgents?: MockRelayAgentSeed[];
   /** Exhaust automatic calendar retries, then allow the manual Retry. */
   failCalendarHistoryUntilManualRetry?: boolean;
+  /** Authors whose calendar retries fail until the user retries manually. */
+  failCalendarAuthorsUntilManualRetry?: string[];
   agentListDelayMs?: number;
   createManagedAgentDelayMs?: number;
   channelTemplates?: ChannelTemplate[];

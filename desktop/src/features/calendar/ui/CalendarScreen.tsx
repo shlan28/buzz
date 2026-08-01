@@ -77,7 +77,16 @@ export function CalendarScreen() {
       className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background"
       data-testid="calendar-screen"
     >
-      <CalendarSidebar date={date} onSelectDate={(next) => setRoute(next)} />
+      <CalendarSidebar
+        date={date}
+        onSelectDate={(next) => setRoute(next)}
+        sources={calendar.sources}
+        sourcesLoading={calendar.sourcesLoading}
+        onToggleSource={calendar.toggleSource}
+        onRetrySource={(sourcePubkey) => {
+          void calendar.retrySource(sourcePubkey);
+        }}
+      />
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
         <CalendarToolbar
           date={date}
