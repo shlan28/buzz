@@ -581,6 +581,23 @@ impl ThreadMetadataOwned {
     }
 }
 
+fn validate_linear_dm_message(is_dm: bool, kind: u32, event: &Event) -> Result<(), String> {
+    if !is_dm || !matches!(kind, KIND_STREAM_MESSAGE | KIND_STREAM_MESSAGE_V2) {
+        return Ok(());
+    }
+
+    let has_thread_marker = event.tags.iter().any(|tag| {
+        let parts = tag.as_slice();
+        parts.len() >= 4 && parts[0] == "e" && matches!(parts[3].as_str(), "root" | "reply")
+    });
+
+    if has_thread_marker {
+        Err("DM messages cannot be threaded".to_string())
+    } else {
+        Ok(())
+    }
+}
+
 /// Resolve NIP-10 thread ancestry from e-tags.
 pub(crate) async fn resolve_nip10_thread_meta(
     community_id: CommunityId,
@@ -1931,6 +1948,14 @@ async fn ingest_event_inner(
         Some(ch_id) => state.db.get_channel(tenant.community(), ch_id).await.ok(),
         None => None,
     };
+    validate_linear_dm_message(
+        channel_row
+            .as_ref()
+            .is_some_and(|channel| channel.channel_type == "dm"),
+        kind_u32,
+        &event,
+    )
+    .map_err(|message| IngestError::Rejected(format!("invalid: {message}")))?;
     // E1 phase-2 (§4.8 phase-2 addendum): resolve the fan-out visibility once,
     // here, through the same `channel_visibility_cached` gate fan-out uses
     // (fence 2: cached `private` wins over the prefetched row; a `private`
@@ -2720,7 +2745,7 @@ mod tests {
     use buzz_core::kind::{
         KIND_CANVAS, KIND_FORUM_COMMENT, KIND_FORUM_POST, KIND_FORUM_VOTE, KIND_LONG_FORM,
         KIND_MANAGED_AGENT, KIND_PERSONA, KIND_PRESENCE_UPDATE, KIND_STREAM_MESSAGE,
-        KIND_STREAM_MESSAGE_DIFF, KIND_TEAM, KIND_USER_STATUS,
+        KIND_STREAM_MESSAGE_DIFF, KIND_STREAM_MESSAGE_V2, KIND_TEAM, KIND_USER_STATUS,
     };
     use nostr::{EventBuilder, Kind};
 
@@ -3304,6 +3329,62 @@ mod tests {
             ],
         );
         assert!(validate_diff_event(&event).is_err());
+    }
+
+    #[test]
+    fn dm_message_without_thread_markers_is_accepted() {
+        let event = make_event_with_tags(KIND_STREAM_MESSAGE_V2, "hello", &[&["h", "dm-id"]]);
+        assert!(validate_linear_dm_message(true, KIND_STREAM_MESSAGE_V2, &event).is_ok());
+    }
+
+    #[test]
+    fn dm_message_with_reply_marker_is_rejected() {
+        let parent = "a".repeat(64);
+        let event = make_event_with_tags(
+            KIND_STREAM_MESSAGE,
+            "hello",
+            &[&["h", "dm-id"], &["e", &parent, "", "reply"]],
+        );
+        assert_eq!(
+            validate_linear_dm_message(true, KIND_STREAM_MESSAGE, &event),
+            Err("DM messages cannot be threaded".to_string())
+        );
+    }
+
+    #[test]
+    fn dm_message_with_root_marker_is_rejected() {
+        let root = "b".repeat(64);
+        let event = make_event_with_tags(
+            KIND_STREAM_MESSAGE_V2,
+            "hello",
+            &[&["h", "dm-id"], &["e", &root, "", "root"]],
+        );
+        assert_eq!(
+            validate_linear_dm_message(true, KIND_STREAM_MESSAGE_V2, &event),
+            Err("DM messages cannot be threaded".to_string())
+        );
+    }
+
+    #[test]
+    fn stream_message_with_reply_marker_remains_supported() {
+        let parent = "a".repeat(64);
+        let event = make_event_with_tags(
+            KIND_STREAM_MESSAGE_V2,
+            "hello",
+            &[&["h", "stream-id"], &["e", &parent, "", "reply"]],
+        );
+        assert!(validate_linear_dm_message(false, KIND_STREAM_MESSAGE_V2, &event).is_ok());
+    }
+
+    #[test]
+    fn non_message_dm_event_with_reply_marker_is_not_blocked() {
+        let parent = "a".repeat(64);
+        let event = make_event_with_tags(
+            KIND_STREAM_MESSAGE_DIFF,
+            "diff",
+            &[&["h", "dm-id"], &["e", &parent, "", "reply"]],
+        );
+        assert!(validate_linear_dm_message(true, KIND_STREAM_MESSAGE_DIFF, &event).is_ok());
     }
 
     fn make_dummy_event() -> Event {

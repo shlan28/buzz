@@ -1243,40 +1243,24 @@ fn format_context_hints(
         None => channel_id.to_string(),
     };
 
-    // DM check comes first — a DM reply has both thread tags AND is_dm=true,
-    // and the scope should be "dm" (not "thread") because the agent is in a DM.
+    // DM check comes first. DMs are linear conversations even when a legacy
+    // event carries thread tags, so the prompt must never invite the agent to
+    // continue that thread.
     if is_dm {
-        let is_reply = thread_tags.root_event_id.is_some();
-        // DM replies use thread command because /messages excludes thread replies.
-        // DM non-replies use get for recent conversation.
-        let ctx_hint = if has_conversation_context && is_reply {
-            "Thread context included below. Use `buzz messages thread --channel <UUID> --event <ID>` for full history if truncated."
-        } else if has_conversation_context {
+        let ctx_hint = if has_conversation_context {
             "Conversation context included below. Use `buzz messages get --channel <UUID>` for full history if truncated."
-        } else if is_reply {
-            "Use `buzz messages thread --channel <UUID> --event <ID>` to fetch the reply chain."
         } else {
             "Use `buzz messages get --channel <UUID>` for conversation context."
         };
-        let mut s = format!(
+        format!(
             "[Context]\n\
              Scope: dm\n\
              Channel: {channel_display}\n\
-             {ctx_hint}"
-        );
-        // If this is a DM reply, include thread structural info as supplementary.
-        if let Some(ref root) = thread_tags.root_event_id {
-            s.push_str(&format!("\nThread root: {root}"));
-            if let Some(ref parent) = thread_tags.parent_event_id {
-                if parent != root {
-                    s.push_str(&format!("\nParent: {parent}"));
-                }
-            }
-            if let Some(event_id) = reply_anchor {
-                append_reply_instruction(&mut s, event_id);
-            }
-        }
-        s
+             {ctx_hint}\n\
+             IMPORTANT: DMs are linear conversations. Send the ordinary response \
+             without `--reply-to`, even if the triggering event contains legacy \
+             thread tags."
+        )
     } else if let Some(ref root) = thread_tags.root_event_id {
         let ctx_hint = if has_conversation_context {
             "Thread context included below. Use `buzz messages thread --channel <UUID> --event <ID>` for full history if truncated."
@@ -1463,13 +1447,10 @@ pub fn format_prompt(batch: &FlushBatch, args: &FormatPromptArgs<'_>) -> Vec<Str
     //   - in a thread  → anchor to the thread ROOT (no depth-2 nesting)
     //   - top-level     → anchor to the triggering event (it becomes the root)
     // Agent↔agent turns get no forced anchor — deep nesting is intentional
-    // there. DMs are always 1:1 with a human, so they always anchor.
+    // there. DMs are linear and never receive a reply anchor.
     let sender_pubkey = last_event.event.pubkey.to_hex();
     let reply_anchor = if is_dm {
-        thread_tags
-            .root_event_id
-            .is_some()
-            .then(|| last_event.event.id.to_hex())
+        None
     } else {
         resolve_reply_anchor(
             &sender_pubkey,
@@ -3348,7 +3329,7 @@ mod tests {
     }
 
     #[test]
-    fn test_format_prompt_dm_reply_hints_get_thread() {
+    fn test_format_prompt_legacy_threaded_dm_stays_linear() {
         let ch = Uuid::new_v4();
         // DM reply event — has thread e-tags.
         let event = make_event_with_tags(
@@ -3394,22 +3375,20 @@ mod tests {
             },
         )
         .join("\n\n");
-        // Scope should be "dm", not "thread".
         assert!(
             prompt.contains("Scope: dm"),
             "DM reply should have Scope: dm, got:\n{prompt}"
         );
-        // Hint should point to the thread command, not get.
         assert!(
-            prompt.contains("buzz messages thread"),
-            "DM reply hint should mention `buzz messages thread`, got:\n{prompt}"
+            prompt.contains("buzz messages get"),
+            "legacy threaded DM should use linear DM history, got:\n{prompt}"
         );
-        // Thread structural info should be present.
         assert!(
-            prompt.contains("Thread root: root123"),
-            "DM reply should include thread root"
+            prompt.contains("without `--reply-to`"),
+            "DM reply should require a top-level response"
         );
-        // Thread context should be included.
+        assert!(!prompt.contains("Thread root:"));
+        assert!(!prompt.contains("buzz messages thread"));
         assert!(prompt.contains("Should I deploy?"));
     }
 
@@ -3450,6 +3429,7 @@ mod tests {
             !prompt.contains("buzz messages thread"),
             "DM non-reply should NOT mention `buzz messages thread`"
         );
+        assert!(prompt.contains("without `--reply-to`"));
     }
 
     #[test]
@@ -3904,14 +3884,13 @@ mod tests {
     }
 
     #[test]
-    fn test_reply_instruction_present_for_dm_thread_reply() {
+    fn test_reply_instruction_absent_for_legacy_dm_thread_reply() {
         let ch = Uuid::new_v4();
         let root_id = "b".repeat(64);
         let event = make_event_with_tags(
             "thanks",
             vec![vec!["e".into(), root_id, "".into(), "reply".into()]],
         );
-        let event_id = event.id.to_hex();
         let batch = FlushBatch {
             channel_id: ch,
             events: vec![BatchEvent {
@@ -3936,9 +3915,10 @@ mod tests {
         )
         .join("\n\n");
         assert!(
-            prompt.contains(&format!("--reply-to {event_id}")),
-            "DM thread reply should include reply instruction"
+            !prompt.contains("--reply-to "),
+            "legacy DM thread reply must not include a reply anchor: {prompt}"
         );
+        assert!(prompt.contains("without `--reply-to`"));
     }
 
     #[test]
@@ -3999,9 +3979,10 @@ mod tests {
         )
         .join("\n\n");
         assert!(
-            !prompt.contains("--reply-to"),
-            "DM non-reply should NOT include reply instruction"
+            !prompt.contains("To reply to this message"),
+            "DM non-reply should not include an anchored reply instruction"
         );
+        assert!(prompt.contains("without `--reply-to`"));
     }
 
     #[test]
