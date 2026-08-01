@@ -6,6 +6,7 @@ import {
 } from "@/features/agents/agentReuse";
 export { findReusableAgent } from "@/features/agents/agentReuse";
 import { normalizePubkey } from "@/shared/lib/pubkey";
+import { ensureManagedAgentRelayMembership } from "@/shared/api/relayMembers";
 import { resolveManagedAgentAvatarUrl } from "@/features/agents/ui/managedAgentAvatar";
 import {
   addChannelMembers,
@@ -104,14 +105,26 @@ export type CreateChannelManagedAgentsResult = {
   failures: CreateChannelManagedAgentBatchFailure[];
 };
 
+type AttachManagedAgentDependencies = {
+  ensureRelayMembership: typeof ensureManagedAgentRelayMembership;
+  addChannelMembers: typeof addChannelMembers;
+  startManagedAgent: typeof startManagedAgent;
+};
+
 export async function attachManagedAgentToChannel(
   channelId: string,
   input: AttachManagedAgentToChannelInput,
+  dependencies: AttachManagedAgentDependencies = {
+    ensureRelayMembership: ensureManagedAgentRelayMembership,
+    addChannelMembers,
+    startManagedAgent,
+  },
 ) {
   const role = input.role ?? "bot";
   const ensureRunning = input.ensureRunning ?? true;
   const agentPubkey = normalizePubkey(input.agent.pubkey);
-  const membershipResult = await addChannelMembers({
+  await dependencies.ensureRelayMembership(agentPubkey);
+  const membershipResult = await dependencies.addChannelMembers({
     channelId,
     pubkeys: [input.agent.pubkey],
     role,
@@ -140,14 +153,14 @@ export async function attachManagedAgentToChannel(
     // another community's.
     const isRemote = input.agent.backend.type === "provider";
     if (isRemote && input.agent.status !== "deployed") {
-      agent = await startManagedAgent(input.agent.pubkey);
+      agent = await dependencies.startManagedAgent(input.agent.pubkey);
       started = true;
     } else if (
       !isRemote &&
       input.agent.status !== "running" &&
       input.agent.status !== "deployed"
     ) {
-      agent = await startManagedAgent(input.agent.pubkey);
+      agent = await dependencies.startManagedAgent(input.agent.pubkey);
       started = true;
     }
   }
@@ -420,9 +433,9 @@ export async function createChannelManagedAgents(
   );
   const context = { managedAgents, channelMemberPubkeys };
 
-  // Sequential loop: each agent must be fully created and its relay membership
-  // written before the next starts. Concurrent writes to the replaceable
-  // kind:39002 membership event cause last-write-wins data loss.
+  // Sequential loop: each agent must be fully created and its relay + channel
+  // memberships written before the next starts. Concurrent writes to either
+  // replaceable membership snapshot can cause last-write-wins data loss.
   const successes: CreateChannelManagedAgentResult[] = [];
   const failures: CreateChannelManagedAgentBatchFailure[] = [];
 
