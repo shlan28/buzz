@@ -154,25 +154,6 @@ test("editPersonaDialogState preserves the persona id for updates", () => {
   });
 });
 
-test("editPersonaDialogState seeds owner-message behavior", () => {
-  const state = editPersonaDialogState({
-    id: "persona-owner-replies",
-    displayName: "Listener",
-    avatarUrl: null,
-    systemPrompt: "Listen.",
-    runtime: null,
-    model: null,
-    provider: null,
-    isBuiltIn: false,
-    isActive: true,
-    respondToOwnerMessages: true,
-    createdAt: "2026-08-02T00:00:00Z",
-    updatedAt: "2026-08-02T00:00:00Z",
-  });
-
-  assert.equal(state.initialValues.behavior.respondToOwnerMessages, true);
-});
-
 test("editPersonaDialogState seeds envVars and namePool from the persona", () => {
   const state = editPersonaDialogState({
     id: "persona-3",

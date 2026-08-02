@@ -29,7 +29,6 @@ export type RawPersona = {
   respond_to?: string | null;
   respond_to_allowlist?: string[];
   parallelism?: number | null;
-  respond_to_owner_messages?: boolean;
   created_at: string;
   updated_at: string;
   /** Non-null when the pack `.persona.md` write-back failed (non-fatal). */
@@ -60,7 +59,6 @@ export function fromRawPersona(persona: RawPersona): AgentPersona {
     respondTo: (persona.respond_to as RespondToMode | undefined) ?? null,
     respondToAllowlist: persona.respond_to_allowlist ?? [],
     parallelism: persona.parallelism ?? null,
-    respondToOwnerMessages: persona.respond_to_owner_messages ?? false,
     createdAt: persona.created_at,
     updatedAt: persona.updated_at,
   };

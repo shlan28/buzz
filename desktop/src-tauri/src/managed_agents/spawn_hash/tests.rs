@@ -81,7 +81,6 @@ fn persona(id: &str, runtime: Option<&str>, prompt: &str) -> AgentDefinition {
         respond_to: None,
         respond_to_allowlist: Vec::new(),
         parallelism: None,
-        respond_to_owner_messages: false,
         created_at: "now".into(),
         updated_at: "now".into(),
     }

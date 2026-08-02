@@ -817,7 +817,10 @@ pub async fn create_managed_agent(
             effective_model = Some(crate::managed_agents::RELAY_MESH_AUTO_MODEL_ID.to_string());
         }
 
-        // Resolve and validate definition behavioral defaults at mint time.
+        // Mint-time behavioral quad: explicit input wins, then the linked
+        // definition's NIP-AP defaults, then client defaults. The ONLY parse
+        // point for definition behavioral strings — fails loudly on a bad
+        // mode/range instead of minting an agent the author didn't describe.
         let minted = crate::managed_agents::resolve_mint_behavioral_defaults(
             input.respond_to,
             respond_to_allowlist.clone(),
@@ -886,11 +889,7 @@ pub async fn create_managed_agent(
             last_error_code: None,
             respond_to: minted.respond_to,
             respond_to_allowlist: minted.respond_to_allowlist.clone(),
-            respond_to_owner_messages: linked_persona
-                .as_ref()
-                .map_or(input.respond_to_owner_messages, |persona| {
-                    persona.respond_to_owner_messages
-                }),
+            respond_to_owner_messages: input.respond_to_owner_messages,
             display_name: None,
             slug: None,
             runtime: None,

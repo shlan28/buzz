@@ -90,6 +90,7 @@ type MockManagedAgentSeed = {
   autoRestartOnConfigChange?: boolean;
   respondTo?: RawManagedAgent["respond_to"];
   respondToAllowlist?: string[];
+  respondToOwnerMessages?: boolean;
 };
 
 type MockManagedAgentRuntimeSeed = {
@@ -838,7 +839,6 @@ type RawPersona = {
   respond_to?: string | null;
   respond_to_allowlist?: string[];
   parallelism?: number | null;
-  respond_to_owner_messages?: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -1539,6 +1539,7 @@ function cloneManagedAgent(agent: MockManagedAgent): RawManagedAgent {
     respond_to_allowlist: agent.respond_to_allowlist
       ? [...agent.respond_to_allowlist]
       : [],
+    respond_to_owner_messages: agent.respond_to_owner_messages ?? false,
   };
 }
 
@@ -2072,6 +2073,7 @@ function buildSeededManagedAgent(seed: MockManagedAgentSeed): MockManagedAgent {
     backend_agent_id: null,
     respond_to: seed.respondTo ?? "owner-only",
     respond_to_allowlist: seed.respondToAllowlist ?? [],
+    respond_to_owner_messages: seed.respondToOwnerMessages ?? false,
     private_key_nsec: `nsec1mock${seed.pubkey.slice(0, 20)}`,
     log_lines: [
       `buzz-acp starting: relay=${DEFAULT_RELAY_WS_URL} agent_pubkey=${seed.pubkey} parallelism=1`,
@@ -7380,10 +7382,9 @@ type PersonaBehaviorInput = {
   respondTo?: "owner-only" | "allowlist" | "anyone";
   respondToAllowlist?: string[];
   parallelism?: number;
-  respondToOwnerMessages?: boolean;
 };
 
-/** Mirrors `apply_persona_behavior`: replace all four as a unit. */
+/** Mirrors `apply_persona_behavior`: replace the definition fields as a unit. */
 function applyMockPersonaBehavior(
   persona: RawPersona,
   behavior: PersonaBehaviorInput | undefined,
@@ -7397,12 +7398,6 @@ function applyMockPersonaBehavior(
       ? [...(behavior.respondToAllowlist ?? [])]
       : [];
   persona.parallelism = behavior.parallelism ?? null;
-  persona.respond_to_owner_messages = behavior.respondToOwnerMessages ?? false;
-  for (const agent of mockManagedAgents) {
-    if (agent.persona_id === persona.id) {
-      agent.respond_to_owner_messages = persona.respond_to_owner_messages;
-    }
-  }
 }
 
 async function handleCreatePersona(args: {
@@ -7848,6 +7843,7 @@ async function handleCreateManagedAgent(
         | { type: "provider"; id: string; config: Record<string, unknown> };
       respondTo?: "owner-only" | "allowlist" | "anyone";
       respondToAllowlist?: string[];
+      respondToOwnerMessages?: boolean;
     };
   },
   config: E2eConfig | undefined,
@@ -7877,8 +7873,7 @@ async function handleCreateManagedAgent(
       : (linkedPersona?.respond_to_allowlist ?? []);
   const mintParallelism =
     args.input.parallelism ?? linkedPersona?.parallelism ?? 1;
-  const mintRespondToOwnerMessages =
-    linkedPersona?.respond_to_owner_messages ?? false;
+  const mintRespondToOwnerMessages = args.input.respondToOwnerMessages ?? false;
   const personaAvatarUrl =
     args.input.personaId === undefined
       ? null
@@ -8182,6 +8177,7 @@ async function handleUpdateManagedAgent(args: {
     envVars?: Record<string, string>;
     respondTo?: "owner-only" | "allowlist" | "anyone";
     respondToAllowlist?: string[];
+    respondToOwnerMessages?: boolean;
   };
 }): Promise<{ agent: RawManagedAgent; profile_sync_error: string | null }> {
   const agent = getMockManagedAgent(args.input.pubkey);
@@ -8202,6 +8198,9 @@ async function handleUpdateManagedAgent(args: {
   }
   if (args.input.respondToAllowlist !== undefined) {
     agent.respond_to_allowlist = args.input.respondToAllowlist;
+  }
+  if (args.input.respondToOwnerMessages !== undefined) {
+    agent.respond_to_owner_messages = args.input.respondToOwnerMessages;
   }
   agent.updated_at = new Date().toISOString();
   return { agent: cloneManagedAgent(agent), profile_sync_error: null };

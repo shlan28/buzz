@@ -28,7 +28,6 @@ fn local_in_app() -> AgentDefinition {
         respond_to: None,
         respond_to_allowlist: Vec::new(),
         parallelism: None,
-        respond_to_owner_messages: false,
         created_at: "2025-01-01T00:00:00Z".to_string(),
         updated_at: "2025-01-01T00:00:00Z".to_string(),
     }
@@ -56,7 +55,6 @@ fn inbound_for(d_tag: &str, display_name: &str) -> AgentDefinition {
         respond_to: None,
         respond_to_allowlist: Vec::new(),
         parallelism: None,
-        respond_to_owner_messages: false,
         created_at: "2025-06-01T00:00:00Z".to_string(),
         updated_at: "2025-06-01T00:00:00Z".to_string(),
     }

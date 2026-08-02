@@ -86,7 +86,6 @@ fn persona_record(id: &str, model: Option<&str>, provider: Option<&str>) -> Agen
         respond_to: None,
         respond_to_allowlist: vec![],
         parallelism: None,
-        respond_to_owner_messages: false,
         created_at: "".to_string(),
         updated_at: "".to_string(),
     }

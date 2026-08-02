@@ -77,15 +77,17 @@ pub struct AgentDefinition {
     /// Stored as a BTreeMap for deterministic on-disk ordering.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub env_vars: BTreeMap<String, String>,
-    /// NIP-AP behavioral defaults stored in wire shape.
+    /// NIP-AP behavioral defaults, stored in WIRE shape (kebab-case string,
+    /// not the `RespondTo` enum) so `persona_event_content` is a verbatim
+    /// copy and quad-absent records serialize byte-identically to the
+    /// pre-activation era. Copied onto instances at mint time only — spawn
+    /// re-snapshot never touches them. Validated at the instance boundary.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub respond_to: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub respond_to_allowlist: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parallelism: Option<u32>,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub respond_to_owner_messages: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -136,7 +138,7 @@ impl AgentDefinition {
             last_error_code: None,
             respond_to: RespondTo::default(),
             respond_to_allowlist: Vec::new(),
-            respond_to_owner_messages: self.respond_to_owner_messages,
+            respond_to_owner_messages: false,
             display_name: Some(self.display_name),
             slug: Some(self.id),
             runtime: self.runtime,
@@ -186,7 +188,6 @@ impl ManagedAgentRecord {
             respond_to: self.definition_respond_to.clone(),
             respond_to_allowlist: self.definition_respond_to_allowlist.clone(),
             parallelism: self.definition_parallelism,
-            respond_to_owner_messages: self.respond_to_owner_messages,
             created_at: self.created_at.clone(),
             updated_at: self.updated_at.clone(),
         })
@@ -347,9 +348,12 @@ pub struct ManagedAgentRecord {
     /// Inbound author gate mode. Translates to `BUZZ_ACP_RESPOND_TO`.
     #[serde(default)]
     pub respond_to: RespondTo,
-    /// Normalized allowlist used when `respond_to == Allowlist`.
+    /// Allowlist used when `respond_to == Allowlist`. Stored normalized
+    /// (64-char lowercase hex, deduped). Empty when mode is not Allowlist.
+    /// Preserved across mode toggles so users don't lose state.
     #[serde(default)]
     pub respond_to_allowlist: Vec<String>,
+    /// Allow owner messages to trigger without a mention. Instance-local only.
     #[serde(default)]
     pub respond_to_owner_messages: bool,
     /// Optional display name distinct from the unique `name` handle. Absorbed

@@ -402,7 +402,6 @@ fn model_discovery_ignores_stale_record_for_linked_agent() {
         respond_to: None,
         respond_to_allowlist: Vec::new(),
         parallelism: None,
-        respond_to_owner_messages: false,
         created_at: "".to_string(),
         updated_at: "".to_string(),
     };

@@ -376,7 +376,6 @@ fn persona(id: &str, model: Option<&str>, provider: Option<&str>) -> AgentDefini
         respond_to: None,
         respond_to_allowlist: vec![],
         parallelism: None,
-        respond_to_owner_messages: false,
         created_at: "".to_string(),
         updated_at: "".to_string(),
     }
@@ -638,7 +637,6 @@ fn record_runtime_wins_over_persona_runtime_for_command_resolution() {
         respond_to: None,
         respond_to_allowlist: vec![],
         parallelism: None,
-        respond_to_owner_messages: false,
         created_at: "".to_string(),
         updated_at: "".to_string(),
     };

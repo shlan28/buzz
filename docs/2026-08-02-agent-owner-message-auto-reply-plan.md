@@ -1,7 +1,7 @@
 # Agent 主动响应 Owner 消息方案
 
 > 更新日期：2026-08-02
-> 更新说明：纠正 Desktop 入口设计：开关放到 Agents 页面点击 Agent 卡片 Edit 后的 Persona 编辑页，并定义为 Persona 行为默认值；保存后同步该 Persona 的本机实例，避免依赖当前 UI 中不可发现的实例编辑入口。
+> 更新说明：完成实例级配置纠正：单实例 Profile 可直接编辑，多实例按 pubkey 隔离保存；开关不再进入 Persona 或 snapshot，并恢复上一版为行数守卫删减的有效注释。
 
 ## 一、需求与目标
 
@@ -26,14 +26,17 @@
 - 环境变量：`BUZZ_ACP_RESPOND_TO_OWNER_MESSAGES=true|false`
 - 默认值：`false`
 
-Desktop 的唯一主入口为：`Agents` 页面 → Agent 卡片 → `Edit`。开关直接显示在 Persona 编辑表单的行为区域，不要求用户先进入 Channel、打开资料面板或找到实例编辑弹窗。
+Desktop 实例入口调整为：`Agents` 页面 → 点击 Agent 卡片打开 Profile → `Edit`。Profile 的 `Edit` 永远编辑当前 pubkey 对应的实例，即使该实例绑定了 Persona。多实例时可先从 `Info → Instances` 选择目标实例，再点击该实例 Profile 的 `Edit`；单实例不依赖不可见的 `Instances` 区块。
 
-由于卡片编辑的是 Persona 定义，而同一 Persona 可能有多个本机实例，本开关采用以下一致语义：
+Agent 卡片右上角三点菜单中的 `Edit` 继续编辑 Persona 定义。两个入口使用明确边界：卡片菜单编辑共享定义，Profile 主操作编辑当前实例。
 
-- 保存到 Persona，作为以后新建实例的默认值；
-- 保存 Persona 时，同步更新当前由该 Persona 创建的全部本机实例，并按现有配置变更规则重启需要重启的实例；
-- 不提供隐藏的“某个实例单独覆盖”入口，避免 Persona 页面显示开启、实际实例仍关闭的双重状态；
-- 旧 Persona 缺少该字段时按关闭处理。
+本开关采用实例级语义：
+
+- 每个 managed-agent instance 独立保存开关，默认关闭；
+- 修改实例 A 不影响同一 Persona 派生的实例 B，也不影响其他 Channel、Team 或 community 中的实例；
+- Persona 只定义角色、模型、提示词等共享模板，不保存这个运行触发策略；
+- 创建新实例时默认关闭，不从 Persona 或 snapshot 继承；
+- 旧实例缺少字段时按关闭处理。
 
 开启后，该 Agent 的入站触发条件变为：
 
@@ -63,15 +66,15 @@ OR
 
 ### 2.4 多 Agent 行为
 
-该开关按 Agent 单独配置。如果同一 Channel 中多个 Agent 都开启，owner 的一条普通消息会唤醒所有这些 Agent。
+该开关按 Agent 实例单独配置。如果同一 Channel 中多个实例都开启，owner 的一条普通消息会唤醒所有这些实例。同一个 Persona 的其他实例不会因为其中一个实例开启而自动开启。
 
 建设性建议：第一版不要默认给所有 Agent 开启，也不要随机选择 Agent。由 owner 明确指定哪些 Agent 开启，行为可预测且方便审计。后续如需要“团队中仅一个 Agent 自动接话”，应另行设计 team coordinator/primary responder，而不是在本功能中引入隐式抢占。
 
 ## 三、代码规范检查
 
-已优先阅读：
+已优先检查：
 
-- `docs/index.md`：项目文档导航入口；
+- `docs/index.md`：当前不存在，因此继续使用项目根 `AGENTS.md` 与 `wiki/index.md` 导航；
 - `wiki/code-spec.md`：身份、channel scope、Nostr event、Rust 安全、测试和交付规则；
 - `CONTRIBUTING.md`：Hermit、格式化、测试、DCO 与 PR 规范；
 - `AGENTS.md`：改代码前先形成方案并获得确认、每个 Todo 对应一个文件、完成后提交 signed-off commit。
@@ -122,15 +125,22 @@ OR (respond_to_owner_messages AND author == verified_owner)
 - 配置为 `true` 但没有有效 owner 时，启动成功但降级为 mention-only。
 - `subscribe=all` 下已经能收到 owner 消息；新开关仍控制 owner 未 @ 消息能否绕过规则中的 mention 要求，不能制造重复 turn。
 - `subscribe=config` 下只对已经匹配该 Channel 的规则生效，不让未配置的 Channel 自动进入订阅范围。
-- Desktop 托管 Agent 必须从 Persona 行为默认值生成实例配置，并把该值写入 harness 环境。
+- Desktop 托管 Agent 必须从 `ManagedAgentRecord` 的实例字段生成配置，并把该值写入 harness 环境。
 
-### 4.5 Desktop 编辑与传播
+### 4.5 Desktop 实例编辑
 
-Agents 页面卡片的 `Edit` 继续打开 `AgentDefinitionDialog`。该页面直接展示 owner 消息回复开关，位置紧邻 `Who can talk to this agent`，不放入仅靠其他页面才能到达的实例编辑表单。
+Agents 主页面仍按 Persona 合并展示卡片，卡片三点菜单的 `Edit` 只编辑 Persona 定义，因此不再展示 owner 消息回复开关。点击卡片打开 Profile 后，Profile 主操作区的 `Edit` 必须打开 `AgentInstanceEditDialog`，由当前实例 pubkey 精确定位保存对象；不能因为实例关联了 Persona 就重定向到 Persona 编辑。
 
-保存采用“定义先更新、关联实例随后同步”的单一操作。若任一阶段失败，UI 必须给出明确错误并重新拉取 Persona 与实例状态，不能乐观显示为全部生效。关联实例以稳定的 `persona_id` 判断，不按名称匹配；其他 Persona、其他 community 和从该 Persona 复制后拥有新 ID 的定义不受影响。
+多实例时，用户从 Profile 的 `Instances` 列表选择目标实例；列表中的每一项对应独立 pubkey。单实例时直接编辑当前 Profile 对应的实例。保存后只失效该实例的查询与有效配置，并按现有配置漂移规则提示或执行该实例重启。
 
-现有 `AgentInstanceEditDialog` 中的重复开关应移除，防止两个入口产生相互覆盖的配置。底层 managed-agent 字段继续作为运行时投影存在，但不再作为用户直接编辑的独立来源。
+Persona 更新、导入导出、共享与 Team snapshot 均不得携带或传播该字段。删除 Persona 时既有级联删除语义不变，但编辑 Persona 不得批量修改实例开关。
+
+### 4.6 文件规模处理
+
+- 已超过 1000 行的生产文件不通过删注释、压缩排版或无关等量替换来容纳本功能。
+- 恢复上一版为维持行数而删除或缩短的状态约束、wire 兼容性、实例字段语义与 snapshot 边界注释。
+- 若实例编辑接入使现有文件继续增长，优先把 owner 回复字段或相关表单逻辑拆为职责明确的新模块。
+- 新文件自身保持在 1000 行以内；拆分必须保留原有行为并有针对性测试。
 
 ## 五、验收标准
 
@@ -143,7 +153,7 @@ Agents 页面卡片的 `Edit` 继续打开 `AgentDefinitionDialog`。该页面�
 7. owner 未解析时保持 mention-only，不扩大到监听所有作者。
 8. 重连只补回断线窗口内符合条件的消息，不回放旧历史。
 9. Agent 自己发出的回复不会再次触发该 Agent。
-10. Channel 中两个 Agent 只有开启该开关的 Agent 被 owner 普通消息唤醒；两者都开启时行为明确为两者都回复。
+10. Channel 中两个 Agent 实例只有开启该开关的实例被 owner 普通消息唤醒；两者都开启时行为明确为两者都回复。
 11. 关闭后再重启 Agent，owner 未 @ 消息恢复为不触发；开关状态不存在仅在当前进程有效的漂移。
 12. owner 消息一旦触发，delivery confirmation 仍保证最终有一条 thread 回复，不出现“turn 成功但用户看不到回复”。
 
@@ -159,7 +169,7 @@ Agents 页面卡片的 `Edit` 继续打开 `AgentDefinitionDialog`。该页面�
 - `subscribe=mentions|all|config` 三种模式分别覆盖开关开/关。
 - `kinds` 默认值、显式 kinds override、config rule kinds 为空三种情况分别验证，保证 owner filter 不扩大 event kinds。
 - `channels_override` 与 config channel scope 分别验证，保证 owner filter 不订阅未授权或未配置 Channel。
-- 旧配置文件、旧 Desktop record 和未包含新字段的 persona/team snapshot 仍能按默认关闭状态加载。
+- 旧配置文件和旧 Desktop record 缺少字段时仍按默认关闭状态加载；persona/team snapshot 不携带实例字段。
 
 ### 6.2 Relay 订阅协议
 
@@ -215,19 +225,20 @@ Agents 页面卡片的 `Edit` 继续打开 `AgentDefinitionDialog`。该页面�
 
 ### 6.5 Desktop 配置与 UI
 
-- 新建 Persona 默认关闭；旧 Persona 缺少字段时回显关闭。
-- 从 Agents 页面点击任意 Agent 卡片的 `Edit`，无需进入 Channel 即可看到开关。
-- 编辑 Persona 时正确回显；开关在折叠区状态变化后仍保持，重新打开以持久化值为准。
-- 切换开关并保存后，Persona、全部关联 managed-agent records、effective config 和启动环境变量一致。
-- 同一 Persona 有零个、一个、多个本机实例时分别覆盖：零实例只保存默认值；一个或多个实例全部同步。
-- Persona A 的保存不能修改 Persona B、其他 community 或复制后拥有新 Persona ID 的实例。
-- 定义保存成功但实例同步失败时显示部分失败，不把 UI 留在虚假的全成功状态；重试具备幂等性。
+- 新建实例默认关闭；旧实例缺少字段时回显关闭。
+- Agent 卡片的 Persona `Edit` 中不显示实例开关，防止误解为批量设置。
+- 单实例点击 Agent 卡片进入 Profile，再点击主操作区 `Edit` 即可看到开关，不依赖 `Instances`；多实例先从 `Info → Instances` 选择目标实例，再点击其 Profile 的 `Edit`。
+- 编辑实例时正确回显；开关在折叠区状态变化后仍保持，重新打开以持久化值为准。
+- 切换实例 A 并保存后，只有 A 的 managed-agent record、effective config 和启动环境变量变化；同 Persona 的 B 保持原值。
+- 分别覆盖 A 开/B 关、A 关/B 开、两者都开和两者都关，Desktop 重启后仍保持。
+- Persona 编辑、duplicate、导入导出和 Team 部署不能覆盖已有实例值。
+- 保存失败时显示错误并恢复服务端真实值，不把 UI 留在虚假的成功状态；重试具备幂等性。
 - Agent 停止/重启、Desktop 重启、community 切换后开关仍保持，不串到其他 Agent/community。
-- persona/team snapshot import/export 携带该 Persona 行为默认值；旧快照安全降级为关闭。
+- persona/team snapshot import/export 不携带该实例字段；导入产生的新实例默认关闭。
 - 开关打开且 owner 身份不可用时，UI 给出可理解提示，不显示为已生效。
 - `respond-to=nobody` 与开关同时选择时阻止无效组合，或明确显示“不会触发”的提示。
 - 多 Agent 风险提示可见，键盘操作、disabled 状态和保存失败回滚可测试。
-- UI 单测覆盖表单 dirty state、定义请求 payload、关联实例同步和失败恢复；增加 Desktop E2E，从 Agents 卡片真实点击 `Edit` 后操作开关并验证重开回显。
+- UI 单测覆盖实例表单 dirty state、true/false patch、实例隔离和失败恢复；Desktop E2E 从 Agent Profile 的实例列表进入两个实例，验证分别保存和重开回显。
 
 ### 6.6 端到端验收
 
@@ -318,6 +329,36 @@ Agents 页面卡片的 `Edit` 继续打开 `AgentDefinitionDialog`。该页面�
 - [x] `desktop/tests/e2e/agent-owner-message-reply.spec.ts`：从 Agents 卡片点击 Edit，验证开关可见、保存、关闭及重新打开回显。
 - [x] `desktop/playwright.config.ts`：把入口回归用例登记到 integration 项目。
 
+实例级语义纠正已完成；每项只对应一个文件：
+
+- [x] `desktop/src/features/agents/ui/AgentDefinitionDialog.tsx`：移除 Persona 定义表单中的 owner 无需 mention 开关，不再通过定义保存该字段。
+- [x] `desktop/src/features/agents/ui/AgentDefinitionDialog.tsx`：恢复上一版为行数守卫删除的 draft seed、runtime auto-seed 和 dialog-open guard 注释；如超限则拆分职责。
+- [x] `desktop/src/features/agents/ui/AgentInstanceEditDialog.tsx`：恢复实例开关的回显、dirty patch 和保存，只修改当前 pubkey 对应的实例。
+- [x] `desktop/src/features/agents/ui/agentDialogRouting.test.mjs`：恢复实例 true/false patch 边界测试，并固定 Persona/instance 两类编辑职责。
+- [x] `desktop/src/features/profile/ui/UserProfilePanel.tsx`：让 Profile 主操作区的 `Edit` 始终打开当前 managed-agent instance 编辑弹窗；Persona 编辑继续由卡片三点菜单承担。
+- [x] `desktop/src/features/profile/ui/UserProfilePanel.test.mjs`：覆盖绑定 Persona 的单实例 Profile 仍能直接打开实例 Edit，以及从多实例列表切换后编辑正确 pubkey。
+- [x] `desktop/src/features/agents/ui/personaBehaviorDraft.ts`：从 Persona behavior draft 移除实例字段。
+- [x] `desktop/src/features/agents/ui/personaBehaviorDraft.test.mjs`：删除 Persona 继承断言，增加定义 payload 不包含实例字段的回归断言。
+- [x] `desktop/src/features/agents/ui/personaDialogState.ts`：停止把实例字段投影到 Persona Edit/duplicate 状态。
+- [x] `desktop/src/features/agents/ui/personaDialogState.test.mjs`：固定 Persona 编辑和复制不携带实例字段。
+- [x] `desktop/src/shared/api/types.ts`：从 Persona behavior API 类型移除实例字段，保留 ManagedAgent create/update 字段。
+- [x] `desktop/src/shared/api/types.ts`：恢复 Persona behavior group 的 absent/present wire 语义注释。
+- [x] `desktop/src/shared/api/tauriPersonas.ts`：停止从 Persona wire 数据映射实例字段。
+- [x] `desktop/src-tauri/src/managed_agents/types/requests.rs`：从 Persona behavior request 移除实例字段，保留 managed-agent update patch。
+- [x] `desktop/src-tauri/src/managed_agents/types.rs`：从 `AgentDefinition` 移除字段，并确保实例创建默认关闭。
+- [x] `desktop/src-tauri/src/managed_agents/types.rs`：恢复 NIP-AP wire shape、allowlist 保留策略和 instance-local 字段说明。
+- [x] `desktop/src-tauri/src/managed_agents/persona_events.rs`：停止在 Persona event 中序列化实例字段。
+- [x] `desktop/src-tauri/src/managed_agents/agent_snapshot.rs`：停止在 Persona/Agent snapshot definition 中携带实例字段。
+- [x] `desktop/src-tauri/src/managed_agents/agent_snapshot.rs`：恢复 portable definition 边界与跨环境字段排除说明。
+- [x] `desktop/src-tauri/src/commands/agents.rs`：新建实例不从 Persona 继承，明确默认关闭或采用实例创建输入。
+- [x] `desktop/src-tauri/src/commands/agents.rs`：恢复 mint-time behavioral quad 的优先级、唯一解析点与失败语义注释。
+- [x] `desktop/src-tauri/src/commands/personas/update.rs`：删除 Persona 保存时批量传播实例字段的逻辑；若文件规模需要拆分，只保留与 Persona 更新相关职责。
+- [x] `desktop/src-tauri/src/commands/personas/update/name_propagation_tests.rs`：删除批量传播断言，增加 Persona 更新不改变多个实例值的隔离测试。
+- [x] `desktop/src-tauri/src/commands/personas/snapshot/fidelity_tests.rs`：固定 snapshot 不携带实例字段且导入实例默认关闭。
+- [x] `desktop/src/testing/e2eBridge.ts`：让 mock 只按 pubkey 更新当前实例，不再模拟 Persona 批量传播；若需新增逻辑，拆到现有 E2E helper 新文件而非继续扩张此超限文件。
+- [x] `desktop/tests/e2e/agent-owner-message-reply.spec.ts`：改为两个同 Persona 实例的隔离 E2E，验证 A 开启不影响 B，并验证重开回显。
+- [x] `desktop/playwright.config.ts`：继续登记修订后的实例级 E2E；若路径不变则只验证配置无需代码改动。
+
 ## 八、实施验证
 
 - `cargo test -p buzz-acp --lib`：656 passed。
@@ -327,14 +368,19 @@ Agents 页面卡片的 `Edit` 继续打开 `AgentDefinitionDialog`。该页面�
 - Buzz ACP 与 Desktop Tauri Clippy：通过。
 - Rust fmt、TypeScript typecheck、Biome、`git diff --check`：通过。
 - 入口纠正增量：Desktop Tauri 1881 passed、14 ignored；Desktop JS/TS 3796 passed；新增 Agent 卡片 Edit E2E 1 passed；Desktop Clippy、E2E build、typecheck 与 Desktop check 均通过。
+- 实例级纠正增量：Desktop Tauri 1880 passed、14 ignored，另有 diagnostic 3 passed；Desktop JS/TS 3795 passed；双实例隔离 E2E 1 passed；Desktop Clippy、Rust fmt、E2E build 和 typecheck 通过。
+- `pnpm --dir desktop check`：本变更文件格式已修复，但全量检查仍被既有 `personaCatalogRelay.test.mjs` 两处字符串拼接的 Biome info 阻断；未改动该无关文件。
 
-## 九、已确认决策
+## 九、已确认的修订决策
 
 建议采用以下默认方案：
 
-1. 功能默认关闭，由每个 Agent 单独开启；
+1. 功能默认关闭，由每个 Agent 实例单独开启；
 2. 只响应精确 owner，不包含 sibling Agent；
 3. owner 消息触发一次正常 turn，并沿用现有 delivery confirmation 保证最终回复；如需“可静默观察”，另开 no-op 方案；
-4. Desktop Agents 页面点击 Agent 卡片的 Edit 后提供显式开关，不依赖 Channel 资料面板或实例编辑入口。
+4. Persona `Edit` 不再提供该开关；单实例点击卡片进入 Profile 后直接点 `Edit`，多实例从 `Info → Instances` 选择后点 `Edit`；Profile Edit 始终编辑当前实例；
+5. Persona、Team 和 snapshot 不保存或传播此实例字段，新建实例默认关闭；
+6. 超限文件按职责拆分，不通过删除注释、压缩格式或提高阈值处理。
+7. 恢复上一提交中为通过行数守卫而删减的有效注释。
 
-以上四点均已实现。开关成为 Persona 行为默认值，进入 persona/team snapshot，并同步投影到该 Persona 的本机实例。旧定义和旧快照缺少字段时安全默认为关闭。
+前一版“Persona 保存后覆盖全部实例”的实现已按以上决策撤回，并完成回归验证。

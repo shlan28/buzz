@@ -19,7 +19,6 @@ type CatalogAgentProjection = {
   namePool: string[];
   respondTo: RespondToMode | null;
   parallelism: number | null;
-  respondToOwnerMessages: boolean;
 };
 
 export type PersonaCatalogPublication = {
@@ -166,7 +165,6 @@ function parsePersonaContent(event: RelayEvent): CatalogAgentProjection | null {
     parsed.parallelism <= 32
       ? parsed.parallelism
       : null;
-  const respondToOwnerMessages = parsed.respond_to_owner_messages === true;
 
   return {
     displayName: parsed.display_name,
@@ -179,7 +177,6 @@ function parsePersonaContent(event: RelayEvent): CatalogAgentProjection | null {
     namePool,
     respondTo,
     parallelism,
-    respondToOwnerMessages,
   };
 }
 
@@ -309,7 +306,6 @@ function publicationToPersona(
     respondTo: publication.agent.respondTo,
     respondToAllowlist: [],
     parallelism: publication.agent.parallelism,
-    respondToOwnerMessages: publication.agent.respondToOwnerMessages,
     createdAt: timestamp,
     updatedAt: timestamp,
   };

@@ -87,11 +87,7 @@ export function duplicatePersonaDialogState(
 function behaviorEntry(
   persona: AgentPersona,
 ): { behavior: PersonaBehaviorInput } | Record<string, never> {
-  if (
-    persona.respondTo == null &&
-    persona.parallelism == null &&
-    !persona.respondToOwnerMessages
-  ) {
+  if (persona.respondTo == null && persona.parallelism == null) {
     return {};
   }
   return {
@@ -102,9 +98,6 @@ function behaviorEntry(
           ? persona.respondToAllowlist
           : undefined,
       parallelism: persona.parallelism ?? undefined,
-      ...(persona.respondToOwnerMessages
-        ? { respondToOwnerMessages: true }
-        : {}),
     },
   };
 }

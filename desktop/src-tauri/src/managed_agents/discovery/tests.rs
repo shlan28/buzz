@@ -289,7 +289,6 @@ fn persona_with_runtime(id: &str, runtime: Option<&str>) -> crate::managed_agent
         respond_to: None,
         respond_to_allowlist: Vec::new(),
         parallelism: None,
-        respond_to_owner_messages: false,
         created_at: "2026-06-09T00:00:00Z".to_string(),
         updated_at: "2026-06-09T00:00:00Z".to_string(),
     }

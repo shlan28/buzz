@@ -717,7 +717,6 @@ mod tests {
             respond_to: None,
             respond_to_allowlist: Vec::new(),
             parallelism: None,
-            respond_to_owner_messages: false,
             created_at: "".to_string(),
             updated_at: "".to_string(),
         }

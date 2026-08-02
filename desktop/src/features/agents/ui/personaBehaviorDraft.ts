@@ -15,14 +15,12 @@ export type PersonaBehaviorDraft = {
   respondToAllowlist: string[];
   /** Raw text; only `parseInt > 0` submits (legacy dialog parity). */
   parallelism: string;
-  respondToOwnerMessages: boolean;
 };
 
 export const emptyPersonaBehaviorDraft: PersonaBehaviorDraft = {
   respondTo: null,
   respondToAllowlist: [],
   parallelism: "",
-  respondToOwnerMessages: false,
 };
 
 /** Seed the draft from a dialog-state behavior group (edit/duplicate). */
@@ -34,7 +32,6 @@ export function draftFromBehavior(
     respondToAllowlist: [...(behavior?.respondToAllowlist ?? [])],
     parallelism:
       behavior?.parallelism != null ? String(behavior.parallelism) : "",
-    respondToOwnerMessages: behavior?.respondToOwnerMessages ?? false,
   };
 }
 
@@ -59,12 +56,9 @@ function behaviorFromDraft(
     respondToAllowlist:
       draft.respondTo === "allowlist" ? draft.respondToAllowlist : undefined,
     parallelism: parallelism > 0 ? parallelism : undefined,
-    ...(draft.respondToOwnerMessages ? { respondToOwnerMessages: true } : {}),
   };
   const isEmpty =
-    group.respondTo === undefined &&
-    group.parallelism === undefined &&
-    group.respondToOwnerMessages !== true;
+    group.respondTo === undefined && group.parallelism === undefined;
   return isEmpty ? undefined : group;
 }
 

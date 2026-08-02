@@ -26,8 +26,6 @@ pub struct PersonaBehaviorRequest {
     pub respond_to_allowlist: Vec<String>,
     #[serde(default)]
     pub parallelism: Option<u32>,
-    #[serde(default)]
-    pub respond_to_owner_messages: bool,
 }
 
 /// Validate a behavior group and apply it onto a persona record.
@@ -70,7 +68,6 @@ pub fn apply_persona_behavior(
         Vec::new()
     };
     record.parallelism = behavior.parallelism;
-    record.respond_to_owner_messages = behavior.respond_to_owner_messages;
     Ok(())
 }
 
@@ -318,7 +315,6 @@ mod tests {
             respond_to: None,
             respond_to_allowlist: Vec::new(),
             parallelism: None,
-            respond_to_owner_messages: false,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             updated_at: "2026-01-01T00:00:00Z".to_string(),
         }
@@ -337,7 +333,7 @@ mod tests {
     }
 
     #[test]
-    fn present_behavior_replaces_all_four_as_a_unit() {
+    fn present_behavior_replaces_all_fields_as_a_unit() {
         let mut record = record_with_quad();
         apply_persona_behavior(
             &mut record,
@@ -345,7 +341,6 @@ mod tests {
                 respond_to: Some(RespondTo::Anyone),
                 respond_to_allowlist: Vec::new(),
                 parallelism: None,
-                respond_to_owner_messages: false,
             }),
         )
         .unwrap();
@@ -433,7 +428,6 @@ mod tests {
                 respond_to: Some(RespondTo::Allowlist),
                 respond_to_allowlist: vec!["c".repeat(64)],
                 parallelism: Some(3),
-                respond_to_owner_messages: true,
             }),
         )
         .unwrap();
@@ -441,7 +435,6 @@ mod tests {
         assert_eq!(content.respond_to.as_deref(), Some("allowlist"));
         assert_eq!(content.respond_to_allowlist, vec!["c".repeat(64)]);
         assert_eq!(content.parallelism, Some(3));
-        assert!(content.respond_to_owner_messages);
     }
 
     #[test]
