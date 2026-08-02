@@ -3152,6 +3152,8 @@ async fn wait_for_reconnect(
 ///
 /// - `kinds` is included only when `filter.kinds` is `Some`; `None` = wildcard.
 /// - `#p` is included only when `filter.require_mention` is `true`.
+/// - When `owner_message_author` is set, a second author-scoped filter is
+///   included so verified-owner messages can arrive without a mention.
 /// - `#h` is always included (channel-scoped subscription).
 /// - On first subscribe (`since` is `None`) adds `since=now` to avoid replaying
 ///   history. On reconnect (`since` is `Some`) subtracts [`SINCE_SKEW_SECS`].
@@ -3165,6 +3167,42 @@ async fn send_subscribe(
     since: Option<u64>,
     filter: &ChannelFilter,
 ) -> bool {
+    let req = build_channel_req(channel_id, agent_pubkey_hex, since, filter);
+
+    match serde_json::to_string(&req) {
+        Ok(text) => {
+            match ws_send_timeout(ws, Message::Text(text.into()), WS_SEND_TIMEOUT_SECS).await {
+                Ok(()) => {
+                    debug!(
+                        "subscribed to channel {channel_id}{}",
+                        if since.is_some() {
+                            " (with since filter)"
+                        } else {
+                            " (since=now)"
+                        }
+                    );
+                    true
+                }
+                Err(e) => {
+                    warn!("failed to send REQ for channel {channel_id}: {e}");
+                    false
+                }
+            }
+        }
+        Err(e) => {
+            warn!("failed to serialize REQ for channel {channel_id}: {e}");
+            false
+        }
+    }
+}
+
+/// Build the NIP-01 REQ for one channel subscription.
+fn build_channel_req(
+    channel_id: Uuid,
+    agent_pubkey_hex: &str,
+    since: Option<u64>,
+    filter: &ChannelFilter,
+) -> Value {
     let sub_id = channel_sub_id(channel_id);
 
     let mut req_filter = serde_json::Map::new();
@@ -3193,33 +3231,34 @@ async fn send_subscribe(
     };
     req_filter.insert("since".into(), json!(since_ts));
 
-    let req = json!(["REQ", sub_id, Value::Object(req_filter)]);
+    let mut req_parts = vec![
+        json!("REQ"),
+        json!(sub_id),
+        Value::Object(req_filter.clone()),
+    ];
 
-    match serde_json::to_string(&req) {
-        Ok(text) => {
-            match ws_send_timeout(ws, Message::Text(text.into()), WS_SEND_TIMEOUT_SECS).await {
-                Ok(()) => {
-                    debug!(
-                        "subscribed to channel {channel_id}{}",
-                        if since.is_some() {
-                            " (with since filter)"
-                        } else {
-                            " (since=now)"
-                        }
-                    );
-                    true
-                }
-                Err(e) => {
-                    warn!("failed to send REQ for channel {channel_id}: {e}");
-                    false
-                }
-            }
-        }
-        Err(e) => {
-            warn!("failed to serialize REQ for channel {channel_id}: {e}");
-            false
+    // NIP-01 subscriptions OR the filters in a REQ. Keep the owner branch
+    // author-scoped instead of widening the primary filter to every channel
+    // message. When the primary filter is already unrestricted by mention,
+    // adding the owner branch would be redundant.
+    let owner_branch_accepts_messages = filter
+        .kinds
+        .as_ref()
+        .is_none_or(|kinds| kinds.contains(&buzz_core::kind::KIND_STREAM_MESSAGE));
+    if filter.require_mention && owner_branch_accepts_messages {
+        if let Some(owner) = filter.owner_message_author.as_deref() {
+            let mut owner_filter = req_filter;
+            owner_filter.remove("#p");
+            owner_filter.insert("authors".into(), json!([owner]));
+            owner_filter.insert(
+                "kinds".into(),
+                json!([buzz_core::kind::KIND_STREAM_MESSAGE]),
+            );
+            req_parts.push(Value::Object(owner_filter));
         }
     }
+
+    Value::Array(req_parts)
 }
 
 /// Send a NIP-01 REQ for membership notifications (kind:44100+44101, global, #p=[agent_pubkey]).
@@ -4370,7 +4409,63 @@ mod tests {
         ChannelFilter {
             kinds: Some(vec![9]),
             require_mention: false,
+            owner_message_author: None,
         }
+    }
+
+    #[test]
+    fn channel_req_adds_precise_owner_author_alternative() {
+        let channel_id = Uuid::new_v4();
+        let agent = "a".repeat(64);
+        let owner = "b".repeat(64);
+        let filter = ChannelFilter {
+            kinds: Some(vec![9, 46_010]),
+            require_mention: true,
+            owner_message_author: Some(owner.clone()),
+        };
+
+        let req = build_channel_req(channel_id, &agent, Some(100), &filter);
+        let parts = req.as_array().expect("REQ should be an array");
+        assert_eq!(parts.len(), 4, "REQ should contain two OR filters");
+        assert_eq!(parts[0], "REQ");
+        assert_eq!(parts[2]["#p"], json!([agent]));
+        assert!(parts[2].get("authors").is_none());
+        assert_eq!(parts[3]["authors"], json!([owner]));
+        assert!(parts[3].get("#p").is_none());
+        assert_eq!(parts[2]["kinds"], json!([9, 46_010]));
+        assert_eq!(parts[3]["kinds"], json!([9]));
+        for branch in [&parts[2], &parts[3]] {
+            assert_eq!(branch["#h"], json!([channel_id.to_string()]));
+            assert_eq!(branch["since"], 95);
+        }
+    }
+
+    #[test]
+    fn channel_req_does_not_duplicate_unrestricted_subscription_for_owner() {
+        let filter = ChannelFilter {
+            kinds: Some(vec![9]),
+            require_mention: false,
+            owner_message_author: Some("b".repeat(64)),
+        };
+
+        let req = build_channel_req(Uuid::new_v4(), &"a".repeat(64), Some(100), &filter);
+        let parts = req.as_array().expect("REQ should be an array");
+        assert_eq!(parts.len(), 3, "unrestricted filter already includes owner");
+        assert!(parts[2].get("#p").is_none());
+        assert!(parts[2].get("authors").is_none());
+    }
+
+    #[test]
+    fn channel_req_skips_owner_branch_when_stream_messages_are_excluded() {
+        let filter = ChannelFilter {
+            kinds: Some(vec![46_010, 40_007]),
+            require_mention: true,
+            owner_message_author: Some("b".repeat(64)),
+        };
+
+        let req = build_channel_req(Uuid::new_v4(), &"a".repeat(64), Some(100), &filter);
+        let parts = req.as_array().expect("REQ should be an array");
+        assert_eq!(parts.len(), 3);
     }
 
     fn seed_test_subscription(state: &mut BgState, channel_id: Uuid) {
@@ -4840,6 +4935,7 @@ mod tests {
         let filter = ChannelFilter {
             kinds: Some(vec![9]),
             require_mention: true,
+            owner_message_author: None,
         };
 
         apply_command_to_state(
@@ -4931,6 +5027,7 @@ mod tests {
                 filter: ChannelFilter {
                     kinds: Some(vec![9]),
                     require_mention: false,
+                    owner_message_author: None,
                 },
                 replay_since: Some(1_000),
             },
@@ -6045,6 +6142,7 @@ mod tests {
                 filter: ChannelFilter {
                     kinds: Some(vec![9]),
                     require_mention: false,
+                    owner_message_author: None,
                 },
                 replay_since: Some(1_000),
             },
@@ -6136,6 +6234,7 @@ mod tests {
                 filter: ChannelFilter {
                     kinds: Some(vec![9]),
                     require_mention: false,
+                    owner_message_author: None,
                 },
                 replay_since: None,
             },
@@ -6175,6 +6274,7 @@ mod tests {
                 filter: ChannelFilter {
                     kinds: Some(vec![9]),
                     require_mention: false,
+                    owner_message_author: None,
                 },
                 replay_since: None,
             },
@@ -6210,6 +6310,7 @@ mod tests {
                 filter: ChannelFilter {
                     kinds: Some(vec![9]),
                     require_mention: false,
+                    owner_message_author: None,
                 },
                 replay_since: None,
             },

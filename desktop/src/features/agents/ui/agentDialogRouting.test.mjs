@@ -3,7 +3,10 @@ import test from "node:test";
 
 import { AgentDialog } from "./AgentDialog.tsx";
 import { AgentDefinitionDialog } from "./AgentDefinitionDialog.tsx";
-import { AgentInstanceEditDialog } from "./AgentInstanceEditDialog.tsx";
+import {
+  AgentInstanceEditDialog,
+  ownerMessageTriggerPatch,
+} from "./AgentInstanceEditDialog.tsx";
 
 // ── Phase 1B.3c routing pinning ─────────────────────────────────────────────
 //
@@ -14,6 +17,13 @@ import { AgentInstanceEditDialog } from "./AgentInstanceEditDialog.tsx";
 // caller's props byte-for-byte (minus the `mode` discriminant).
 
 const noop = () => {};
+
+test("owner-message trigger patch preserves absent vs explicit false", () => {
+  assert.equal(ownerMessageTriggerPatch(false, false), undefined);
+  assert.equal(ownerMessageTriggerPatch(true, true), undefined);
+  assert.equal(ownerMessageTriggerPatch(false, true), true);
+  assert.equal(ownerMessageTriggerPatch(true, false), false);
+});
 
 test("definition-edit routes to AgentDefinitionDialog with exact pass-through", () => {
   const props = {

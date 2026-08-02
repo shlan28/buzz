@@ -1,5 +1,4 @@
 //! `buzz-agent-snapshot v1` — manifest type, encoder, and decoder stubs.
-//!
 //! An agent snapshot is a portable, shareable representation of an agent
 //! definition. It captures:
 //!   - **definition** — behavioral config (prompt, runtime, model, …)
@@ -530,6 +529,7 @@ mod tests {
             last_error_code: Some(42), // MUST NOT appear
             respond_to: RespondTo::default(),
             respond_to_allowlist: vec!["pubkey1hex".to_string()],
+            respond_to_owner_messages: false,
             slug: Some("test-agent".to_string()),
             runtime: Some("goose".to_string()),
             name_pool: vec!["Alice".to_string(), "Bob".to_string()],

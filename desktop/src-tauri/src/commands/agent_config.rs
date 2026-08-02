@@ -1,6 +1,3 @@
-use serde::Serialize;
-use tauri::{AppHandle, State};
-
 use crate::{
     app_state::AppState,
     managed_agents::{
@@ -18,6 +15,8 @@ use crate::{
         ManagedAgentRuntimeKey,
     },
 };
+use serde::Serialize;
+use tauri::{AppHandle, State};
 
 /// Subset of the goose file config exposed to the frontend for gate evaluation.
 ///
@@ -678,6 +677,7 @@ mod tests {
             last_error_code: None,
             respond_to: RespondTo::OwnerOnly,
             respond_to_allowlist: vec![],
+            respond_to_owner_messages: false,
             display_name: None,
             slug: None,
             runtime: None,

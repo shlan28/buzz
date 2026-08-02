@@ -137,6 +137,7 @@ Controls which authors' events the harness forwards to the agent. Events from di
 |------|---------|---------|-------------|
 | `--respond-to` | `BUZZ_ACP_RESPOND_TO` | `owner-only` | Author gate mode: `owner-only`, `allowlist`, `anyone`, `nobody`. |
 | `--respond-to-allowlist` | `BUZZ_ACP_RESPOND_TO_ALLOWLIST` | — | Comma-separated 64-char hex pubkeys (required when mode is `allowlist`). Owner is always implicitly included. |
+| `--respond-to-owner-messages` | `BUZZ_ACP_RESPOND_TO_OWNER_MESSAGES` | `false` | Also trigger on the verified owner's channel messages without requiring an @mention. Replies keep the existing thread routing. |
 
 **Modes:**
 
@@ -161,6 +162,14 @@ Owner control commands must be kind:9 stream messages from the owner, must menti
 
 > **Note:** The default mode is `owner-only`. Agents without a registered `agent_owner_pubkey` will not respond to any events until the owner is resolved. Set `--respond-to anyone` to disable the gate entirely.
 
+`--respond-to-owner-messages` is an independent opt-in trigger. It adds a
+precise owner-author subscription alongside the normal @mention subscription;
+it does not subscribe the agent to every channel message. Only the verified
+owner qualifies—siblings and allowlisted users must still @mention the agent.
+If several agents in the same channel enable this option, each of them will
+respond to the owner's message. `--respond-to nobody` still disables all
+inbound turns.
+
 **Examples:**
 
 ```bash
@@ -173,6 +182,9 @@ buzz-acp --respond-to allowlist \
 
 # Respond to anyone (open agent)
 buzz-acp --respond-to anyone
+
+# Reply to the owner's channel messages without requiring @mention
+buzz-acp --respond-to-owner-messages
 
 # Broadcast-only: post on heartbeat, ignore all inbound events
 buzz-acp --respond-to nobody --heartbeat-interval 300

@@ -12,7 +12,6 @@ use crate::managed_agents::{
     BackendKind, ManagedAgentRecord, RespondTo,
 };
 use std::collections::BTreeMap;
-
 // ── Shared fixtures ───────────────────────────────────────────────────────
 
 /// Build a minimal keyless definition record (matched by slug, no keypair).
@@ -61,6 +60,7 @@ fn make_definition(slug: &str) -> ManagedAgentRecord {
         last_error_code: None,
         respond_to: RespondTo::default(),
         respond_to_allowlist: vec![],
+        respond_to_owner_messages: false,
         runtime: None,
         name_pool: vec![],
         is_builtin: false,

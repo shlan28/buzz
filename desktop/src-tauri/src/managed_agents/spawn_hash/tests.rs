@@ -43,6 +43,7 @@ fn record() -> ManagedAgentRecord {
         last_error_code: None,
         respond_to: Default::default(),
         respond_to_allowlist: vec![],
+        respond_to_owner_messages: false,
         display_name: None,
         slug: None,
         runtime: None,
@@ -91,6 +92,18 @@ fn hash_is_deterministic() {
     assert_eq!(
         spawn_config_hash(&rec, &[], &[], "wss://ws.example", &Default::default()),
         spawn_config_hash(&rec, &[], &[], "wss://ws.example", &Default::default())
+    );
+}
+
+#[test]
+fn owner_message_trigger_edit_changes_hash() {
+    let original = record();
+    let mut edited = original.clone();
+    edited.respond_to_owner_messages = true;
+
+    assert_ne!(
+        spawn_config_hash(&original, &[], &[], "ws://relay", &Default::default()),
+        spawn_config_hash(&edited, &[], &[], "ws://relay", &Default::default())
     );
 }
 

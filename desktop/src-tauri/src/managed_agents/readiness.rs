@@ -1477,7 +1477,6 @@ mod tests {
             "claude-opus-4-5".to_string(),
         );
 
-        // Minimal record: only the fields resolve_effective_agent_env reads.
         let record = crate::managed_agents::types::ManagedAgentRecord {
             pubkey: "test-pubkey".to_string(),
             name: "test-agent".to_string(),
@@ -1518,6 +1517,7 @@ mod tests {
             last_error_code: None,
             respond_to: Default::default(),
             respond_to_allowlist: vec![],
+            respond_to_owner_messages: false,
             display_name: None,
             slug: None,
             runtime: None,

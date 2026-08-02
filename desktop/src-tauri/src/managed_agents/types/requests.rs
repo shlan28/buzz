@@ -186,6 +186,9 @@ pub struct CreateManagedAgentRequest {
     /// before being written to the record.
     #[serde(default)]
     pub respond_to_allowlist: Vec<String>,
+    /// Allow owner-authored channel messages to trigger without an explicit mention.
+    #[serde(default)]
+    pub respond_to_owner_messages: bool,
     #[serde(default)]
     pub relay_mesh: Option<RelayMeshConfig>,
 }
@@ -253,11 +256,36 @@ pub struct UpdateManagedAgentRequest {
     /// normalized server-side).
     #[serde(default)]
     pub respond_to_allowlist: Option<Vec<String>>,
+    /// Absent = don't touch. Present = enable or disable owner-message triggers.
+    #[serde(default)]
+    pub respond_to_owner_messages: Option<bool>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn update_owner_message_trigger_is_a_true_patch_field() {
+        let absent: UpdateManagedAgentRequest =
+            serde_json::from_value(serde_json::json!({ "pubkey": "agent" }))
+                .expect("minimal update should deserialize");
+        assert_eq!(absent.respond_to_owner_messages, None);
+
+        let enabled: UpdateManagedAgentRequest = serde_json::from_value(serde_json::json!({
+            "pubkey": "agent",
+            "respondToOwnerMessages": true
+        }))
+        .expect("enabled update should deserialize");
+        assert_eq!(enabled.respond_to_owner_messages, Some(true));
+
+        let disabled: UpdateManagedAgentRequest = serde_json::from_value(serde_json::json!({
+            "pubkey": "agent",
+            "respondToOwnerMessages": false
+        }))
+        .expect("disabled update should deserialize");
+        assert_eq!(disabled.respond_to_owner_messages, Some(false));
+    }
 
     fn record_with_quad() -> AgentDefinition {
         let mut record = record_without_quad();

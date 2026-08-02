@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use super::overrides::{divergent_agent_command_override, update_time_agent_command_override};
 use super::{
     apply_agent_command_update, classify_runtime, codex_adapter_availability,
@@ -11,6 +9,7 @@ use super::{
     CLAUDE_CODE_AVATAR_URL, CODEX_AVATAR_URL, GOOSE_AVATAR_URL,
 };
 use crate::managed_agents::AcpAvailabilityStatus;
+use std::path::PathBuf;
 
 #[test]
 fn resolves_known_avatar_for_bare_command() {
@@ -353,6 +352,7 @@ fn record_with(
         last_error_code: None,
         respond_to: Default::default(),
         respond_to_allowlist: vec![],
+        respond_to_owner_messages: false,
         display_name: None,
         slug: None,
         runtime: runtime.map(str::to_string),
