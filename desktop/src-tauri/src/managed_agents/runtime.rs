@@ -338,6 +338,7 @@ pub fn build_managed_agent_summary(
         log_path,
         respond_to: record.respond_to,
         respond_to_allowlist: record.respond_to_allowlist.clone(),
+        respond_to_owner_messages: record.respond_to_owner_messages,
     })
 }
 
@@ -364,24 +365,19 @@ pub fn find_managed_agent_mut<'a>(
         .ok_or_else(|| format!("agent {pubkey} not found"))
 }
 
-/// Pure decision function for the inbound author gate env vars.
-///
 /// Returns the env vars to **set** and the env vars to **remove**. Removal is
 /// belt-and-suspenders: an inherited parent env var must not leak into a
 /// child agent and silently change its security posture.
-///
 /// The `owner_hex` argument is the current workspace owner pubkey. It's used
 /// as a fallback for legacy records (`auth_tag.is_none()`) — without it, the
 /// harness's owner cache stays empty and `owner-only` / `allowlist` modes
 /// drop everything.
-///
 /// Returns `Err(...)` if the record's allowlist fails validation. The harness
 /// validates too, but doing it here means we never spawn a doomed process.
 pub(crate) fn build_respond_to_env(
     record: &ManagedAgentRecord,
     owner_hex: Option<&str>,
 ) -> Result<RespondToEnv, String> {
-    // Defensive re-validation: an on-disk record could have been hand-edited.
     let normalized = super::types::validate_respond_to_allowlist(&record.respond_to_allowlist)?;
     if record.respond_to == super::types::RespondTo::Allowlist && normalized.is_empty() {
         return Err(
@@ -395,6 +391,10 @@ pub(crate) fn build_respond_to_env(
     set.push((
         "BUZZ_ACP_RESPOND_TO",
         record.respond_to.as_str().to_string(),
+    ));
+    set.push((
+        "BUZZ_ACP_RESPOND_TO_OWNER_MESSAGES",
+        record.respond_to_owner_messages.to_string(),
     ));
 
     if record.respond_to == super::types::RespondTo::Allowlist {

@@ -599,6 +599,7 @@ pub async fn confirm_team_snapshot_import(
                     .unwrap_or_default()
             },
             respond_to_allowlist: definition.respond_to_allowlist.clone(),
+            respond_to_owner_messages: false,
             is_builtin: false,
             is_active: true,
             shared: false,

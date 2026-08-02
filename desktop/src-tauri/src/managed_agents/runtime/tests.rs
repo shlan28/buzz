@@ -1,5 +1,4 @@
 use crate::managed_agents::known_acp_runtime;
-
 // ── desktop binary name tests ───────────────────────────────────────────
 
 #[test]
@@ -167,6 +166,7 @@ fn fixture(
         last_error_code: None,
         respond_to,
         respond_to_allowlist: allowlist,
+        respond_to_owner_messages: false,
         display_name: None,
         slug: None,
         runtime: None,
@@ -197,9 +197,8 @@ fn build_env_owner_only_sets_mode_and_removes_others() {
     assert!(remove.contains(&"BUZZ_ACP_RESPOND_TO_ALLOWLIST"));
     // auth_tag is present → no AGENT_OWNER fallback fires.
     assert!(remove.contains(&"BUZZ_ACP_AGENT_OWNER"));
+    assert_eq!(set_map["BUZZ_ACP_RESPOND_TO_OWNER_MESSAGES"], "false");
 }
-
-// select_untracked_bundle_harnesses tests live in runtime/sweep.rs (mod tests).
 
 #[test]
 fn build_env_allowlist_sets_both_envs_and_joins() {

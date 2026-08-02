@@ -1,7 +1,6 @@
 export type ChannelType = "stream" | "forum" | "dm";
 export type ChannelVisibility = "open" | "private";
 export type ChannelRole = "owner" | "admin" | "member" | "guest" | "bot";
-
 export type Channel = {
   id: string;
   name: string;
@@ -398,6 +397,8 @@ export type ManagedAgent = {
    * `"allowlist"`. Preserved across mode toggles.
    */
   respondToAllowlist: string[];
+  /** Allow owner-authored channel messages to trigger without an explicit mention. */
+  respondToOwnerMessages: boolean;
 };
 
 /**
@@ -406,7 +407,6 @@ export type ManagedAgent = {
  * it's a heartbeat-only mode without a meaningful GUI use case.
  */
 export type RespondToMode = "owner-only" | "allowlist" | "anyone";
-
 export type BackendProviderCandidate = {
   id: string;
   binaryPath: string;
@@ -460,9 +460,9 @@ export type CreateManagedAgentInput = {
    * normalized server-side (must be 64 hex chars each).
    */
   respondToAllowlist?: string[];
+  respondToOwnerMessages?: boolean;
   relayMesh?: RelayMeshConfig;
 };
-
 export type CreateManagedAgentResponse = {
   agent: ManagedAgent;
   privateKeyNsec: string;
@@ -738,6 +738,7 @@ export type UpdateManagedAgentInput = {
    * (validated & normalized server-side).
    */
   respondToAllowlist?: string[];
+  respondToOwnerMessages?: boolean;
 };
 export type AgentPersona = {
   id: string;

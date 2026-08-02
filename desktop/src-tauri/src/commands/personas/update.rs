@@ -159,7 +159,6 @@ pub(super) async fn update_persona_with<R: Send + 'static>(
                 } else {
                     Vec::new()
                 };
-
                 for record in records.iter_mut() {
                     if record.persona_id.as_deref() != Some(&result.id) {
                         continue;

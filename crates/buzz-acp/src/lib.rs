@@ -1471,7 +1471,29 @@ async fn tokio_main() -> Result<()> {
         }
     };
 
-    let channel_filters = config::resolve_channel_filters(&config, &channel_ids, &rules);
+    let owner_message_author = (config.respond_to_owner_messages
+        && config.respond_to != RespondTo::Nobody)
+        .then(|| {
+            startup_owner
+                .as_deref()
+                .filter(|owner| PublicKey::from_hex(owner).is_ok())
+        })
+        .flatten();
+    if config.respond_to_owner_messages
+        && config.respond_to != RespondTo::Nobody
+        && owner_message_author.is_none()
+    {
+        tracing::warn!(
+            "respond-to-owner-messages is enabled but no verified owner is available — \
+             retaining mention-only subscriptions"
+        );
+    }
+    let channel_filters = config::resolve_channel_filters_with_owner(
+        &config,
+        &channel_ids,
+        &rules,
+        owner_message_author,
+    );
     if channel_filters.is_empty() {
         tracing::warn!("no channel subscriptions resolved — agent will sit idle");
     }
@@ -1966,7 +1988,12 @@ async fn tokio_main() -> Result<()> {
 
                                     if subscribed_channel_ids.contains(&ch) {
                                         tracing::debug!(channel_id = %ch, "membership notification: channel already subscribed");
-                                    } else if let Some(filter) = config::resolve_dynamic_channel_filter(&config, ch, &rules) {
+                                    } else if let Some(filter) = config::resolve_dynamic_channel_filter(
+                                        &config,
+                                        ch,
+                                        &rules,
+                                        owner_message_author,
+                                    ) {
                                         tracing::info!(channel_id = %ch, "membership notification: subscribing to new channel");
                                         if let Err(e) = relay.subscribe_channel_from(ch, filter, Some(ts)).await {
                                             tracing::warn!("failed to subscribe to new channel {ch}: {e}");
@@ -2170,7 +2197,14 @@ async fn tokio_main() -> Result<()> {
                                 }
                             }
 
-                            let matched = filter::match_event(&buzz_event.event, buzz_event.channel_id, &rules, &pubkey_hex).await;
+                            let matched = filter::match_event_with_owner(
+                                &buzz_event.event,
+                                buzz_event.channel_id,
+                                &rules,
+                                &pubkey_hex,
+                                owner_message_author,
+                            )
+                            .await;
                             let prompt_tag = match matched {
                                 Some(m) => m.prompt_tag,
                                 None => {
@@ -5029,6 +5063,7 @@ mod build_mcp_servers_tests {
             kinds_override: None,
             channels_override: None,
             no_mention_filter: false,
+            respond_to_owner_messages: false,
             config_path: std::path::PathBuf::from("./buzz-acp.toml"),
             context_message_limit: 12,
             max_turns_per_session: 0,
@@ -5250,6 +5285,7 @@ mod error_outcome_emission_tests {
             kinds_override: None,
             channels_override: None,
             no_mention_filter: false,
+            respond_to_owner_messages: false,
             config_path: std::path::PathBuf::from("./buzz-acp.toml"),
             context_message_limit: 12,
             max_turns_per_session: 0,

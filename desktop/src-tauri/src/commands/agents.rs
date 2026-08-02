@@ -1,6 +1,3 @@
-use nostr::{Keys, ToBech32};
-use tauri::{AppHandle, State};
-
 use crate::{
     app_state::AppState,
     managed_agents::{
@@ -17,6 +14,8 @@ use crate::{
     relay::{relay_ws_url_with_override, sync_managed_agent_profile},
     util::now_iso,
 };
+use nostr::{Keys, ToBech32};
+use tauri::{AppHandle, State};
 
 /// Read the workspace owner pubkey without holding the lock. Used to populate `BUZZ_ACP_AGENT_OWNER`
 /// as a fallback for legacy agent records that have no NIP-OA `auth_tag`.
@@ -849,7 +848,6 @@ pub async fn create_managed_agent(
             agent_command_override,
             agent_args,
             mcp_command,
-            // BUZZ_ACP_TURN_TIMEOUT is deprecated and ignored by the harness;
             // store the schema default only. Use idle_timeout_seconds or
             // max_turn_duration_seconds for actual turn-length control.
             turn_timeout_seconds: DEFAULT_AGENT_TURN_TIMEOUT_SECONDS,
@@ -891,6 +889,7 @@ pub async fn create_managed_agent(
             last_error_code: None,
             respond_to: minted.respond_to,
             respond_to_allowlist: minted.respond_to_allowlist.clone(),
+            respond_to_owner_messages: input.respond_to_owner_messages,
             display_name: None,
             slug: None,
             runtime: None,

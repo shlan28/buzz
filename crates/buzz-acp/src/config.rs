@@ -338,6 +338,11 @@ pub struct CliArgs {
     #[arg(long, env = "BUZZ_ACP_NO_MENTION_FILTER")]
     pub no_mention_filter: bool,
 
+    /// Also trigger on channel messages authored by this agent's verified owner,
+    /// even when the message does not mention the agent.
+    #[arg(long, env = "BUZZ_ACP_RESPOND_TO_OWNER_MESSAGES")]
+    pub respond_to_owner_messages: bool,
+
     #[arg(long, env = "BUZZ_ACP_CONFIG", default_value = "./buzz-acp.toml")]
     pub config: PathBuf,
 
@@ -486,6 +491,8 @@ pub struct ChannelFilter {
     pub kinds: Option<Vec<u32>>,
     /// Whether to include `#p` tag filter for agent pubkey.
     pub require_mention: bool,
+    /// Verified owner author to include as an alternative to `#p` mention matching.
+    pub owner_message_author: Option<String>,
 }
 
 #[derive(Debug)]
@@ -515,6 +522,8 @@ pub struct Config {
     pub kinds_override: Option<Vec<u32>>,
     pub channels_override: Option<Vec<String>>,
     pub no_mention_filter: bool,
+    /// Whether verified-owner messages may trigger without mentioning the agent.
+    pub respond_to_owner_messages: bool,
     pub config_path: PathBuf,
     pub context_message_limit: u32,
     /// Maximum turns per session before proactive rotation. 0 = disabled.
@@ -1080,6 +1089,7 @@ impl Config {
             kinds_override: args.kinds,
             channels_override: args.channels,
             no_mention_filter: args.no_mention_filter,
+            respond_to_owner_messages: args.respond_to_owner_messages,
             config_path: args.config,
             context_message_limit: args.context_message_limit,
             max_turns_per_session: args.max_turns_per_session,
@@ -1123,7 +1133,7 @@ impl Config {
             format!(" allowed_respond_to=[{}]", modes.join(","))
         };
         format!(
-            "relay={} pubkey={} agent_cmd={} {} mcp_cmd={} idle_timeout={}s max_turn={}s agents={} heartbeat={}s subscribe={:?} dedup={:?} meh={:?} ignore_self={} context_limit={} max_turns_per_session={} presence={} typing={} memory={} model={} permission_mode={} {}{}",
+            "relay={} pubkey={} agent_cmd={} {} mcp_cmd={} idle_timeout={}s max_turn={}s agents={} heartbeat={}s subscribe={:?} owner_messages={} dedup={:?} meh={:?} ignore_self={} context_limit={} max_turns_per_session={} presence={} typing={} memory={} model={} permission_mode={} {}{}",
             self.relay_url,
             self.keys.public_key().to_hex(),
             self.agent_command,
@@ -1134,6 +1144,7 @@ impl Config {
             self.agents,
             self.heartbeat_interval_secs,
             self.subscribe_mode,
+            self.respond_to_owner_messages,
             self.dedup_mode,
             self.multiple_event_handling,
             self.ignore_self,
@@ -1235,6 +1246,17 @@ pub fn resolve_channel_filters(
     discovered_channels: &[Uuid],
     rules: &[SubscriptionRule],
 ) -> HashMap<Uuid, ChannelFilter> {
+    resolve_channel_filters_with_owner(config, discovered_channels, rules, None)
+}
+
+/// Resolve per-channel filters and optionally include verified-owner messages
+/// as an alternative trigger to an explicit agent mention.
+pub fn resolve_channel_filters_with_owner(
+    config: &Config,
+    discovered_channels: &[Uuid],
+    rules: &[SubscriptionRule],
+    owner_message_author: Option<&str>,
+) -> HashMap<Uuid, ChannelFilter> {
     use buzz_core::kind::{
         KIND_STREAM_MESSAGE, KIND_STREAM_REMINDER, KIND_WORKFLOW_APPROVAL_REQUESTED,
     };
@@ -1267,6 +1289,7 @@ pub fn resolve_channel_filters(
                     ChannelFilter {
                         kinds: Some(kinds.clone()),
                         require_mention,
+                        owner_message_author: owner_message_author.map(str::to_string),
                     },
                 );
             }
@@ -1278,6 +1301,7 @@ pub fn resolve_channel_filters(
                     ChannelFilter {
                         kinds: config.kinds_override.clone(),
                         require_mention: false,
+                        owner_message_author: None,
                     },
                 );
             }
@@ -1313,6 +1337,7 @@ pub fn resolve_channel_filters(
                         ChannelFilter {
                             kinds: merged_kinds,
                             require_mention,
+                            owner_message_author: owner_message_author.map(str::to_string),
                         },
                     );
                 }
@@ -1336,6 +1361,7 @@ pub fn resolve_dynamic_channel_filter(
     config: &Config,
     channel_id: Uuid,
     rules: &[crate::filter::SubscriptionRule],
+    owner_message_author: Option<&str>,
 ) -> Option<ChannelFilter> {
     use buzz_core::kind::{
         KIND_STREAM_MESSAGE, KIND_STREAM_REMINDER, KIND_WORKFLOW_APPROVAL_REQUESTED,
@@ -1366,10 +1392,12 @@ pub fn resolve_dynamic_channel_filter(
                 ]
             })),
             require_mention: !config.no_mention_filter,
+            owner_message_author: owner_message_author.map(str::to_string),
         }),
         SubscribeMode::All => Some(ChannelFilter {
             kinds: config.kinds_override.clone(),
             require_mention: false,
+            owner_message_author: None,
         }),
         SubscribeMode::Config => {
             // Same merge logic as resolve_channel_filters() Config branch:
@@ -1407,6 +1435,7 @@ pub fn resolve_dynamic_channel_filter(
             Some(ChannelFilter {
                 kinds: merged_kinds,
                 require_mention,
+                owner_message_author: owner_message_author.map(str::to_string),
             })
         }
     }
@@ -1453,6 +1482,7 @@ mod tests {
             kinds_override: None,
             channels_override: None,
             no_mention_filter: false,
+            respond_to_owner_messages: false,
             config_path: PathBuf::from("./buzz-acp.toml"),
             context_message_limit: 12,
             max_turns_per_session: 0,
@@ -1532,6 +1562,32 @@ mod tests {
 
         let f = result.get(&channels[0]).unwrap();
         assert!(!f.require_mention);
+    }
+
+    #[test]
+    fn test_mentions_mode_includes_verified_owner_author_when_enabled() {
+        let mut config = test_config(SubscribeMode::Mentions);
+        config.respond_to_owner_messages = true;
+        let channel = Uuid::new_v4();
+        let owner = "a".repeat(64);
+
+        let result = resolve_channel_filters_with_owner(&config, &[channel], &[], Some(&owner));
+        let filter = result.get(&channel).expect("channel should be present");
+        assert!(filter.require_mention);
+        assert_eq!(filter.owner_message_author.as_deref(), Some(owner.as_str()));
+    }
+
+    #[test]
+    fn test_all_mode_does_not_add_redundant_owner_author_filter() {
+        let mut config = test_config(SubscribeMode::All);
+        config.respond_to_owner_messages = true;
+        let channel = Uuid::new_v4();
+
+        let result =
+            resolve_channel_filters_with_owner(&config, &[channel], &[], Some(&"a".repeat(64)));
+        let filter = result.get(&channel).expect("channel should be present");
+        assert!(!filter.require_mention);
+        assert!(filter.owner_message_author.is_none());
     }
 
     #[test]
@@ -2401,6 +2457,23 @@ channels = "ALL"
     #[test]
     fn test_respond_to_default_is_owner_only() {
         assert_eq!(RespondTo::default(), RespondTo::OwnerOnly);
+    }
+
+    #[test]
+    fn respond_to_owner_messages_defaults_off_and_can_be_enabled() {
+        let key = nostr::Keys::generate().secret_key().to_secret_hex();
+        let default_args = CliArgs::try_parse_from(["buzz-acp", "--private-key", &key])
+            .expect("default CLI should parse");
+        assert!(!default_args.respond_to_owner_messages);
+
+        let enabled_args = CliArgs::try_parse_from([
+            "buzz-acp",
+            "--private-key",
+            &key,
+            "--respond-to-owner-messages",
+        ])
+        .expect("owner-message flag should parse");
+        assert!(enabled_args.respond_to_owner_messages);
     }
 
     #[test]

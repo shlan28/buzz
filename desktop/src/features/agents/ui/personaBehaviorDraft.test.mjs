@@ -104,7 +104,7 @@ test("duplicate (create with inherited seed) submits the inherited quad", () => 
 
 // ── Draft seeding round-trip ─────────────────────────────────────────────────
 
-test("draftFromBehavior round-trips a full quad and copies the list", () => {
+test("draftFromBehavior round-trips a full group and copies the list", () => {
   const behavior = {
     respondTo: "allowlist",
     respondToAllowlist: [HEX],

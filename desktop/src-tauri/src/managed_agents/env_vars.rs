@@ -76,6 +76,7 @@ pub(crate) const RESERVED_ENV_KEYS: &[&str] = &[
     // from the saved/UI-visible settings.
     "BUZZ_ACP_RESPOND_TO",
     "BUZZ_ACP_RESPOND_TO_ALLOWLIST",
+    "BUZZ_ACP_RESPOND_TO_OWNER_MESSAGES",
     "BUZZ_ACP_AGENT_OWNER",
     // Readiness handoff: desktop is the ONLY readiness source. A saved or
     // ambient env var must not be able to forge setup mode (NotReady) on a

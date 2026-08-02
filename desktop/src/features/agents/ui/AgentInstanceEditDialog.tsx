@@ -55,6 +55,7 @@ import {
   resolveInheritedRuntimeSubmission,
   resolveRuntimeProviderCapability,
 } from "./personaRuntimeModel";
+
 import {
   selectionOnModelDropdownChange,
   selectionOnProviderDropdownChange,
@@ -84,11 +85,20 @@ import { resolveModelFieldStatusMessage } from "./agentConfigControls";
 import { AdvancedRequiredBadge } from "./AdvancedRequiredBadge";
 import { showAgentProfileSyncWarning } from "./agentProfileSyncWarning";
 import { AddCustomHarnessDialog } from "./AddCustomHarnessDialog";
+import { OwnerMessageReplyField } from "./OwnerMessageReplyField";
+import { AgentNameField } from "./AgentNameField";
 import {
   ADD_CUSTOM_HARNESS_OPTION,
   runtimeDropdownAction,
   usePendingHarnessSelection,
 } from "./addCustomHarness";
+
+export function ownerMessageTriggerPatch(
+  current: boolean,
+  next: boolean,
+): boolean | undefined {
+  return next !== current ? next : undefined;
+}
 
 const ADVANCED_FIELDS_MOTION_TRANSITION = {
   duration: 0.18,
@@ -159,6 +169,9 @@ export function AgentInstanceEditDialog({
   const [respondToAllowlist, setRespondToAllowlist] = React.useState<string[]>(
     agent.respondToAllowlist,
   );
+  const [respondToOwnerMessages, setRespondToOwnerMessages] = React.useState(
+    agent.respondToOwnerMessages,
+  );
   const [showAdvancedFields, setShowAdvancedFields] = React.useState(false);
   const [avatarUrl, setAvatarUrl] = React.useState(agent.avatarUrl ?? "");
   const [isAvatarUploadPending, setIsAvatarUploadPending] =
@@ -195,6 +208,7 @@ export function AgentInstanceEditDialog({
       setAutoRestartOnConfigChange(agent.autoRestartOnConfigChange);
       setRespondTo(agent.respondTo);
       setRespondToAllowlist(agent.respondToAllowlist);
+      setRespondToOwnerMessages(agent.respondToOwnerMessages);
       setAvatarUrl(agent.avatarUrl ?? "");
       setShowAdvancedFields(false);
       setIsAvatarUploadPending(false);
@@ -723,6 +737,10 @@ export function AgentInstanceEditDialog({
           respondToAllowlist.join(",") !== agent.respondToAllowlist.join(",")
             ? respondToAllowlist
             : undefined,
+        respondToOwnerMessages: ownerMessageTriggerPatch(
+          agent.respondToOwnerMessages,
+          respondToOwnerMessages,
+        ),
       };
 
       const result = await updateMutation.mutateAsync(input);
@@ -805,7 +823,6 @@ export function AgentInstanceEditDialog({
     status: modelDiscoveryStatus,
   });
 
-  // Provider field derived state
   const trimmedProvider = provider.trim();
   const hideProviderIds = React.useMemo(
     () =>
@@ -907,34 +924,11 @@ export function AgentInstanceEditDialog({
             )}
           </div>
           <div className="space-y-5">
-            {/* Agent name */}
-            <div className="space-y-1.5">
-              <label
-                className="text-sm font-medium text-foreground"
-                htmlFor="edit-agent-name"
-              >
-                Agent name
-              </label>
-              <div
-                className={cn(
-                  "flex min-h-11 items-center px-3",
-                  PERSONA_FIELD_SHELL_CLASS,
-                )}
-              >
-                <Input
-                  autoCorrect="off"
-                  className={cn(
-                    "h-8 px-0 py-0 leading-6",
-                    PERSONA_FIELD_CONTROL_CLASS,
-                  )}
-                  disabled={updateMutation.isPending}
-                  id="edit-agent-name"
-                  onChange={(event) => setName(event.target.value)}
-                  placeholder="Agent name"
-                  value={name}
-                />
-              </div>
-            </div>
+            <AgentNameField
+              disabled={updateMutation.isPending}
+              name={name}
+              onChange={setName}
+            />
 
             {/* Who can talk to this agent */}
             <CreateAgentRespondToField
@@ -944,6 +938,12 @@ export function AgentInstanceEditDialog({
               onAllowlistChange={setRespondToAllowlist}
               onModeChange={setRespondTo}
               variant="persona"
+            />
+
+            <OwnerMessageReplyField
+              checked={respondToOwnerMessages}
+              disabled={updateMutation.isPending}
+              onCheckedChange={setRespondToOwnerMessages}
             />
 
             {/* Provider (runtime) */}

@@ -118,7 +118,6 @@ export type RawManagedAgent = {
   pubkey: string;
   name: string;
   persona_id: string | null;
-  // Optional: pre-feature fixtures may omit it. The record's harness/runtime id.
   runtime?: string | null;
   team_id?: string | null;
   relay_url: string;
@@ -158,6 +157,7 @@ export type RawManagedAgent = {
   // `"owner-only"` / `[]` in `fromRawManagedAgent`.
   respond_to?: ManagedAgent["respondTo"];
   respond_to_allowlist?: string[];
+  respond_to_owner_messages?: boolean;
 };
 
 type RawCreateManagedAgentResponse = {
@@ -166,7 +166,6 @@ type RawCreateManagedAgentResponse = {
   profile_sync_error: string | null;
   spawn_error: string | null;
 };
-
 type RawManagedAgentLog = {
   content: string;
   log_path: string;
@@ -739,6 +738,7 @@ export function fromRawManagedAgent(agent: RawManagedAgent): ManagedAgent {
     // Real agent records always include them (defaulted server-side).
     respondTo: agent.respond_to ?? "owner-only",
     respondToAllowlist: agent.respond_to_allowlist ?? [],
+    respondToOwnerMessages: agent.respond_to_owner_messages ?? false,
   };
 }
 
@@ -893,6 +893,7 @@ export async function createManagedAgent(input: CreateManagedAgentInput) {
         backend: input.backend,
         respondTo: input.respondTo,
         respondToAllowlist: input.respondToAllowlist,
+        respondToOwnerMessages: input.respondToOwnerMessages,
         relayMesh: input.relayMesh,
       },
     },
@@ -1113,7 +1114,6 @@ type RawUpdateManagedAgentResponse = {
   agent: RawManagedAgent;
   profile_sync_error: string | null;
 };
-
 export async function updateManagedAgent(
   input: UpdateManagedAgentInput,
 ): Promise<{ agent: ManagedAgent; profileSyncError: string | null }> {

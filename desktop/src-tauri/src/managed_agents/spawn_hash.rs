@@ -137,6 +137,7 @@ pub(crate) fn spawn_config_hash(
     effective_session_title.hash(&mut hasher);
     record.auth_tag.hash(&mut hasher);
     record.respond_to.as_str().hash(&mut hasher);
+    record.respond_to_owner_messages.hash(&mut hasher);
     // The allowlist is hashed as the env receives it: spawn sets
     // BUZZ_ACP_RESPOND_TO_ALLOWLIST only in allowlist mode, and normalized
     // (trim/lowercase/dedup via `validate_respond_to_allowlist`) — so edits

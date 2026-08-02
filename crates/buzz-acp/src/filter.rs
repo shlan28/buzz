@@ -371,6 +371,18 @@ pub async fn match_event(
     rules: &[SubscriptionRule],
     agent_pubkey_hex: &str,
 ) -> Option<MatchedRule> {
+    match_event_with_owner(event, channel_id, rules, agent_pubkey_hex, None).await
+}
+
+/// Match an event while allowing a verified owner-authored message to satisfy
+/// a rule's mention requirement.
+pub async fn match_event_with_owner(
+    event: &nostr::Event,
+    channel_id: uuid::Uuid,
+    rules: &[SubscriptionRule],
+    agent_pubkey_hex: &str,
+    owner_message_author: Option<&str>,
+) -> Option<MatchedRule> {
     let filter_ctx = FilterContext::from_event(event, channel_id);
 
     for (index, rule) in rules.iter().enumerate() {
@@ -393,7 +405,10 @@ pub async fn match_event(
                 s.first().map(|k| k.as_str()) == Some("p")
                     && s.get(1).map(|v| v.as_str()) == Some(agent_pubkey_hex)
             });
-            if !mentioned {
+            let authored_by_owner = owner_message_author
+                .is_some_and(|owner| event.pubkey.to_hex().eq_ignore_ascii_case(owner))
+                && u32::from(event.kind.as_u16()) == buzz_core::kind::KIND_STREAM_MESSAGE;
+            if !mentioned && !authored_by_owner {
                 continue;
             }
         }
@@ -661,6 +676,56 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(matched.prompt_tag, "mentioned");
+    }
+
+    #[tokio::test]
+    async fn test_verified_owner_author_satisfies_mention_requirement() {
+        let agent_pubkey = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+        let event = make_event(9, "owner message without mention");
+        let owner = event.pubkey.to_hex();
+        let channel_id = any_channel();
+        let rules = vec![make_rule(
+            "mention-or-owner",
+            ChannelScope::All("all".into()),
+            vec![9],
+            true,
+            None,
+            Some("owner-message"),
+        )];
+
+        let matched =
+            match_event_with_owner(&event, channel_id, &rules, agent_pubkey, Some(&owner))
+                .await
+                .expect("verified owner should satisfy mention requirement");
+        assert_eq!(matched.prompt_tag, "owner-message");
+
+        let other_owner = "a".repeat(64);
+        let rejected =
+            match_event_with_owner(&event, channel_id, &rules, agent_pubkey, Some(&other_owner))
+                .await;
+        assert!(
+            rejected.is_none(),
+            "non-owner author must still mention agent"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_verified_owner_cannot_bypass_kind_filter() {
+        let event = make_event(1, "wrong kind");
+        let owner = event.pubkey.to_hex();
+        let rules = vec![make_rule(
+            "kind-nine-owner",
+            ChannelScope::All("all".into()),
+            vec![9],
+            true,
+            None,
+            None,
+        )];
+
+        let result =
+            match_event_with_owner(&event, any_channel(), &rules, &"b".repeat(64), Some(&owner))
+                .await;
+        assert!(result.is_none());
     }
 
     #[tokio::test]

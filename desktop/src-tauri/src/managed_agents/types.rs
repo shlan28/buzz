@@ -138,6 +138,7 @@ impl AgentDefinition {
             last_error_code: None,
             respond_to: RespondTo::default(),
             respond_to_allowlist: Vec::new(),
+            respond_to_owner_messages: false,
             display_name: Some(self.display_name),
             slug: Some(self.id),
             runtime: self.runtime,
@@ -352,6 +353,9 @@ pub struct ManagedAgentRecord {
     /// Preserved across mode toggles so users don't lose state.
     #[serde(default)]
     pub respond_to_allowlist: Vec<String>,
+    /// Allow owner messages to trigger without a mention. Instance-local only.
+    #[serde(default)]
+    pub respond_to_owner_messages: bool,
     /// Optional display name distinct from the unique `name` handle. Absorbed
     /// from `AgentDefinition.display_name` (unified agent model, Phase 1A).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -566,6 +570,7 @@ pub struct ManagedAgentSummary {
     pub log_path: String,
     pub respond_to: RespondTo,
     pub respond_to_allowlist: Vec<String>,
+    pub respond_to_owner_messages: bool,
 }
 
 #[derive(Debug, Serialize)]

@@ -1,7 +1,6 @@
 import * as React from "react";
 import { ChevronDown } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-
 import type {
   AcpRuntimeCatalogEntry,
   CreatePersonaInput,

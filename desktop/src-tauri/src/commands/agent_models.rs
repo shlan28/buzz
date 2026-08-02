@@ -906,7 +906,6 @@ pub async fn update_managed_agent(
             record.relay_mesh = Some(crate::managed_agents::RelayMeshConfig { model_ref });
         }
 
-        // Inbound author gate: merge patch onto current values, then validate
         // the merged state. This lets a single update switch to Allowlist AND
         // supply pubkeys atomically.
         let prospective_mode = input.respond_to.unwrap_or(record.respond_to);
@@ -923,10 +922,11 @@ pub async fn update_managed_agent(
             );
         }
         record.respond_to = prospective_mode;
-        // Preserve the persisted allowlist across mode toggles — only replace
-        // when the caller explicitly supplied a new list.
         if input.respond_to_allowlist.is_some() {
             record.respond_to_allowlist = prospective_allowlist;
+        }
+        if let Some(enabled) = input.respond_to_owner_messages {
+            record.respond_to_owner_messages = enabled;
         }
 
         record.updated_at = now_iso();
