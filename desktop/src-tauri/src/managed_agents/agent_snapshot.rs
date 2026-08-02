@@ -38,7 +38,6 @@
 //!
 //! These exclusions are enforced by construction (only explicit fields are
 //! placed into `AgentSnapshotDefinition`) and asserted by unit tests.
-
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use png::{BitDepth, ColorType, Decoder, Encoder};
 use serde::{Deserialize, Serialize};
@@ -83,9 +82,7 @@ pub enum MemoryLevel {
 
 /// Behavioral definition — what makes the agent do what it does.
 ///
-/// Fields mirror `ManagedAgentRecord` definition-level fields. Only the subset
-/// meaningful across environments is included; machine-local / secret fields
-/// are deliberately absent.
+/// Portable subset of a managed Agent definition.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentSnapshotDefinition {
@@ -110,6 +107,8 @@ pub struct AgentSnapshotDefinition {
     /// source environment and are meaningless on the importer's relay.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub respond_to_allowlist: Vec<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub respond_to_owner_messages: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub name_pool: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -206,6 +205,7 @@ pub fn build_snapshot(
         parallelism: record.definition_parallelism.or(Some(record.parallelism)),
         respond_to: record.definition_respond_to.clone(),
         respond_to_allowlist: record.definition_respond_to_allowlist.clone(),
+        respond_to_owner_messages: record.respond_to_owner_messages,
         name_pool: record.name_pool.clone(),
         idle_timeout_seconds: record.idle_timeout_seconds,
         max_turn_duration_seconds: record.max_turn_duration_seconds,

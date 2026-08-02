@@ -115,10 +115,33 @@ test("draftFromBehavior round-trips a full quad and copies the list", () => {
     respondTo: "allowlist",
     respondToAllowlist: [HEX],
     parallelism: "3",
+    respondToOwnerMessages: false,
   });
   draft.respondToAllowlist.push("mutated");
   assert.deepEqual(behavior.respondToAllowlist, [HEX], "list must be copied");
   assert.deepEqual(draftFromBehavior(undefined), emptyPersonaBehaviorDraft);
+});
+
+test("owner-message behavior supports enable, no-op, and explicit clear", () => {
+  const enabled = {
+    ...emptyPersonaBehaviorDraft,
+    respondToOwnerMessages: true,
+  };
+  assert.deepEqual(
+    behaviorForSubmit(enabled, emptyPersonaBehaviorDraft, false),
+    {
+      respondTo: undefined,
+      respondToAllowlist: undefined,
+      parallelism: undefined,
+      respondToOwnerMessages: true,
+    },
+  );
+  assert.equal(behaviorForSubmit(enabled, enabled, true), undefined);
+  assert.deepEqual(
+    behaviorForSubmit(emptyPersonaBehaviorDraft, enabled, true),
+    {},
+  );
+  assert.equal(draftFromBehavior(undefined).respondToOwnerMessages, false);
 });
 
 test("edit full-clear submits an explicit empty group, not nothing", () => {

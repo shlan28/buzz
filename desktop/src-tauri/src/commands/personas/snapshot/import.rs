@@ -467,6 +467,7 @@ pub async fn confirm_agent_snapshot_import(
             respond_to: respond_to_wire.clone(),
             respond_to_allowlist: minted.respond_to_allowlist.clone(),
             parallelism: minted_parallelism,
+            respond_to_owner_messages: snapshot.definition.respond_to_owner_messages,
             created_at: now.clone(),
             updated_at: now.clone(),
         };
@@ -527,7 +528,7 @@ pub async fn confirm_agent_snapshot_import(
             // are always consistent at mint time.
             respond_to: minted.respond_to,
             respond_to_allowlist: minted.respond_to_allowlist.clone(),
-            respond_to_owner_messages: false,
+            respond_to_owner_messages: snapshot.definition.respond_to_owner_messages,
             is_builtin: false,
             is_active: true,
             shared: false,

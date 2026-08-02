@@ -54,6 +54,23 @@ fn propagate_persona_name_rename(
     renamed
 }
 
+fn propagate_owner_message_behavior(
+    records: &mut [ManagedAgentRecord],
+    persona_id: &str,
+    enabled: bool,
+) -> Vec<String> {
+    let mut updated = Vec::new();
+    for record in records.iter_mut() {
+        if record.persona_id.as_deref() != Some(persona_id) {
+            continue;
+        }
+        record.respond_to_owner_messages = enabled;
+        record.updated_at = now_iso();
+        updated.push(record.pubkey.clone());
+    }
+    updated
+}
+
 /// Profile sync params collected under the store lock for async relay publish.
 type ProfileSyncParams = Vec<(nostr::Keys, String, String, Option<String>, Option<String>)>;
 
@@ -111,6 +128,7 @@ pub(super) async fn update_persona_with<R: Send + 'static>(
             let avatar_changed = persona.avatar_url != avatar_url;
             let name_changed = persona.display_name != display_name;
             let old_display_name = persona.display_name.clone();
+            let old_respond_to_owner_messages = persona.respond_to_owner_messages;
 
             persona.display_name = display_name;
             persona.avatar_url = avatar_url;
@@ -129,6 +147,8 @@ pub(super) async fn update_persona_with<R: Send + 'static>(
                 persona.env_vars = env_vars;
             }
             apply_persona_behavior(persona, input.behavior)?;
+            let owner_message_behavior_changed =
+                persona.respond_to_owner_messages != old_respond_to_owner_messages;
             persona.updated_at = now_iso();
 
             let result = persona.clone();
@@ -139,7 +159,10 @@ pub(super) async fn update_persona_with<R: Send + 'static>(
 
             // If the avatar or display_name changed, propagate to linked agent
             // records and collect relay profile sync params for the async phase.
-            let sync_params: ProfileSyncParams = if avatar_changed || name_changed {
+            let sync_params: ProfileSyncParams = if avatar_changed
+                || name_changed
+                || owner_message_behavior_changed
+            {
                 let mut records = load_managed_agents(&app)?;
                 let mut params: ProfileSyncParams = Vec::new();
                 let mut agents_modified = false;
@@ -159,12 +182,23 @@ pub(super) async fn update_persona_with<R: Send + 'static>(
                 } else {
                     Vec::new()
                 };
+                let owner_behavior_updated = if owner_message_behavior_changed {
+                    propagate_owner_message_behavior(
+                        &mut records,
+                        &result.id,
+                        result.respond_to_owner_messages,
+                    )
+                } else {
+                    Vec::new()
+                };
 
                 for record in records.iter_mut() {
                     if record.persona_id.as_deref() != Some(&result.id) {
                         continue;
                     }
-                    let mut record_changed = renamed.contains(&record.pubkey);
+                    let mut profile_changed = renamed.contains(&record.pubkey);
+                    let mut record_changed =
+                        profile_changed || owner_behavior_updated.contains(&record.pubkey);
 
                     if avatar_changed {
                         // Update the persisted avatar so reconciliation on next
@@ -181,11 +215,14 @@ pub(super) async fn update_persona_with<R: Send + 'static>(
                             .avatar_url
                             .clone()
                             .or_else(|| managed_agent_avatar_url(&effective_cmd));
+                        profile_changed = true;
                         record_changed = true;
                     }
 
                     if record_changed {
                         agents_modified = true;
+                    }
+                    if profile_changed {
                         if let Ok(agent_keys) = nostr::Keys::parse(&record.private_key_nsec) {
                             let relay_url = crate::relay::effective_agent_relay_url(
                                 &record.relay_url,

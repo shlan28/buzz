@@ -779,6 +779,7 @@ type RawManagedAgent = {
   backend_agent_id: string | null;
   respond_to: "owner-only" | "allowlist" | "anyone";
   respond_to_allowlist: string[];
+  respond_to_owner_messages?: boolean;
 };
 
 type RawCreateManagedAgentResponse = {
@@ -837,6 +838,7 @@ type RawPersona = {
   respond_to?: string | null;
   respond_to_allowlist?: string[];
   parallelism?: number | null;
+  respond_to_owner_messages?: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -7378,6 +7380,7 @@ type PersonaBehaviorInput = {
   respondTo?: "owner-only" | "allowlist" | "anyone";
   respondToAllowlist?: string[];
   parallelism?: number;
+  respondToOwnerMessages?: boolean;
 };
 
 /** Mirrors `apply_persona_behavior`: replace all four as a unit. */
@@ -7394,6 +7397,12 @@ function applyMockPersonaBehavior(
       ? [...(behavior.respondToAllowlist ?? [])]
       : [];
   persona.parallelism = behavior.parallelism ?? null;
+  persona.respond_to_owner_messages = behavior.respondToOwnerMessages ?? false;
+  for (const agent of mockManagedAgents) {
+    if (agent.persona_id === persona.id) {
+      agent.respond_to_owner_messages = persona.respond_to_owner_messages;
+    }
+  }
 }
 
 async function handleCreatePersona(args: {
@@ -7868,6 +7877,8 @@ async function handleCreateManagedAgent(
       : (linkedPersona?.respond_to_allowlist ?? []);
   const mintParallelism =
     args.input.parallelism ?? linkedPersona?.parallelism ?? 1;
+  const mintRespondToOwnerMessages =
+    linkedPersona?.respond_to_owner_messages ?? false;
   const personaAvatarUrl =
     args.input.personaId === undefined
       ? null
@@ -7924,6 +7935,7 @@ async function handleCreateManagedAgent(
     backend_agent_id: null,
     respond_to: mintRespondTo,
     respond_to_allowlist: [...mintRespondToAllowlist],
+    respond_to_owner_messages: mintRespondToOwnerMessages,
     private_key_nsec: `nsec1mock${pubkey.slice(0, 20)}`,
     log_lines: [
       `buzz-acp starting: relay=${args.input.relayUrl ?? DEFAULT_RELAY_WS_URL} agent_pubkey=${pubkey} parallelism=${mintParallelism}`,

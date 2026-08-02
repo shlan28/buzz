@@ -13,7 +13,6 @@ use crate::managed_agents::{
 };
 use std::collections::BTreeMap;
 // ── Shared fixtures ───────────────────────────────────────────────────────
-
 /// Build a minimal keyless definition record (matched by slug, no keypair).
 /// This is the shape stored in the definitions file — no pubkey, no
 /// persona_id.
@@ -105,6 +104,7 @@ fn make_snapshot(
             parallelism: None,
             respond_to: None,
             respond_to_allowlist: vec![],
+            respond_to_owner_messages: false,
             name_pool: vec![],
             idle_timeout_seconds: None,
             max_turn_duration_seconds: None,

@@ -85,20 +85,12 @@ import { resolveModelFieldStatusMessage } from "./agentConfigControls";
 import { AdvancedRequiredBadge } from "./AdvancedRequiredBadge";
 import { showAgentProfileSyncWarning } from "./agentProfileSyncWarning";
 import { AddCustomHarnessDialog } from "./AddCustomHarnessDialog";
-import { OwnerMessageReplyField } from "./OwnerMessageReplyField";
 import { AgentNameField } from "./AgentNameField";
 import {
   ADD_CUSTOM_HARNESS_OPTION,
   runtimeDropdownAction,
   usePendingHarnessSelection,
 } from "./addCustomHarness";
-
-export function ownerMessageTriggerPatch(
-  current: boolean,
-  next: boolean,
-): boolean | undefined {
-  return next !== current ? next : undefined;
-}
 
 const ADVANCED_FIELDS_MOTION_TRANSITION = {
   duration: 0.18,
@@ -169,9 +161,6 @@ export function AgentInstanceEditDialog({
   const [respondToAllowlist, setRespondToAllowlist] = React.useState<string[]>(
     agent.respondToAllowlist,
   );
-  const [respondToOwnerMessages, setRespondToOwnerMessages] = React.useState(
-    agent.respondToOwnerMessages,
-  );
   const [showAdvancedFields, setShowAdvancedFields] = React.useState(false);
   const [avatarUrl, setAvatarUrl] = React.useState(agent.avatarUrl ?? "");
   const [isAvatarUploadPending, setIsAvatarUploadPending] =
@@ -208,7 +197,6 @@ export function AgentInstanceEditDialog({
       setAutoRestartOnConfigChange(agent.autoRestartOnConfigChange);
       setRespondTo(agent.respondTo);
       setRespondToAllowlist(agent.respondToAllowlist);
-      setRespondToOwnerMessages(agent.respondToOwnerMessages);
       setAvatarUrl(agent.avatarUrl ?? "");
       setShowAdvancedFields(false);
       setIsAvatarUploadPending(false);
@@ -737,10 +725,6 @@ export function AgentInstanceEditDialog({
           respondToAllowlist.join(",") !== agent.respondToAllowlist.join(",")
             ? respondToAllowlist
             : undefined,
-        respondToOwnerMessages: ownerMessageTriggerPatch(
-          agent.respondToOwnerMessages,
-          respondToOwnerMessages,
-        ),
       };
 
       const result = await updateMutation.mutateAsync(input);
@@ -938,12 +922,6 @@ export function AgentInstanceEditDialog({
               onAllowlistChange={setRespondToAllowlist}
               onModeChange={setRespondTo}
               variant="persona"
-            />
-
-            <OwnerMessageReplyField
-              checked={respondToOwnerMessages}
-              disabled={updateMutation.isPending}
-              onCheckedChange={setRespondToOwnerMessages}
             />
 
             {/* Provider (runtime) */}

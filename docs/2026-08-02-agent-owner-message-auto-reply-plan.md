@@ -1,7 +1,7 @@
 # Agent 主动响应 Owner 消息方案
 
 > 更新日期：2026-08-02
-> 更新说明：补全订阅组合、身份安全、去重恢复、线程路由与 Desktop 持久化测试，并修正“触发后可静默结束”的错误假设。
+> 更新说明：纠正 Desktop 入口设计：开关放到 Agents 页面点击 Agent 卡片 Edit 后的 Persona 编辑页，并定义为 Persona 行为默认值；保存后同步该 Persona 的本机实例，避免依赖当前 UI 中不可发现的实例编辑入口。
 
 ## 一、需求与目标
 
@@ -25,6 +25,15 @@
 - CLI：`--respond-to-owner-messages`
 - 环境变量：`BUZZ_ACP_RESPOND_TO_OWNER_MESSAGES=true|false`
 - 默认值：`false`
+
+Desktop 的唯一主入口为：`Agents` 页面 → Agent 卡片 → `Edit`。开关直接显示在 Persona 编辑表单的行为区域，不要求用户先进入 Channel、打开资料面板或找到实例编辑弹窗。
+
+由于卡片编辑的是 Persona 定义，而同一 Persona 可能有多个本机实例，本开关采用以下一致语义：
+
+- 保存到 Persona，作为以后新建实例的默认值；
+- 保存 Persona 时，同步更新当前由该 Persona 创建的全部本机实例，并按现有配置变更规则重启需要重启的实例；
+- 不提供隐藏的“某个实例单独覆盖”入口，避免 Persona 页面显示开启、实际实例仍关闭的双重状态；
+- 旧 Persona 缺少该字段时按关闭处理。
 
 开启后，该 Agent 的入站触发条件变为：
 
@@ -113,7 +122,15 @@ OR (respond_to_owner_messages AND author == verified_owner)
 - 配置为 `true` 但没有有效 owner 时，启动成功但降级为 mention-only。
 - `subscribe=all` 下已经能收到 owner 消息；新开关仍控制 owner 未 @ 消息能否绕过规则中的 mention 要求，不能制造重复 turn。
 - `subscribe=config` 下只对已经匹配该 Channel 的规则生效，不让未配置的 Channel 自动进入订阅范围。
-- Desktop 托管 Agent 本期应能把该值写入 harness 环境；如果暂不增加 UI，可先作为高级 env 配置使用，但产品入口最终应提供明确开关和风险提示。
+- Desktop 托管 Agent 必须从 Persona 行为默认值生成实例配置，并把该值写入 harness 环境。
+
+### 4.5 Desktop 编辑与传播
+
+Agents 页面卡片的 `Edit` 继续打开 `AgentDefinitionDialog`。该页面直接展示 owner 消息回复开关，位置紧邻 `Who can talk to this agent`，不放入仅靠其他页面才能到达的实例编辑表单。
+
+保存采用“定义先更新、关联实例随后同步”的单一操作。若任一阶段失败，UI 必须给出明确错误并重新拉取 Persona 与实例状态，不能乐观显示为全部生效。关联实例以稳定的 `persona_id` 判断，不按名称匹配；其他 Persona、其他 community 和从该 Persona 复制后拥有新 ID 的定义不受影响。
+
+现有 `AgentInstanceEditDialog` 中的重复开关应移除，防止两个入口产生相互覆盖的配置。底层 managed-agent 字段继续作为运行时投影存在，但不再作为用户直接编辑的独立来源。
 
 ## 五、验收标准
 
@@ -198,14 +215,19 @@ OR (respond_to_owner_messages AND author == verified_owner)
 
 ### 6.5 Desktop 配置与 UI
 
-- 新建 Agent 默认关闭；编辑已存在 Agent 时正确回显。
-- 切换开关并保存后，managed-agent record、effective config 和启动环境变量一致。
+- 新建 Persona 默认关闭；旧 Persona 缺少字段时回显关闭。
+- 从 Agents 页面点击任意 Agent 卡片的 `Edit`，无需进入 Channel 即可看到开关。
+- 编辑 Persona 时正确回显；开关在折叠区状态变化后仍保持，重新打开以持久化值为准。
+- 切换开关并保存后，Persona、全部关联 managed-agent records、effective config 和启动环境变量一致。
+- 同一 Persona 有零个、一个、多个本机实例时分别覆盖：零实例只保存默认值；一个或多个实例全部同步。
+- Persona A 的保存不能修改 Persona B、其他 community 或复制后拥有新 Persona ID 的实例。
+- 定义保存成功但实例同步失败时显示部分失败，不把 UI 留在虚假的全成功状态；重试具备幂等性。
 - Agent 停止/重启、Desktop 重启、community 切换后开关仍保持，不串到其他 Agent/community。
-- persona 默认值、Agent instance override 和 team snapshot import/export 的继承/覆盖语义明确并测试；若第一版明确不支持传播，也要验证导入后安全降级为关闭。
+- persona/team snapshot import/export 携带该 Persona 行为默认值；旧快照安全降级为关闭。
 - 开关打开且 owner 身份不可用时，UI 给出可理解提示，不显示为已生效。
 - `respond-to=nobody` 与开关同时选择时阻止无效组合，或明确显示“不会触发”的提示。
 - 多 Agent 风险提示可见，键盘操作、disabled 状态和保存失败回滚可测试。
-- UI 单测覆盖表单 dirty state、请求 payload 和失败恢复；如交互有用户可见变化，增加 Desktop E2E。
+- UI 单测覆盖表单 dirty state、定义请求 payload、关联实例同步和失败恢复；增加 Desktop E2E，从 Agents 卡片真实点击 `Edit` 后操作开关并验证重开回显。
 
 ### 6.6 端到端验收
 
@@ -274,6 +296,28 @@ OR (respond_to_owner_messages AND author == verified_owner)
 - [x] `desktop/src-tauri/src/managed_agents/team_snapshot.rs`：补齐本机 record fixture，不改变 team snapshot schema。
 - [x] `desktop/src-tauri/src/managed_agents/teams_tests.rs`：补齐 ManagedAgentRecord fixture 的新字段默认值。
 
+入口纠正已实施；每项只对应一个文件：
+
+- [x] `desktop/src/features/agents/ui/AgentDefinitionDialog.tsx`：在 Agent 卡片 Edit 对应的主表单直接展示开关，接入 dirty state 与保存，不隐藏在 Advanced 中。
+- [x] `desktop/src/features/agents/ui/personaBehaviorDraft.ts`：把 Persona 默认值纳入 draft、比较和提交 payload。
+- [x] `desktop/src/features/agents/ui/personaBehaviorDraft.test.mjs`：覆盖旧定义默认关闭、开启、显式关闭、未修改不重写和 duplicate 继承。
+- [x] `desktop/src/features/agents/ui/personaDialogState.ts`：把持久化值投影到 Edit/duplicate 初始表单。
+- [x] `desktop/src/features/agents/ui/personaDialogState.test.mjs`：覆盖 Edit 页开启状态回显。
+- [x] `desktop/src/features/agents/ui/AgentInstanceEditDialog.tsx`：移除不可发现且会形成双写来源的重复开关。
+- [x] `desktop/src/features/agents/ui/agentDialogRouting.test.mjs`：移除旧实例 patch 断言并保留两类 dialog 路由边界。
+- [x] `desktop/src/shared/api/types.ts`：在 Persona 行为类型中增加 owner 消息回复默认值。
+- [x] `desktop/src/shared/api/tauriPersonas.ts`：映射 Persona 字段并兼容旧数据缺省关闭。
+- [x] `desktop/src-tauri/src/managed_agents/types/requests.rs`：扩展 Persona behavior 请求、serde 默认值与校验测试。
+- [x] `desktop/src-tauri/src/managed_agents/types.rs`：持久化 definition 默认值并从定义生成实例运行值。
+- [x] `desktop/src-tauri/src/managed_agents/persona_events.rs`：把默认值纳入 Persona event 的兼容序列化。
+- [x] `desktop/src-tauri/src/managed_agents/agent_snapshot.rs`：把默认值纳入可移植 Persona/team snapshot。
+- [x] `desktop/src-tauri/src/commands/personas/update.rs`：保存 Persona 后按 `persona_id` 同步全部本机关联实例。
+- [x] `desktop/src-tauri/src/commands/personas/update/name_propagation_tests.rs`：覆盖多实例传播和 Persona 隔离。
+- [x] `desktop/src-tauri/src/commands/personas/snapshot/fidelity_tests.rs`：覆盖新版快照往返与旧快照默认关闭。
+- [x] `desktop/src/testing/e2eBridge.ts`：让 E2E mock 与真实 Persona 保存、实例传播和新建继承语义一致。
+- [x] `desktop/tests/e2e/agent-owner-message-reply.spec.ts`：从 Agents 卡片点击 Edit，验证开关可见、保存、关闭及重新打开回显。
+- [x] `desktop/playwright.config.ts`：把入口回归用例登记到 integration 项目。
+
 ## 八、实施验证
 
 - `cargo test -p buzz-acp --lib`：656 passed。
@@ -282,6 +326,7 @@ OR (respond_to_owner_messages AND author == verified_owner)
 - Desktop Tauri full suite：1866 passed、14 ignored、15 failed；失败均来自本机 relay/HTTP mock 请求返回 502，涉及 join policy、media、pairing、persona sharing、relay admission 等既有外部网络测试，与本变更路径无关。
 - Buzz ACP 与 Desktop Tauri Clippy：通过。
 - Rust fmt、TypeScript typecheck、Biome、`git diff --check`：通过。
+- 入口纠正增量：Desktop Tauri 1881 passed、14 ignored；Desktop JS/TS 3796 passed；新增 Agent 卡片 Edit E2E 1 passed；Desktop Clippy、E2E build、typecheck 与 Desktop check 均通过。
 
 ## 九、已确认决策
 
@@ -290,6 +335,6 @@ OR (respond_to_owner_messages AND author == verified_owner)
 1. 功能默认关闭，由每个 Agent 单独开启；
 2. 只响应精确 owner，不包含 sibling Agent；
 3. owner 消息触发一次正常 turn，并沿用现有 delivery confirmation 保证最终回复；如需“可静默观察”，另开 no-op 方案；
-4. Desktop Agent 编辑页提供显式开关，不隐藏在环境变量中。
+4. Desktop Agents 页面点击 Agent 卡片的 Edit 后提供显式开关，不依赖 Channel 资料面板或实例编辑入口。
 
-本次按以上四点实现。开关作为本机 Agent instance 配置，不进入 persona/team snapshot 或跨设备 Agent event；导入得到的新实例安全默认为关闭。
+以上四点均已实现。开关成为 Persona 行为默认值，进入 persona/team snapshot，并同步投影到该 Persona 的本机实例。旧定义和旧快照缺少字段时安全默认为关闭。

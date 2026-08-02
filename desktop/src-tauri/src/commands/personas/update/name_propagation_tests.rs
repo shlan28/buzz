@@ -137,6 +137,26 @@ fn test_rename_only_affects_linked_persona() {
 }
 
 #[test]
+fn owner_message_behavior_updates_all_and_only_linked_instances() {
+    let mut records = vec![
+        agent("persona-1", "one", None),
+        agent("persona-1", "two", None),
+        agent("persona-2", "other", None),
+    ];
+
+    let updated = propagate_owner_message_behavior(&mut records, "persona-1", true);
+
+    assert_eq!(updated.len(), 2);
+    assert!(records[0].respond_to_owner_messages);
+    assert!(records[1].respond_to_owner_messages);
+    assert!(!records[2].respond_to_owner_messages);
+
+    propagate_owner_message_behavior(&mut records, "persona-1", false);
+    assert!(!records[0].respond_to_owner_messages);
+    assert!(!records[1].respond_to_owner_messages);
+}
+
+#[test]
 fn test_rename_renames_all_matching_instances_in_one_pass() {
     // Several instances may carry the definition name (multi-instance deploys
     // without a name pool): one call renames every match and reports each

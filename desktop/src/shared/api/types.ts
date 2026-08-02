@@ -769,6 +769,7 @@ export type AgentPersona = {
   respondTo: RespondToMode | null;
   respondToAllowlist: string[];
   parallelism: number | null;
+  respondToOwnerMessages: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -783,14 +784,12 @@ export type CatalogSourceCoordinate = {
   personaId: string;
 };
 
-/**
- * NIP-AP behavioral group for a definition: absent preserves the stored group
- * for legacy callers; present replaces it as a unit. Mirrors `PersonaBehaviorRequest`.
- */
+/** NIP-AP definition behavior; present values replace the stored group. */
 export type PersonaBehaviorInput = {
   respondTo?: RespondToMode;
   respondToAllowlist?: string[];
   parallelism?: number;
+  respondToOwnerMessages?: boolean;
 };
 
 export type CreatePersonaInput = {

@@ -1,7 +1,6 @@
 import * as React from "react";
 import { ChevronDown } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-
 import type {
   AcpRuntimeCatalogEntry,
   CreatePersonaInput,
@@ -16,6 +15,7 @@ import { AgentCreationPreview } from "./AgentCreationPreview";
 import { PersonaDropdownField } from "./PersonaDropdownField";
 import type { EnvVarsValue } from "./EnvVarsEditor";
 import { PersonaAdvancedFields } from "./PersonaAdvancedFields";
+import { OwnerMessageReplyField } from "./OwnerMessageReplyField";
 import { PersonaModelField } from "./PersonaModelField";
 import { runtimeAvailabilityWarning } from "./runtimeAvailabilityWarning";
 import { PersonaProviderApiKeyField } from "./PersonaProviderApiKeyField";
@@ -156,18 +156,8 @@ export function AgentDefinitionDialog({
   const [behaviorDraft, setBehaviorDraft] = React.useState(
     emptyPersonaBehaviorDraft,
   );
-  // The seed the draft is diffed against at submit: an untouched quad
-  // submits no behavior group, keeping unrelated edits hash-quiet.
   const behaviorSeedRef = React.useRef(emptyPersonaBehaviorDraft);
-  // Tracks when the runtime was auto-seeded by the default-runtime effect in
-  // edit mode (i.e. the user never explicitly chose a runtime). Used to omit
-  // the seeded runtime from the submit payload for builtin definitions whose
-  // canonical runtime is null — the sync would revert it anyway.
   const isRuntimeAutoSeededRef = React.useRef(false);
-  // Guards the seeding effect so it fires at most once per dialog-open.
-  // Without this, clearing runtime back to "" via "No preference" would re-
-  // trigger the effect (the `runtime` dep would pass the length guard) and
-  // snap the dropdown back to the default — an edit-mode regression.
   const hasSeededForOpenRef = React.useRef(false);
   const [showAdvancedFields, setShowAdvancedFields] = React.useState(false);
   const [isAvatarUploadPending, setIsAvatarUploadPending] =
@@ -973,7 +963,17 @@ export function AgentDefinitionDialog({
             />
 
             {isCreateMode ? createRunSection : null}
-
+            <OwnerMessageReplyField
+              checked={behaviorDraft.respondToOwnerMessages}
+              disabled={isPending}
+              onCheckedChange={(respondToOwnerMessages) => {
+                setHasUserChanges(true);
+                setBehaviorDraft((current) => ({
+                  ...current,
+                  respondToOwnerMessages,
+                }));
+              }}
+            />
             <div className="space-y-3">
               <button
                 aria-expanded={showAdvancedFields}

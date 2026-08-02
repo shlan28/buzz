@@ -925,9 +925,9 @@ pub async fn update_managed_agent(
         if input.respond_to_allowlist.is_some() {
             record.respond_to_allowlist = prospective_allowlist;
         }
-        input
-            .respond_to_owner_messages
-            .map(|enabled| record.respond_to_owner_messages = enabled);
+        if let Some(enabled) = input.respond_to_owner_messages {
+            record.respond_to_owner_messages = enabled;
+        }
 
         record.updated_at = now_iso();
 

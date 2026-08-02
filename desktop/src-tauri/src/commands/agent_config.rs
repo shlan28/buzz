@@ -17,7 +17,6 @@ use crate::{
 };
 use serde::Serialize;
 use tauri::{AppHandle, State};
-
 /// Subset of the goose file config exposed to the frontend for gate evaluation.
 ///
 /// Only the fields the dialog gate needs. This tracks which requirements are already satisfied in the
@@ -718,6 +717,7 @@ mod tests {
             respond_to: None,
             respond_to_allowlist: Vec::new(),
             parallelism: None,
+            respond_to_owner_messages: false,
             created_at: "".to_string(),
             updated_at: "".to_string(),
         }

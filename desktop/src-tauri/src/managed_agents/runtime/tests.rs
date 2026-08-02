@@ -1,5 +1,4 @@
 use crate::managed_agents::known_acp_runtime;
-
 // ── desktop binary name tests ───────────────────────────────────────────
 
 #[test]
@@ -302,6 +301,7 @@ fn persona_with_provider(
         respond_to: None,
         respond_to_allowlist: Vec::new(),
         parallelism: None,
+        respond_to_owner_messages: false,
         created_at: "2026-06-09T00:00:00Z".to_string(),
         updated_at: "2026-06-09T00:00:00Z".to_string(),
     }

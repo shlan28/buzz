@@ -137,6 +137,7 @@ fn definition_from_snapshot(
         respond_to,
         respond_to_allowlist: behavior.respond_to_allowlist,
         parallelism: behavior.parallelism,
+        respond_to_owner_messages: member.definition.respond_to_owner_messages,
         created_at: now.to_string(),
         updated_at: now.to_string(),
     })
@@ -599,7 +600,7 @@ pub async fn confirm_team_snapshot_import(
                     .unwrap_or_default()
             },
             respond_to_allowlist: definition.respond_to_allowlist.clone(),
-            respond_to_owner_messages: false,
+            respond_to_owner_messages: definition.respond_to_owner_messages,
             is_builtin: false,
             is_active: true,
             shared: false,

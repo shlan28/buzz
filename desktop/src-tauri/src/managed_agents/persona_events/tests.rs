@@ -160,6 +160,7 @@ fn sample_persona() -> AgentDefinition {
         respond_to: None,
         respond_to_allowlist: Vec::new(),
         parallelism: None,
+        respond_to_owner_messages: false,
         created_at: "2025-01-01T00:00:00Z".to_string(),
         updated_at: "2025-01-01T00:00:00Z".to_string(),
     }
@@ -326,6 +327,7 @@ fn content_matches_nip_ap_vector() {
         respond_to: None,
         respond_to_allowlist: Vec::new(),
         parallelism: None,
+        respond_to_owner_messages: false,
     };
     assert_eq!(
         serde_json::to_string(&content).unwrap(),
@@ -387,6 +389,7 @@ fn content_matches_nip_ap_vector() {
         respond_to: None,
         respond_to_allowlist: Vec::new(),
         parallelism: None,
+        respond_to_owner_messages: false,
         created_at: "2025-01-01T00:00:00Z".to_string(),
         updated_at: "2025-01-01T00:00:00Z".to_string(),
     };
@@ -418,6 +421,7 @@ fn round_trip_minimal_persona() {
         respond_to: None,
         respond_to_allowlist: Vec::new(),
         parallelism: None,
+        respond_to_owner_messages: false,
         created_at: "2025-01-01T00:00:00Z".to_string(),
         updated_at: "2025-01-01T00:00:00Z".to_string(),
     };
@@ -515,6 +519,7 @@ fn quad_absent_definition_hash_stable_across_activation() {
         respond_to: None,
         respond_to_allowlist: Vec::new(),
         parallelism: None,
+        respond_to_owner_messages: false,
         created_at: "2026-01-01T00:00:00Z".to_string(),
         updated_at: "2026-01-01T00:00:00Z".to_string(),
     };
@@ -559,6 +564,7 @@ fn persona_from_event_content_for_test(content: PersonaEventContent) -> AgentDef
         respond_to: content.respond_to,
         respond_to_allowlist: content.respond_to_allowlist,
         parallelism: content.parallelism,
+        respond_to_owner_messages: false,
         created_at: "2026-01-01T00:00:00Z".to_string(),
         updated_at: "2026-01-01T00:00:00Z".to_string(),
     }
@@ -577,6 +583,7 @@ fn persona_content_hash_is_deterministic() {
         respond_to: None,
         respond_to_allowlist: Vec::new(),
         parallelism: None,
+        respond_to_owner_messages: false,
     };
     let hash1 = persona_content_hash(&content);
     let hash2 = persona_content_hash(&content);
@@ -597,6 +604,7 @@ fn persona_content_hash_changes_on_edit() {
         respond_to: None,
         respond_to_allowlist: Vec::new(),
         parallelism: None,
+        respond_to_owner_messages: false,
     };
     let mut content2 = content1.clone();
     content2.system_prompt = Some("Goodbye".to_string());

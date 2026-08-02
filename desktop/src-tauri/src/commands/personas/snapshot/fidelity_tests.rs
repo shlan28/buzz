@@ -86,6 +86,7 @@ fn make_snapshot(
             parallelism: None,
             respond_to: None,
             respond_to_allowlist: vec![],
+            respond_to_owner_messages: false,
             name_pool: vec![],
             idle_timeout_seconds: None,
             max_turn_duration_seconds: None,
@@ -152,6 +153,7 @@ fn import_png_body_avatar_and_full_model_round_trip() {
     snapshot.definition.runtime = Some("goose".to_string());
     snapshot.definition.model = Some("databricks-gpt-5-6-sol".to_string());
     snapshot.definition.provider = Some("databricks_v2".to_string());
+    snapshot.definition.respond_to_owner_messages = true;
     snapshot.profile.avatar_data_url = None;
     snapshot.profile.avatar_url = Some("https://sender.invalid/avatar.png".to_string());
 
@@ -176,6 +178,7 @@ fn import_png_body_avatar_and_full_model_round_trip() {
         decoded.definition.provider.as_deref(),
         Some("databricks_v2")
     );
+    assert!(decoded.definition.respond_to_owner_messages);
     assert_eq!(
         decoded.profile.avatar_url.as_deref(),
         Some("https://sender.invalid/avatar.png")

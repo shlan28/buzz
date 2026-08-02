@@ -129,6 +129,7 @@ fn built_in_persona_records(now: &str) -> Vec<AgentDefinition> {
             respond_to: None,
             respond_to_allowlist: Vec::new(),
             parallelism: None,
+            respond_to_owner_messages: false,
             created_at: now.to_string(),
             updated_at: now.to_string(),
         })

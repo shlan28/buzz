@@ -442,6 +442,7 @@ fn make_persona(id: &str, display_name: &str) -> AgentDefinition {
         respond_to: None,
         respond_to_allowlist: Vec::new(),
         parallelism: None,
+        respond_to_owner_messages: false,
         created_at: String::new(),
         updated_at: String::new(),
     }

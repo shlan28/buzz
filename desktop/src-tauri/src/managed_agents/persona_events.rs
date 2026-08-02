@@ -48,6 +48,8 @@ pub struct PersonaEventContent {
     pub respond_to_allowlist: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parallelism: Option<u32>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub respond_to_owner_messages: bool,
 }
 
 /// Derive the d-tag (persona slug) from a `AgentDefinition`.
@@ -200,6 +202,7 @@ pub fn persona_from_event(event: &nostr::Event) -> Result<AgentDefinition, Strin
         respond_to: content.respond_to,
         respond_to_allowlist: content.respond_to_allowlist,
         parallelism: content.parallelism,
+        respond_to_owner_messages: content.respond_to_owner_messages,
         created_at: created_at.clone(),
         updated_at: created_at,
     })
@@ -396,6 +399,7 @@ pub fn persona_event_content(record: &AgentDefinition) -> PersonaEventContent {
         respond_to: record.respond_to.clone(),
         respond_to_allowlist: record.respond_to_allowlist.clone(),
         parallelism: record.parallelism,
+        respond_to_owner_messages: record.respond_to_owner_messages,
     }
 }
 
