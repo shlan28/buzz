@@ -11,8 +11,8 @@ use buzz_core::{
         KIND_GIT_STATUS_CLOSED, KIND_GIT_STATUS_DRAFT, KIND_GIT_STATUS_MERGED,
         KIND_GIT_STATUS_OPEN, KIND_IA_ARCHIVE_REQUEST, KIND_IA_UNARCHIVE_REQUEST,
         KIND_MODERATION_BAN, KIND_MODERATION_RESOLVE_REPORT, KIND_MODERATION_TIMEOUT,
-        KIND_MODERATION_UNBAN, KIND_MODERATION_UNTIMEOUT, KIND_PRESENCE_UPDATE, KIND_USER_STATUS,
-        KIND_WORKFLOW_DEF, KIND_WORKFLOW_TRIGGER,
+        KIND_MODERATION_UNBAN, KIND_MODERATION_UNTIMEOUT, KIND_PRESENCE_UPDATE, KIND_TASK_CREATE,
+        KIND_TASK_MUTATE, KIND_USER_STATUS, KIND_WORKFLOW_DEF, KIND_WORKFLOW_TRIGGER,
     },
     observer::{
         content_looks_like_nip44, OBSERVER_AGENT_TAG, OBSERVER_FRAME_CONTROL, OBSERVER_FRAME_TAG,
@@ -23,8 +23,8 @@ use nostr::{EventBuilder, Kind, Tag};
 use uuid::Uuid;
 
 use crate::{
-    CalendarEventInput, ChannelKind, CustomEmoji, DiffMeta, MemberRole, SdkError, ThreadRef,
-    Visibility, VoteDirection,
+    CalendarEventInput, ChannelKind, CustomEmoji, DiffMeta, MemberRole, SdkError, TaskCreateInput,
+    TaskMutateInput, ThreadRef, Visibility, VoteDirection,
 };
 
 /// NIP-52 date-based calendar event kind.
@@ -81,6 +81,146 @@ fn check_pubkey_hex(s: &str, field: &str) -> Result<String, SdkError> {
         )));
     }
     Ok(s.to_ascii_lowercase())
+}
+
+/// Build an actor-signed task create command.
+pub fn build_task_create(input: &TaskCreateInput) -> Result<EventBuilder, SdkError> {
+    buzz_core::task::validate_title(&input.title)
+        .map_err(|e| SdkError::InvalidInput(e.to_string()))?;
+    check_content(
+        &input.description,
+        buzz_core::task::TASK_DESCRIPTION_MAX_BYTES,
+    )?;
+    let id = input.id.to_string();
+    let status = format!("task-status:{}", input.status.as_str());
+    let priority = format!("task-priority:{}", input.priority.as_str());
+    let mut tags = vec![
+        tag(&["t", &format!("task-id:{id}")])?,
+        tag(&["title", input.title.trim()])?,
+        tag(&["t", &status])?,
+        tag(&["t", &priority])?,
+    ];
+    if let Some(assignee) = &input.assignee {
+        tags.push(tag(&["p", &check_pubkey_hex(assignee, "assignee")?])?);
+    }
+    if let Some(due) = input.due {
+        tags.push(tag(&["due", &due.to_string()])?);
+    }
+    for label in &input.labels {
+        let label = label.trim();
+        if label.is_empty() || label.len() > 64 {
+            return Err(SdkError::InvalidInput(
+                "task label must contain 1..=64 bytes".into(),
+            ));
+        }
+        tags.push(tag(&["t", &format!("label:{label}")])?);
+    }
+    if let Some(project) = &input.project {
+        tags.push(tag(&["a", project])?);
+    }
+    if let Some(channel) = input.channel {
+        tags.push(tag(&["h", &channel.to_string()])?);
+    }
+    if let Some(source) = &input.source_event {
+        check_hex_len(source, 64, "source event")?;
+        tags.push(tag(&["e", source, "", "source"])?);
+    }
+    Ok(EventBuilder::new(Kind::Custom(KIND_TASK_CREATE as u16), &input.description).tags(tags))
+}
+
+/// Build an actor-signed task mutation command.
+pub fn build_task_mutate(input: &TaskMutateInput) -> Result<EventBuilder, SdkError> {
+    check_hex_len(&input.previous_event, 64, "previous event")?;
+    if let Some(title) = &input.title {
+        buzz_core::task::validate_title(title)
+            .map_err(|e| SdkError::InvalidInput(e.to_string()))?;
+    }
+    let mut tags = vec![
+        tag(&["t", &format!("task-id:{}", input.id)])?,
+        tag(&["action", "update"])?,
+        tag(&["previous", &input.previous_event])?,
+        tag(&["e", &input.previous_event, "", "previous"])?,
+    ];
+    if let Some(title) = &input.title {
+        tags.push(tag(&["title", title.trim()])?);
+    }
+    if let Some(assignee) = &input.assignee {
+        match assignee {
+            Some(value) => tags.push(tag(&["p", &check_pubkey_hex(value, "assignee")?])?),
+            None => tags.push(tag(&["clear", "assignee"])?),
+        }
+    }
+    if let Some(status) = input.status {
+        tags.push(tag(&["t", &format!("task-status:{}", status.as_str())])?);
+    }
+    if let Some(priority) = input.priority {
+        tags.push(tag(&[
+            "t",
+            &format!("task-priority:{}", priority.as_str()),
+        ])?);
+    }
+    if let Some(due) = input.due {
+        match due {
+            Some(value) => tags.push(tag(&["due", &value.to_string()])?),
+            None => tags.push(tag(&["clear", "due"])?),
+        }
+    }
+    if let Some(labels) = &input.labels {
+        tags.push(tag(&["clear", "labels"])?);
+        for label in labels {
+            tags.push(tag(&["t", &format!("label:{}", label.trim())])?);
+        }
+    }
+    if let Some(project) = &input.project {
+        match project {
+            Some(value) => tags.push(tag(&["a", value])?),
+            None => tags.push(tag(&["clear", "project"])?),
+        }
+    }
+    if let Some(channel) = input.channel {
+        match channel {
+            Some(value) => tags.push(tag(&["h", &value.to_string()])?),
+            None => tags.push(tag(&["clear", "channel"])?),
+        }
+    }
+    if let Some(source) = &input.source_event {
+        match source {
+            Some(value) => tags.push(tag(&["e", value, "", "source"])?),
+            None => tags.push(tag(&["clear", "source"])?),
+        }
+    }
+    if let Some(archived) = input.archived {
+        tags.push(tag(&["archived", if archived { "true" } else { "false" }])?);
+    }
+    let content = match &input.description {
+        Some(Some(value)) => {
+            check_content(value, buzz_core::task::TASK_DESCRIPTION_MAX_BYTES)?;
+            tags.push(tag(&["set", "description"])?);
+            value.as_str()
+        }
+        Some(None) => {
+            tags.push(tag(&["clear", "description"])?);
+            ""
+        }
+        None => "",
+    };
+    let changed = input.title.is_some()
+        || input.description.is_some()
+        || input.assignee.is_some()
+        || input.status.is_some()
+        || input.priority.is_some()
+        || input.due.is_some()
+        || input.labels.is_some()
+        || input.project.is_some()
+        || input.channel.is_some()
+        || input.source_event.is_some()
+        || input.archived.is_some();
+    if !changed {
+        return Err(SdkError::InvalidInput(
+            "task mutation must change at least one field".into(),
+        ));
+    }
+    Ok(EventBuilder::new(Kind::Custom(KIND_TASK_MUTATE as u16), content).tags(tags))
 }
 
 fn check_calendar_id(id: &str) -> Result<(), SdkError> {
@@ -2025,6 +2165,50 @@ mod tests {
 
     fn sign(b: EventBuilder) -> nostr::Event {
         b.sign_with_keys(&keys()).expect("sign")
+    }
+
+    #[test]
+    fn task_create_uses_stable_id_and_namespaced_tags() {
+        let input = TaskCreateInput {
+            id: Uuid::nil(),
+            title: "Ship tasks".into(),
+            description: "A useful description".into(),
+            assignee: None,
+            status: buzz_core::task::TaskStatus::InProgress,
+            priority: buzz_core::task::TaskPriority::High,
+            due: None,
+            labels: vec!["backend".into()],
+            project: None,
+            channel: None,
+            source_event: None,
+        };
+        let event = sign(build_task_create(&input).unwrap());
+        assert_eq!(event.kind.as_u16() as u32, KIND_TASK_CREATE);
+        let tags: Vec<Vec<String>> = event
+            .tags
+            .iter()
+            .map(|t| t.as_slice().iter().map(ToString::to_string).collect())
+            .collect();
+        assert!(tags.contains(&vec!["t".into(), format!("task-id:{}", Uuid::nil())]));
+        assert!(tags.contains(&vec!["t".into(), "task-status:in-progress".into()]));
+    }
+
+    #[test]
+    fn task_mutate_marks_description_and_previous() {
+        let input = TaskMutateInput {
+            id: Uuid::nil(),
+            previous_event: "ab".repeat(32),
+            description: Some(Some("new".into())),
+            ..TaskMutateInput::default()
+        };
+        let event = sign(build_task_mutate(&input).unwrap());
+        let tags: Vec<Vec<String>> = event
+            .tags
+            .iter()
+            .map(|t| t.as_slice().iter().map(ToString::to_string).collect())
+            .collect();
+        assert!(tags.contains(&vec!["set".into(), "description".into()]));
+        assert!(tags.contains(&vec!["previous".into(), "ab".repeat(32)]));
     }
 
     fn event_id() -> EventId {

@@ -45,6 +45,8 @@ fn agent(persona_id: &str, name: &str, display_name: Option<&str>) -> ManagedAge
         respond_to: Default::default(),
         respond_to_allowlist: vec![],
         respond_to_owner_messages: false,
+        task_assignment_policy: Default::default(),
+        task_assignment_allowlist: Vec::new(),
         display_name: display_name.map(str::to_string),
         slug: None,
         runtime: None,

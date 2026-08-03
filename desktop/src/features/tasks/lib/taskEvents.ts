@@ -1,0 +1,137 @@
+import type { RelayEvent } from "@/shared/api/types";
+import {
+  KIND_TASK_CREATE,
+  KIND_TASK_MUTATE,
+  KIND_TASK_STATE,
+} from "@/shared/constants/kinds";
+import type {
+  Task,
+  TaskDraft,
+  TaskPatch,
+  TaskPriority,
+  TaskStatus,
+} from "../types";
+
+const STATUSES = new Set<TaskStatus>([
+  "backlog",
+  "todo",
+  "in-progress",
+  "blocked",
+  "done",
+]);
+const PRIORITIES = new Set<TaskPriority>([
+  "none",
+  "low",
+  "medium",
+  "high",
+  "urgent",
+]);
+
+function firstTag(event: RelayEvent, name: string) {
+  return event.tags.find((tag) => tag[0] === name)?.[1];
+}
+
+function semanticTag(event: RelayEvent, prefix: string) {
+  return event.tags
+    .filter((tag) => tag[0] === "t")
+    .map((tag) => tag[1] ?? "")
+    .find((value) => value.startsWith(prefix))
+    ?.slice(prefix.length);
+}
+
+export function parseTaskState(
+  event: RelayEvent,
+  relaySelfPubkey: string,
+): Task | null {
+  if (
+    event.kind !== KIND_TASK_STATE ||
+    event.pubkey.toLowerCase() !== relaySelfPubkey.toLowerCase()
+  )
+    return null;
+  const id = firstTag(event, "d");
+  const title = firstTag(event, "title");
+  if (!id || !title) return null;
+  const rawStatus = semanticTag(event, "task-status:");
+  const rawPriority = semanticTag(event, "task-priority:");
+  const status = STATUSES.has(rawStatus as TaskStatus)
+    ? (rawStatus as TaskStatus)
+    : "todo";
+  const priority = PRIORITIES.has(rawPriority as TaskPriority)
+    ? (rawPriority as TaskPriority)
+    : "none";
+  const assignee = firstTag(event, "p") ?? null;
+  return {
+    id,
+    eventId: event.id,
+    title,
+    description: event.content,
+    assignee,
+    status,
+    priority,
+    dueDate: firstTag(event, "due") ?? null,
+    labels: event.tags
+      .filter((tag) => tag[0] === "t" && tag[1]?.startsWith("label:"))
+      .map((tag) => tag[1].slice(6)),
+    project:
+      event.tags.find(
+        (tag) => tag[0] === "a" && tag[1]?.startsWith("30617:"),
+      )?.[1] ?? null,
+    channelId: firstTag(event, "h") ?? null,
+    creator: firstTag(event, "creator") ?? event.pubkey,
+    lastEditor: firstTag(event, "last_editor") ?? event.pubkey,
+    createdAt: Number(firstTag(event, "created_at") ?? event.created_at),
+    updatedAt: event.created_at,
+    archived: firstTag(event, "archived") === "true",
+  };
+}
+
+export function buildCreateTaskEvent(draft: TaskDraft) {
+  return {
+    kind: KIND_TASK_CREATE as typeof KIND_TASK_CREATE,
+    content: draft.description,
+    tags: taskFieldTags(draft),
+  };
+}
+
+export function buildMutateTaskEvent(task: Task, patch: TaskPatch) {
+  const tags: string[][] = [
+    ["t", `task-id:${task.id}`],
+    ["action", "update"],
+    ["previous", task.eventId],
+    ["e", task.eventId, "", "previous"],
+  ];
+  if (patch.title !== undefined) tags.push(["title", patch.title.trim()]);
+  if (patch.assignee !== undefined) {
+    if (patch.assignee) tags.push(["p", patch.assignee]);
+    else tags.push(["clear", "assignee"]);
+  }
+  if (patch.status !== undefined)
+    tags.push(["t", `task-status:${patch.status}`]);
+  if (patch.priority !== undefined)
+    tags.push(["t", `task-priority:${patch.priority}`]);
+  if (patch.dueDate !== undefined) {
+    if (patch.dueDate) tags.push(["due", patch.dueDate]);
+    else tags.push(["clear", "due"]);
+  }
+  if (patch.description !== undefined)
+    tags.push([patch.description.length > 0 ? "set" : "clear", "description"]);
+  if (patch.archived !== undefined)
+    tags.push(["archived", String(patch.archived)]);
+  return {
+    kind: KIND_TASK_MUTATE as typeof KIND_TASK_MUTATE,
+    content: patch.description ?? "",
+    tags,
+  };
+}
+
+function taskFieldTags(draft: TaskDraft): string[][] {
+  const tags: string[][] = [
+    ["t", `task-id:${draft.id}`],
+    ["title", draft.title.trim()],
+    ["t", `task-status:${draft.status}`],
+    ["t", `task-priority:${draft.priority}`],
+  ];
+  if (draft.assignee) tags.push(["p", draft.assignee]);
+  if (draft.dueDate) tags.push(["due", draft.dueDate]);
+  return tags;
+}

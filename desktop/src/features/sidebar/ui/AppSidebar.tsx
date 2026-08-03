@@ -106,6 +106,7 @@ type AppSidebarProps = {
     | "workflows"
     | "pulse"
     | "projects"
+    | "tasks"
     | "calendar";
   unreadChannelCounts: ReadonlyMap<string, number>;
   unreadChannelIds: ReadonlySet<string>;
@@ -146,16 +147,12 @@ type AppSidebarProps = {
   onSelectAgents: () => void;
   onSelectCalendar: () => void;
   onSelectProjects: () => void;
+  onSelectTasks: () => void;
   onSelectPulse: () => void;
   onSelectWorkflows: () => void;
   onSelectHome: () => void;
   onSelectChannel: (channelId: string) => void;
   onOpenSearchResult: (hit: SearchHit) => void;
-  /**
-   * Full channel set used for global search. Unlike `channels` (which is
-   * scoped to the viewer's joined sidebar list), this includes open channels
-   * the viewer hasn't joined, so search can surface them.
-   */
   searchChannels: Channel[];
   searchFocusRequest: number;
   onSelectSettings: (section?: SettingsSection) => void;
@@ -216,6 +213,7 @@ export function AppSidebar({
   onSelectAgents,
   onSelectCalendar,
   onSelectProjects,
+  onSelectTasks,
   onSelectPulse,
   onSelectWorkflows,
   onSelectHome,
@@ -615,6 +613,7 @@ export function AppSidebar({
                 onSelectCalendar={onSelectCalendar}
                 onSelectHome={onSelectHome}
                 onSelectProjects={onSelectProjects}
+                onSelectTasks={onSelectTasks}
                 onSelectPulse={onSelectPulse}
                 onSelectWorkflows={onSelectWorkflows}
                 selectedView={selectedView}

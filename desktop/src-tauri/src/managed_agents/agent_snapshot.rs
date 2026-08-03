@@ -477,7 +477,6 @@ mod tests {
     use std::collections::BTreeMap;
 
     /// Build a minimal `ManagedAgentRecord` for testing. Only the fields
-    /// relevant to snapshot export are filled; the rest use defaults.
     fn minimal_record() -> ManagedAgentRecord {
         ManagedAgentRecord {
             pubkey: "deadbeef".to_string(),
@@ -529,6 +528,8 @@ mod tests {
             respond_to: RespondTo::default(),
             respond_to_allowlist: vec!["pubkey1hex".to_string()],
             respond_to_owner_messages: false,
+            task_assignment_policy: Default::default(),
+            task_assignment_allowlist: Vec::new(),
             slug: Some("test-agent".to_string()),
             runtime: Some("goose".to_string()),
             name_pool: vec!["Alice".to_string(), "Bob".to_string()],

@@ -20,6 +20,65 @@ pub use builders::*;
 
 /// Re-export kind constants so consumers don't need buzz-core directly.
 pub use buzz_core::kind;
+pub use buzz_core::task::{TaskPriority, TaskStatus};
+
+/// Complete input for a task create command.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaskCreateInput {
+    /// Stable client-generated UUID.
+    pub id: uuid::Uuid,
+    /// Human-readable title.
+    pub title: String,
+    /// Markdown description.
+    pub description: String,
+    /// Optional assignee pubkey.
+    pub assignee: Option<String>,
+    /// Initial workflow status.
+    pub status: TaskStatus,
+    /// Initial priority.
+    pub priority: TaskPriority,
+    /// Optional Unix due time.
+    pub due: Option<i64>,
+    /// Labels without the `label:` prefix.
+    pub labels: Vec<String>,
+    /// Optional NIP-34 repository coordinate.
+    pub project: Option<String>,
+    /// Optional channel UUID.
+    pub channel: Option<uuid::Uuid>,
+    /// Optional source message event ID.
+    pub source_event: Option<String>,
+}
+
+/// Explicit changes for a task mutation command.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TaskMutateInput {
+    /// Stable task UUID.
+    pub id: uuid::Uuid,
+    /// Current Task State event ID used for optimistic concurrency.
+    pub previous_event: String,
+    /// Replacement title.
+    pub title: Option<String>,
+    /// Replacement description; `Some(None)` clears it.
+    pub description: Option<Option<String>>,
+    /// Replacement assignee; `Some(None)` clears it.
+    pub assignee: Option<Option<String>>,
+    /// Replacement status.
+    pub status: Option<TaskStatus>,
+    /// Replacement priority.
+    pub priority: Option<TaskPriority>,
+    /// Replacement due time; `Some(None)` clears it.
+    pub due: Option<Option<i64>>,
+    /// Complete replacement labels.
+    pub labels: Option<Vec<String>>,
+    /// Replacement project; `Some(None)` clears it.
+    pub project: Option<Option<String>>,
+    /// Replacement channel; `Some(None)` clears it.
+    pub channel: Option<Option<uuid::Uuid>>,
+    /// Replacement source event; `Some(None)` clears it.
+    pub source_event: Option<Option<String>>,
+    /// Archive or restore the task.
+    pub archived: Option<bool>,
+}
 
 /// Thread reference for reply builders (NIP-10 markers).
 ///

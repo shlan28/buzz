@@ -4,6 +4,7 @@ import {
   CalendarDays,
   FolderGit2,
   Inbox,
+  ListTodo,
   Zap,
 } from "lucide-react";
 
@@ -27,6 +28,7 @@ type SidebarSelectedView =
   | "workflows"
   | "pulse"
   | "projects"
+  | "tasks"
   | "calendar";
 
 type AppSidebarPinnedHeaderProps = {
@@ -49,6 +51,7 @@ type AppSidebarPrimaryMenuProps = {
   onSelectCalendar: () => void;
   onSelectHome: () => void;
   onSelectProjects: () => void;
+  onSelectTasks: () => void;
   onSelectPulse: () => void;
   onSelectWorkflows: () => void;
   selectedView: SidebarSelectedView;
@@ -95,6 +98,7 @@ export function AppSidebarPrimaryMenu({
   onSelectCalendar,
   onSelectHome,
   onSelectProjects,
+  onSelectTasks,
   onSelectPulse,
   onSelectWorkflows,
   selectedView,
@@ -167,6 +171,18 @@ export function AppSidebarPrimaryMenu({
             </SidebarMenuButton>
           </SidebarMenuItem>
         </FeatureGate>
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            data-testid="open-tasks-view"
+            isActive={selectedView === "tasks"}
+            onClick={onSelectTasks}
+            tooltip="Tasks"
+            type="button"
+          >
+            <ListTodo className="h-4 w-4" />
+            <SidebarMenuLabel>Tasks</SidebarMenuLabel>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
         <SidebarMenuItem>
           <SidebarMenuButton
             data-testid="open-agents-view"

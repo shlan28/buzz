@@ -37,6 +37,10 @@ pub enum DbError {
     #[error("access denied: {0}")]
     AccessDenied(String),
 
+    /// Optimistic concurrency check failed.
+    #[error("write conflict: {0}")]
+    Conflict(String),
+
     /// JSON serialization or deserialization failed.
     #[error("serialization error: {0}")]
     Serde(#[from] serde_json::Error),

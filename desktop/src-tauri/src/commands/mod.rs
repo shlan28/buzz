@@ -8,6 +8,7 @@ mod agent_models;
 mod agent_models_env;
 mod agent_providers;
 mod agent_settings;
+mod agent_task_assignment;
 mod agent_update_rollback;
 mod agents;
 mod canvas;

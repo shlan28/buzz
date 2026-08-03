@@ -788,7 +788,7 @@ pub(crate) fn count_fallback_exceeded(candidate_count: usize) -> bool {
 /// an exact count without post-filtering.
 ///
 /// Pushed constraints: kinds, authors (single or multi), ids, since, until,
-/// channel_id (#h single), #p (single), #d (single, NIP-33-only kinds), #e (any),
+/// channel_id (#h single), #p (single), #d (single, NIP-33-only kinds), #e/#t (any),
 /// channel_ids (injected by caller).
 ///
 /// Anything else (multi-#p, #t, #a, search, multi-#h, #d on non-NIP-33)
@@ -826,6 +826,9 @@ pub fn filter_fully_pushable(filter: &Filter) -> bool {
             }
             "e" => {
                 // #e is fully pushed (any count) via JSONB containment.
+            }
+            "t" => {
+                // #t is fully pushed (any count) via JSONB containment.
             }
             _ => {
                 // Any other generic tag (#t, #a, etc.) is not pushed.
@@ -942,6 +945,10 @@ fn filter_to_query_params(
             Some(values.iter().map(|v| v.to_string()).collect::<Vec<_>>())
         }
     });
+    let t_tag_key = nostr::SingleLetterTag::lowercase(nostr::Alphabet::T);
+    let t_tags = filter.generic_tags.get(&t_tag_key).and_then(|values| {
+        (!values.is_empty()).then(|| values.iter().map(ToString::to_string).collect::<Vec<_>>())
+    });
 
     // Push single-value #p tag into SQL via event_mentions join.
     // This is critical for gift-wrap (kind:1059) and membership notification
@@ -1001,6 +1008,7 @@ fn filter_to_query_params(
         authors,
         ids,
         e_tags,
+        t_tags,
         ..EventQuery::for_community(community)
     }
 }

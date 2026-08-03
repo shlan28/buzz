@@ -1,7 +1,7 @@
 # Buzz 核心概念
 
-> 更新日期：2026-07-31
-> 更新说明：首次统一项目中跨产品与技术层使用的关键概念。
+> 更新日期：2026-08-03
+> 更新说明：补充 community 通用 Tasks，并明确它与 NIP-34 Project/Issue 的边界。
 
 ## Community
 
@@ -35,9 +35,17 @@ channel 是协作空间，使用 NIP-29 `h` tag 定位，而不是 `e` tag。thr
 
 YAML 定义的自动化。触发源可以是消息、reaction、schedule 或 webhook；条件由 `evalexpr` 求值；运行与审批通过事件记录。
 
+## Task
+
+community 内由人和 Agent 共用的通用工作项。Task 有稳定 UUID、单一负责人、状态、优先级、截止时间和可选的 Project、Channel、来源消息关联；按负责人展示时，拖到另一列表示转派，而不是改变状态。把 Task 指派给 Agent 只表示责任归属，不会自动启动 Agent。
+
+Task 的创建和修改保留实际操作者，当前状态由 Relay 签名并供 Desktop 与 CLI 查询。关联私密 Channel 的 Task 继续遵守该 Channel 的可见范围；Agent 的对话权限与“谁可以给它指派 Task”是两项独立设置。
+
 ## Project / Forge
 
 把 repository、issue、patch、review、status 与协作频道结合的工作面。Git smart HTTP 和 NIP-34 等事件让代码动作进入 Buzz 的身份与历史模型。
+
+NIP-34 Issue 是代码仓库中的问题，必须依附 repository；Task 是可独立存在的通用协作事项。Task 可以通过 Project 关联指向 NIP-34 repository，但不会因此变成 Issue，Issue 也不会自动成为 Task。
 
 ## Presence、Typing 与 Ephemeral event
 
@@ -54,8 +62,12 @@ YAML 定义的自动化。触发源可以是消息、reaction、schedule 或 web
 - `crates/buzz-core/src/event.rs`
 - `crates/buzz-core/src/kind.rs`
 - `crates/buzz-core/src/tenant.rs`
+- `crates/buzz-core/src/task.rs`
 - `crates/buzz-core/src/channel.rs`
 - `crates/buzz-relay/src/handlers/`
 - `crates/buzz-workflow/`
+- `crates/buzz-relay/src/handlers/command_executor.rs`
+- `crates/buzz-cli/src/commands/tasks.rs`
+- `desktop/src/features/tasks/`
 - `ARCHITECTURE.md`
 - `AGENTS.md`

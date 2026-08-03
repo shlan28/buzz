@@ -10,7 +10,8 @@ export type AppView =
   | "workflows"
   | "pulse"
   | "projects"
-  | "calendar";
+  | "calendar"
+  | "tasks";
 
 const WINDOW_DRAG_HANDLE_HEIGHT = 44;
 const TAURI_DRAG_REGION_ATTR = "data-tauri-drag-region";
@@ -156,6 +157,10 @@ export function deriveShellRoute(pathname: string): {
 
   if (pathname === "/calendar") {
     return { selectedChannelId: null, selectedView: "calendar" };
+  }
+
+  if (pathname === "/tasks") {
+    return { selectedChannelId: null, selectedView: "tasks" };
   }
 
   return {

@@ -305,7 +305,6 @@ fn effective_agent_command_explicit_override_wins() {
 }
 
 /// Minimal record for `record_agent_command` tests. Only the resolution
-/// inputs (runtime / persona_id / agent_command_override) vary.
 fn record_with(
     runtime: Option<&str>,
     persona_id: Option<&str>,
@@ -352,6 +351,8 @@ fn record_with(
         respond_to: Default::default(),
         respond_to_allowlist: vec![],
         respond_to_owner_messages: false,
+        task_assignment_policy: Default::default(),
+        task_assignment_allowlist: Vec::new(),
         display_name: None,
         slug: None,
         runtime: runtime.map(str::to_string),

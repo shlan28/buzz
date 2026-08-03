@@ -1,15 +1,15 @@
 # Buzz 模块地图
 
-> 更新日期：2026-07-31
-> 更新说明：首次建立 Rust、客户端、数据与部署模块的职责索引。
+> 更新日期：2026-08-03
+> 更新说明：登记 Tasks 的协议、Relay、CLI、数据库和 Desktop 模块入口。
 
 ## Relay 与核心
 
 | 模块 | 职责 |
 |---|---|
-| `buzz-core` | 零 I/O 类型、event、filter、kind、验证、tenant |
-| `buzz-relay` | WebSocket/HTTP 入口与所有服务编排 |
-| `buzz-db` | Postgres 数据访问 |
+| `buzz-core` | 零 I/O 类型、event、filter、kind、验证、tenant；包含 Task kind、状态、优先级与字段验证 |
+| `buzz-relay` | WebSocket/HTTP 入口与所有服务编排；在写入前校验 Task 权限和并发版本，并生成当前 Task State |
+| `buzz-db` | Postgres 数据访问；原子保存 Task Command 历史并替换当前 Task State |
 | `buzz-auth` | NIP-42/NIP-98、token、scope、rate limit |
 | `buzz-pubsub` | Redis fan-out、presence、typing |
 | `buzz-search` | community-scoped Postgres FTS |
@@ -26,10 +26,10 @@
 |---|---|
 | `buzz-acp` | Buzz ↔ ACP harness |
 | `buzz-agent` | 最小 ACP Agent |
-| `buzz-cli` | Agent-first CLI |
+| `buzz-cli` | Agent-first CLI；`buzz tasks` 提供创建、读取、筛选、编辑、转派和归档 |
 | `buzz-dev-mcp` | 开发工具 MCP |
 | `buzz-persona` | persona packs |
-| `buzz-sdk` | typed event builders |
+| `buzz-sdk` | typed event builders；包含 Task Create/Mutate builders |
 | `sprig` | 一体化 Agent harness |
 
 ## 客户端与互操作
@@ -59,7 +59,21 @@
 
 ## Desktop feature 地图
 
-主要 vertical slices：channels、messages、sidebar、search、agents、projects、workflows、forum、huddle、pulse、communities、profile、settings、moderation、notifications、onboarding、presence。
+主要 vertical slices：channels、messages、sidebar、search、agents、tasks、projects、workflows、forum、huddle、pulse、communities、profile、settings、moderation、notifications、onboarding、presence。
+
+Tasks 的主要入口：
+
+| 文件/目录 | 职责 |
+|---|---|
+| `crates/buzz-core/src/task.rs` | Task 枚举与协议字段验证 |
+| `crates/buzz-sdk/src/builders.rs` | 构造由人或 Agent 签名的 Task Command |
+| `crates/buzz-relay/src/handlers/command_executor.rs` | 写前权限、负责人策略、`previous` 冲突校验与 Relay-signed State 生成 |
+| `crates/buzz-db/src/tasks.rs` | Command 与 State 的原子事务 |
+| `crates/buzz-cli/src/commands/tasks.rs` | Agent 和命令行操作面 |
+| `desktop/src/features/tasks/` | Tasks 看板、列表、详情与编辑体验 |
+| `desktop/src/features/agents/` | 每个 Agent 的独立任务指派权限设置 |
+
+Tasks 是 community 通用协作模块，不属于 NIP-34 Projects。它可以关联 NIP-34 repository，但不会复用 Issue 作为底层记录。
 
 ## Mobile feature 地图
 

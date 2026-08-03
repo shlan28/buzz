@@ -220,6 +220,8 @@ fn team_export_with_instance_and_memory_level_uses_supplied_entries() {
         respond_to: crate::managed_agents::RespondTo::default(),
         respond_to_allowlist: vec![],
         respond_to_owner_messages: false,
+        task_assignment_policy: Default::default(),
+        task_assignment_allowlist: Vec::new(),
         is_builtin: false,
         is_active: true,
         shared: false,

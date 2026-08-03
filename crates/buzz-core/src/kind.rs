@@ -94,6 +94,16 @@ pub const KIND_HTTP_AUTH: u32 = 27235;
 /// Agent metadata + owner reference (replaceable, agent-authored).
 pub const KIND_AGENT_PROFILE: u32 = 10100;
 
+/// Buzz Tasks: relay-derived current task state (NIP-33, keyed by `d`).
+pub const KIND_TASK_STATE: u32 = 30500;
+/// Buzz Tasks: actor-signed create command.
+pub const KIND_TASK_CREATE: u32 = 42500;
+/// Buzz Tasks: actor-signed mutation command.
+pub const KIND_TASK_MUTATE: u32 = 42501;
+
+/// All Buzz Tasks event kinds.
+pub const TASK_KINDS: &[u32] = &[KIND_TASK_CREATE, KIND_TASK_MUTATE, KIND_TASK_STATE];
+
 /// NIP-AE: Agent Engram (parameterized replaceable, agent-authored).
 ///
 /// Encrypted memory record for AI agents. Addressed by `(pubkey_a, kind, d_tag)`,
@@ -601,6 +611,9 @@ pub const ALL_KINDS: &[u32] = &[
     KIND_GIFT_WRAP,
     KIND_FILE_METADATA,
     KIND_AGENT_PROFILE,
+    KIND_TASK_STATE,
+    KIND_TASK_CREATE,
+    KIND_TASK_MUTATE,
     KIND_AGENT_ENGRAM,
     KIND_EVENT_REMINDER,
     KIND_PERSONA,
@@ -770,6 +783,8 @@ pub const fn is_command_kind(kind: u32) -> bool {
             | KIND_WORKFLOW_TRIGGER
             | KIND_APPROVAL_GRANT
             | KIND_APPROVAL_DENY
+            | KIND_TASK_CREATE
+            | KIND_TASK_MUTATE
     )
 }
 
@@ -784,6 +799,7 @@ pub const fn is_relay_only_kind(kind: u32) -> bool {
             | KIND_DM_VISIBILITY
             | KIND_THREAD_SUMMARY
             | KIND_WINDOW_BOUNDS
+            | KIND_TASK_STATE
     )
 }
 
@@ -805,6 +821,7 @@ const _: () = assert!(is_parameterized_replaceable(KIND_PERSONA)); // 30175 ∈ 
 const _: () = assert!(is_parameterized_replaceable(KIND_TEAM)); // 30176 ∈ 30000–39999
 const _: () = assert!(is_parameterized_replaceable(KIND_MANAGED_AGENT)); // 30177 ∈ 30000–39999
 const _: () = assert!(is_parameterized_replaceable(KIND_WORKFLOW_DEF)); // 30620 ∈ 30000–39999
+const _: () = assert!(is_parameterized_replaceable(KIND_TASK_STATE)); // 30500 ∈ 30000–39999
 const _: () = assert!(is_parameterized_replaceable(KIND_EVENT_REMINDER)); // 30300 ∈ 30000–39999
 const _: () = assert!(is_parameterized_replaceable(KIND_DM_VISIBILITY)); // 30622 ∈ 30000–39999
 const _: () = assert!(is_parameterized_replaceable(KIND_THREAD_SUMMARY)); // 39005 ∈ 30000–39999

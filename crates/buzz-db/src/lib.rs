@@ -45,6 +45,8 @@ pub mod relay_invite;
 pub mod relay_members;
 /// Replica freshness fence for keyset-cursor read routing.
 pub mod replica_fence;
+/// Buzz Tasks persistence.
+pub mod tasks;
 /// Thread metadata persistence.
 pub mod thread;
 /// Per-community usage rollup queries for Prometheus gauges.
@@ -1641,6 +1643,28 @@ impl Db {
         event::query_events(&self.pool, q).await
     }
 
+    /// Atomically store a task command and its relay-derived state.
+    pub async fn apply_task_events(
+        &self,
+        community_id: CommunityId,
+        task_id: Uuid,
+        expected_state_id: Option<&[u8]>,
+        command: &nostr::Event,
+        state: &nostr::Event,
+        channel_id: Option<Uuid>,
+    ) -> Result<tasks::ApplyTaskResult> {
+        tasks::apply_task_events(
+            &self.pool,
+            community_id,
+            task_id,
+            expected_state_id,
+            command,
+            state,
+            channel_id,
+        )
+        .await
+    }
+
     /// [`Db::query_events`] with replica routing — the opt-in fast path for
     /// display reads.
     ///
@@ -2580,6 +2604,26 @@ impl Db {
         policy: &str,
     ) -> Result<()> {
         user::set_channel_add_policy(&self.pool, community_id, pubkey, policy).await
+    }
+
+    /// Persist an Agent Profile's task-assignment access policy.
+    pub async fn set_task_assignment_policy(
+        &self,
+        community_id: CommunityId,
+        pubkey: &[u8],
+        policy: &str,
+        allowlist: &[String],
+    ) -> Result<()> {
+        user::set_task_assignment_policy(&self.pool, community_id, pubkey, policy, allowlist).await
+    }
+
+    /// Read an agent's task-assignment policy, owner, and allowlist.
+    pub async fn get_task_assignment_policy(
+        &self,
+        community_id: CommunityId,
+        pubkey: &[u8],
+    ) -> Result<Option<(String, Option<Vec<u8>>, Vec<String>)>> {
+        user::get_task_assignment_policy(&self.pool, community_id, pubkey).await
     }
 
     /// Find an existing DM by its participant hash.

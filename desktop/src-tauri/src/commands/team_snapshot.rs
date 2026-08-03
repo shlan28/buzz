@@ -600,6 +600,8 @@ pub async fn confirm_team_snapshot_import(
             },
             respond_to_allowlist: definition.respond_to_allowlist.clone(),
             respond_to_owner_messages: false,
+            task_assignment_policy: Default::default(),
+            task_assignment_allowlist: Vec::new(),
             is_builtin: false,
             is_active: true,
             shared: false,

@@ -139,6 +139,8 @@ impl AgentDefinition {
             respond_to: RespondTo::default(),
             respond_to_allowlist: Vec::new(),
             respond_to_owner_messages: false,
+            task_assignment_policy: TaskAssignmentPolicy::default(),
+            task_assignment_allowlist: Vec::new(),
             display_name: Some(self.display_name),
             slug: Some(self.id),
             runtime: self.runtime,
@@ -345,25 +347,18 @@ pub struct ManagedAgentRecord {
     pub last_error: Option<String>,
     #[serde(default)]
     pub last_error_code: Option<i64>,
-    /// Inbound author gate mode. Translates to `BUZZ_ACP_RESPOND_TO`.
     #[serde(default)]
     pub respond_to: RespondTo,
-    /// Allowlist used when `respond_to == Allowlist`. Stored normalized
-    /// (64-char lowercase hex, deduped). Empty when mode is not Allowlist.
-    /// Preserved across mode toggles so users don't lose state.
     #[serde(default)]
     pub respond_to_allowlist: Vec<String>,
-    /// Allow owner messages to trigger without a mention. Instance-local only.
     #[serde(default)]
     pub respond_to_owner_messages: bool,
-    /// Optional display name distinct from the unique `name` handle. Absorbed
-    /// from `AgentDefinition.display_name` (unified agent model, Phase 1A).
+    #[serde(default)]
+    pub task_assignment_policy: TaskAssignmentPolicy,
+    #[serde(default)]
+    pub task_assignment_allowlist: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
-    /// Stable definition slug — the former `AgentDefinition.id`. Key-less
-    /// records (definitions not yet instantiated) publish kind:30175 at
-    /// `d_tag = slug`, preserving the pre-merge event coordinates. `None` for
-    /// agents created directly (never persona-backed).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slug: Option<String>,
     /// Absorbed from `AgentDefinition.runtime` — the preferred ACP runtime ID
@@ -381,8 +376,6 @@ pub struct ManagedAgentRecord {
     /// honored: materialization skips it and it deserializes to `None`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime: Option<String>,
-    /// Pool of short thematic names for clones of this agent. Absorbed from
-    /// `AgentDefinition.name_pool`; feeds clone naming.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub name_pool: Vec<String>,
     /// Absorbed from `AgentDefinition.is_builtin`.
@@ -571,6 +564,8 @@ pub struct ManagedAgentSummary {
     pub respond_to: RespondTo,
     pub respond_to_allowlist: Vec<String>,
     pub respond_to_owner_messages: bool,
+    pub task_assignment_policy: TaskAssignmentPolicy,
+    pub task_assignment_allowlist: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -994,6 +989,8 @@ mod catalog_source;
 pub use catalog_source::CatalogSource;
 mod requests;
 pub use requests::*;
+mod task_assignment;
+pub use task_assignment::TaskAssignmentPolicy;
 
 #[cfg(test)]
 mod tests;

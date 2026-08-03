@@ -12,7 +12,7 @@
 use std::sync::Arc;
 
 use chrono::Utc;
-use nostr::Event;
+use nostr::{Event, EventBuilder, Kind, Tag};
 use sha2::{Digest, Sha256};
 use tracing::warn;
 use uuid::Uuid;
@@ -21,6 +21,7 @@ use buzz_core::kind::*;
 use buzz_core::tenant::{CommunityId, TenantContext};
 use buzz_db::workflow::{ApprovalStatus, RunStatus};
 use buzz_db::DbError;
+use buzz_pubsub::EventTopic;
 use buzz_workflow::executor::TriggerContext;
 
 use crate::state::AppState;
@@ -31,6 +32,19 @@ use super::side_effects::{
     emit_group_discovery_events, emit_membership_notification, emit_system_message,
     publish_dm_visibility_snapshot,
 };
+
+fn agent_assignment_allowed(
+    actor: &[u8],
+    agent: &[u8],
+    owner: Option<&[u8]>,
+    policy: &str,
+    allowlist: &[String],
+) -> bool {
+    actor == agent
+        || owner == Some(actor)
+        || policy == "anyone"
+        || (policy == "allowlist" && allowlist.iter().any(|value| value == &hex::encode(actor)))
+}
 
 /// Route a command-kind event to the appropriate handler.
 pub async fn handle_command(
@@ -69,9 +83,459 @@ pub async fn handle_command(
         KIND_WORKFLOW_TRIGGER => handle_workflow_trigger(tenant, state, &event, &auth).await,
         KIND_APPROVAL_GRANT => handle_approval_grant(tenant, state, &event, &auth).await,
         KIND_APPROVAL_DENY => handle_approval_deny(tenant, state, &event, &auth).await,
+        KIND_TASK_CREATE | KIND_TASK_MUTATE => {
+            handle_task_command(tenant, state, &event, &auth).await
+        }
         _ => Err(IngestError::Rejected(format!(
             "unknown command kind: {kind}"
         ))),
+    }
+}
+
+async fn handle_task_command(
+    tenant: &TenantContext,
+    state: &Arc<AppState>,
+    command: &Event,
+    auth: &IngestAuth,
+) -> Result<IngestResult, IngestError> {
+    let task_id = buzz_core::task::task_id(command)
+        .map_err(|e| IngestError::Rejected(format!("invalid: {e}")))?;
+    let is_create = command.kind.as_u16() as u32 == KIND_TASK_CREATE;
+    let mut query = buzz_db::EventQuery::for_community(tenant.community());
+    query.kinds = Some(vec![KIND_TASK_STATE as i32]);
+    query.d_tag = Some(task_id.to_string());
+    query.limit = Some(1);
+    let current = state
+        .db
+        .query_events(&query)
+        .await
+        .map_err(|e| IngestError::Internal(format!("error: query task state: {e}")))?
+        .into_iter()
+        .next();
+    if is_create && current.is_some() {
+        return Err(IngestError::Rejected(
+            "conflict: task already exists".into(),
+        ));
+    }
+    if !is_create && current.is_none() {
+        return Err(IngestError::Rejected(
+            "conflict: task does not exist".into(),
+        ));
+    }
+
+    let actor = auth.pubkey().to_bytes().to_vec();
+    let actor_hex = hex::encode(&actor);
+    let actor_is_admin = state
+        .db
+        .get_relay_member(tenant.community(), &actor_hex)
+        .await
+        .map_err(|e| IngestError::Internal(format!("error: read community role: {e}")))?
+        .is_some_and(|member| matches!(member.role.as_str(), "owner" | "admin"));
+    if let Some(existing) = &current {
+        let tag_value = |name: &str| {
+            existing.event.tags.iter().find_map(|tag| {
+                let parts = tag.as_slice();
+                (parts.len() >= 2 && parts[0].as_str() == name).then(|| parts[1].to_string())
+            })
+        };
+        let creator = tag_value("creator").and_then(|v| hex::decode(v).ok());
+        let assignee = tag_value("p").and_then(|v| hex::decode(v).ok());
+        let creator_owner = match creator.as_deref() {
+            Some(value) => state
+                .db
+                .get_agent_owner_pubkey(tenant.community(), value)
+                .await
+                .ok()
+                .flatten(),
+            None => None,
+        };
+        let assignee_owner = match assignee.as_deref() {
+            Some(value) => state
+                .db
+                .get_agent_owner_pubkey(tenant.community(), value)
+                .await
+                .ok()
+                .flatten(),
+            None => None,
+        };
+        if let Some(existing_channel) = existing.channel_id {
+            let channel = state
+                .db
+                .get_channel(tenant.community(), existing_channel)
+                .await
+                .map_err(|_| {
+                    IngestError::AuthFailed("restricted: task channel unavailable".into())
+                })?;
+            if channel.visibility == "private"
+                && !state
+                    .db
+                    .is_member(tenant.community(), existing_channel, &actor)
+                    .await
+                    .map_err(|e| {
+                        IngestError::Internal(format!("error: check existing task access: {e}"))
+                    })?
+            {
+                return Err(IngestError::AuthFailed(
+                    "restricted: actor cannot access the task channel".into(),
+                ));
+            }
+        }
+        if creator.as_deref() != Some(actor.as_slice())
+            && assignee.as_deref() != Some(actor.as_slice())
+            && creator_owner.as_deref() != Some(actor.as_slice())
+            && assignee_owner.as_deref() != Some(actor.as_slice())
+        {
+            if actor_is_admin {
+                // Community administrators may repair task state, but the
+                // target Agent's assignment policy is still checked below.
+            } else {
+                return Err(IngestError::AuthFailed(
+                    "restricted: task may only be edited by its creator, assignee, or agent owner"
+                        .into(),
+                ));
+            }
+        }
+    }
+
+    let previous_hex = if is_create {
+        None
+    } else {
+        extract_tag(command, "previous")
+    };
+    let expected = previous_hex
+        .as_deref()
+        .map(hex::decode)
+        .transpose()
+        .map_err(|_| IngestError::Rejected("invalid: previous must be a hex event id".into()))?;
+    if !is_create && expected.as_deref().is_none_or(|value| value.len() != 32) {
+        return Err(IngestError::Rejected(
+            "invalid: mutate requires a 32-byte previous event id".into(),
+        ));
+    }
+
+    let mut raw_tags: Vec<Vec<String>> = if let Some(existing) = &current {
+        existing
+            .event
+            .tags
+            .iter()
+            .map(|tag| tag.as_slice().iter().map(ToString::to_string).collect())
+            .filter(|parts: &Vec<String>| {
+                !matches!(
+                    parts.first().map(String::as_str),
+                    Some("source_event" | "last_editor")
+                )
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let mut content = current
+        .as_ref()
+        .map_or_else(|| command.content.clone(), |v| v.event.content.clone());
+    if is_create {
+        raw_tags = command
+            .tags
+            .iter()
+            .map(|tag| tag.as_slice().iter().map(ToString::to_string).collect())
+            .collect();
+        let title = raw_tags
+            .iter()
+            .find(|p| p.first().is_some_and(|v| v == "title"))
+            .and_then(|p| p.get(1));
+        buzz_core::task::validate_title(title.map_or("", String::as_str))
+            .map_err(|e| IngestError::Rejected(format!("invalid: {e}")))?;
+        raw_tags.push(vec!["creator".into(), hex::encode(&actor)]);
+        raw_tags.push(vec![
+            "created_at".into(),
+            command.created_at.as_secs().to_string(),
+        ]);
+    } else {
+        let clears: Vec<String> = command
+            .tags
+            .iter()
+            .filter_map(|tag| {
+                let p = tag.as_slice();
+                (p.len() == 2 && p[0].as_str() == "clear").then(|| p[1].to_string())
+            })
+            .collect();
+        let replace = |tags: &mut Vec<Vec<String>>, key: &str, incoming: Vec<Vec<String>>| {
+            tags.retain(|p| p.first().is_none_or(|v| v != key));
+            tags.extend(incoming);
+        };
+        for key in ["title", "p", "due", "a", "h", "archived"] {
+            let incoming: Vec<Vec<String>> = command
+                .tags
+                .iter()
+                .map(|t| t.as_slice())
+                .filter(|p| p.first().is_some_and(|v| v.as_str() == key))
+                .map(|p| p.iter().map(ToString::to_string).collect())
+                .collect();
+            let clear_name = match key {
+                "p" => "assignee",
+                "a" => "project",
+                "h" => "channel",
+                other => other,
+            };
+            if !incoming.is_empty() || clears.iter().any(|v| v == clear_name) {
+                replace(&mut raw_tags, key, incoming);
+            }
+        }
+        let source_events: Vec<Vec<String>> = command
+            .tags
+            .iter()
+            .map(|tag| tag.as_slice())
+            .filter(|parts| {
+                parts.len() >= 4 && parts[0].as_str() == "e" && parts[3].as_str() == "source"
+            })
+            .map(|parts| parts.iter().map(ToString::to_string).collect())
+            .collect();
+        if !source_events.is_empty() || clears.iter().any(|value| value == "source") {
+            raw_tags.retain(|parts| !(parts.len() >= 4 && parts[0] == "e" && parts[3] == "source"));
+            raw_tags.extend(source_events);
+        }
+        for prefix in ["task-status:", "task-priority:", "label:"] {
+            let incoming: Vec<Vec<String>> = command
+                .tags
+                .iter()
+                .map(|t| t.as_slice())
+                .filter(|p| {
+                    p.len() == 2 && p[0].as_str() == "t" && p[1].as_str().starts_with(prefix)
+                })
+                .map(|p| p.iter().map(ToString::to_string).collect())
+                .collect();
+            let clear_labels = prefix == "label:" && clears.iter().any(|v| v == "labels");
+            if !incoming.is_empty() || clear_labels {
+                raw_tags.retain(|p| !(p.len() == 2 && p[0] == "t" && p[1].starts_with(prefix)));
+                raw_tags.extend(incoming);
+            }
+        }
+        if command
+            .tags
+            .iter()
+            .any(|t| t.as_slice() == ["set", "description"])
+        {
+            content.clone_from(&command.content);
+        }
+        if clears.iter().any(|v| v == "description") {
+            content.clear();
+        }
+    }
+    raw_tags.retain(|p| {
+        p.first()
+            .is_none_or(|v| !matches!(v.as_str(), "d" | "previous" | "action" | "clear" | "set"))
+    });
+    raw_tags.push(vec!["d".into(), task_id.to_string()]);
+    raw_tags.push(vec!["last_editor".into(), hex::encode(&actor)]);
+    raw_tags.push(vec!["source_event".into(), command.id.to_hex()]);
+
+    let count = |name: &str| {
+        raw_tags
+            .iter()
+            .filter(|parts| parts.first().is_some_and(|value| value == name))
+            .count()
+    };
+    if count("title") != 1 || count("p") > 1 || count("due") > 1 || count("h") > 1 {
+        return Err(IngestError::Rejected(
+            "invalid: task requires one title and at most one assignee, due date, and channel"
+                .into(),
+        ));
+    }
+    let title = raw_tags
+        .iter()
+        .find(|parts| parts.first().is_some_and(|value| value == "title"))
+        .and_then(|parts| parts.get(1))
+        .map_or("", String::as_str);
+    buzz_core::task::validate_title(title)
+        .map_err(|error| IngestError::Rejected(format!("invalid: {error}")))?;
+    if content.len() > buzz_core::task::TASK_DESCRIPTION_MAX_BYTES {
+        return Err(IngestError::Rejected(
+            "invalid: task description exceeds 65536 bytes".into(),
+        ));
+    }
+    let namespaced = |prefix: &str| {
+        raw_tags
+            .iter()
+            .filter_map(|parts| {
+                (parts.len() == 2 && parts[0] == "t")
+                    .then(|| parts[1].strip_prefix(prefix).map(ToString::to_string))
+                    .flatten()
+            })
+            .collect::<Vec<_>>()
+    };
+    let statuses = namespaced("task-status:");
+    let priorities = namespaced("task-priority:");
+    if statuses.len() != 1
+        || statuses[0].parse::<buzz_core::task::TaskStatus>().is_err()
+        || priorities.len() != 1
+        || priorities[0]
+            .parse::<buzz_core::task::TaskPriority>()
+            .is_err()
+    {
+        return Err(IngestError::Rejected(
+            "invalid: task requires one valid status and priority".into(),
+        ));
+    }
+    if let Some(due) = raw_tags
+        .iter()
+        .find(|parts| parts.first().is_some_and(|value| value == "due"))
+        .and_then(|parts| parts.get(1))
+    {
+        if due.parse::<i64>().is_err() {
+            return Err(IngestError::Rejected(
+                "invalid: task due date must be Unix seconds".into(),
+            ));
+        }
+    }
+
+    let assignee_hex = raw_tags
+        .iter()
+        .find(|p| p.first().is_some_and(|v| v == "p"))
+        .and_then(|p| p.get(1))
+        .cloned();
+    if let Some(assignee_hex) = assignee_hex {
+        let assignee = decode_pubkey(&assignee_hex)?;
+        let assignment_changed = current
+            .as_ref()
+            .and_then(|value| extract_tag(&value.event, "p"))
+            != Some(assignee_hex.clone());
+        if assignment_changed
+            && state
+                .db
+                .is_archived(tenant.community(), &assignee_hex)
+                .await
+                .map_err(|e| IngestError::Internal(format!("error: read archived identity: {e}")))?
+        {
+            return Err(IngestError::Rejected(
+                "invalid: archived identities cannot receive new tasks".into(),
+            ));
+        }
+        let identity = state
+            .db
+            .get_task_assignment_policy(tenant.community(), &assignee)
+            .await
+            .map_err(|e| IngestError::Internal(format!("error: read assignment policy: {e}")))?;
+        let relay_member = state
+            .db
+            .get_relay_member(tenant.community(), &assignee_hex)
+            .await
+            .map_err(|e| IngestError::Internal(format!("error: read assignee membership: {e}")))?;
+        let recognized = relay_member.is_some()
+            || identity.as_ref().is_some_and(|(_, owner, _)| {
+                owner.is_some() || !state.config.require_relay_membership
+            });
+        if !recognized {
+            return Err(IngestError::Rejected(
+                "invalid: assignee is not a current community identity".into(),
+            ));
+        }
+        if let Some((policy, owner, allowlist)) = identity {
+            if owner.is_some() {
+                let allowed = agent_assignment_allowed(
+                    &actor,
+                    &assignee,
+                    owner.as_deref(),
+                    &policy,
+                    &allowlist,
+                );
+                if assignment_changed && !allowed {
+                    return Err(IngestError::AuthFailed(
+                        "restricted: agent does not allow this actor to assign tasks".into(),
+                    ));
+                }
+            }
+        }
+    }
+    let tags = raw_tags
+        .iter()
+        .map(|parts| {
+            Tag::parse(parts.clone())
+                .map_err(|e| IngestError::Rejected(format!("invalid: task tag: {e}")))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let state_event = EventBuilder::new(Kind::Custom(KIND_TASK_STATE as u16), content)
+        .tags(tags)
+        .sign_with_keys(&state.relay_keypair)
+        .map_err(|e| IngestError::Internal(format!("error: sign task state: {e}")))?;
+    let channel_id = extract_channel_id(&state_event);
+    if let Some(channel_id) = channel_id {
+        let channel = state
+            .db
+            .get_channel(tenant.community(), channel_id)
+            .await
+            .map_err(|_| IngestError::Rejected("invalid: task channel does not exist".into()))?;
+        if channel.visibility == "private" {
+            if !state
+                .db
+                .is_member(tenant.community(), channel_id, &actor)
+                .await
+                .map_err(|e| {
+                    IngestError::Internal(format!("error: check task channel access: {e}"))
+                })?
+            {
+                return Err(IngestError::AuthFailed(
+                    "restricted: actor cannot access the task channel".into(),
+                ));
+            }
+            if let Some(assignee_hex) = raw_tags
+                .iter()
+                .find(|parts| parts.first().is_some_and(|value| value == "p"))
+                .and_then(|parts| parts.get(1))
+            {
+                let assignee = decode_pubkey(assignee_hex)?;
+                if !state
+                    .db
+                    .is_member(tenant.community(), channel_id, &assignee)
+                    .await
+                    .map_err(|e| {
+                        IngestError::Internal(format!("error: check assignee channel access: {e}"))
+                    })?
+                {
+                    return Err(IngestError::Rejected(
+                        "invalid: assignee cannot access the task channel".into(),
+                    ));
+                }
+            }
+        }
+    }
+    let result = state
+        .db
+        .apply_task_events(
+            tenant.community(),
+            task_id,
+            expected.as_deref(),
+            command,
+            &state_event,
+            channel_id,
+        )
+        .await;
+    match result {
+        Ok(buzz_db::tasks::ApplyTaskResult::Applied) => {
+            let topic = channel_id.map_or(EventTopic::Global, EventTopic::Channel);
+            if let Err(error) = state
+                .pubsub
+                .publish_event(tenant, topic, &state_event)
+                .await
+            {
+                warn!(task_id = %task_id, "task state committed but live publish failed: {error}");
+            }
+            Ok(IngestResult {
+                event_id: command.id.to_hex(),
+                accepted: true,
+                message: format!(
+                    "response:{}",
+                    serde_json::json!({"task_id": task_id, "state_event_id": state_event.id.to_hex()})
+                ),
+            })
+        }
+        Ok(buzz_db::tasks::ApplyTaskResult::Duplicate) => Ok(IngestResult {
+            event_id: command.id.to_hex(),
+            accepted: true,
+            message: "duplicate: already processed".into(),
+        }),
+        Err(DbError::Conflict(message)) => {
+            Err(IngestError::Rejected(format!("conflict: {message}")))
+        }
+        Err(e) => Err(IngestError::Internal(format!("error: persist task: {e}"))),
     }
 }
 
@@ -1367,4 +1831,75 @@ async fn resume_workflow_after_approval(
     engine
         .finalize_run(community_id, run_id, result, existing_trace)
         .await;
+}
+
+#[cfg(test)]
+mod task_permission_tests {
+    use super::agent_assignment_allowed;
+
+    #[test]
+    fn owner_only_does_not_admit_admin_or_sibling_agent() {
+        let owner = [1_u8; 32];
+        let agent = [2_u8; 32];
+        let admin = [3_u8; 32];
+        let sibling = [4_u8; 32];
+        assert!(agent_assignment_allowed(
+            &owner,
+            &agent,
+            Some(&owner),
+            "owner_only",
+            &[]
+        ));
+        assert!(agent_assignment_allowed(
+            &agent,
+            &agent,
+            Some(&owner),
+            "owner_only",
+            &[]
+        ));
+        assert!(!agent_assignment_allowed(
+            &admin,
+            &agent,
+            Some(&owner),
+            "owner_only",
+            &[]
+        ));
+        assert!(!agent_assignment_allowed(
+            &sibling,
+            &agent,
+            Some(&owner),
+            "owner_only",
+            &[]
+        ));
+    }
+
+    #[test]
+    fn allowlist_and_anyone_have_expected_boundaries() {
+        let owner = [1_u8; 32];
+        let agent = [2_u8; 32];
+        let collaborator = [3_u8; 32];
+        let stranger = [4_u8; 32];
+        let allowlist = vec![hex::encode(collaborator)];
+        assert!(agent_assignment_allowed(
+            &collaborator,
+            &agent,
+            Some(&owner),
+            "allowlist",
+            &allowlist
+        ));
+        assert!(!agent_assignment_allowed(
+            &stranger,
+            &agent,
+            Some(&owner),
+            "allowlist",
+            &allowlist
+        ));
+        assert!(agent_assignment_allowed(
+            &stranger,
+            &agent,
+            Some(&owner),
+            "anyone",
+            &[]
+        ));
+    }
 }

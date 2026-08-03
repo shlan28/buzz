@@ -201,6 +201,8 @@ mod tests {
             respond_to: RespondTo::Allowlist,
             respond_to_allowlist: vec!["79be667e".to_string()],
             respond_to_owner_messages: false,
+            task_assignment_policy: Default::default(),
+            task_assignment_allowlist: Vec::new(),
             // Unified-model fields carry real values so the exclusion test
             // proves they are absent from the wire, not vacuously empty.
             display_name: Some("Display Name Secretish".to_string()),

@@ -339,13 +339,13 @@ pub fn build_managed_agent_summary(
         respond_to: record.respond_to,
         respond_to_allowlist: record.respond_to_allowlist.clone(),
         respond_to_owner_messages: record.respond_to_owner_messages,
+        task_assignment_policy: record.task_assignment_policy,
+        task_assignment_allowlist: record.task_assignment_allowlist.clone(),
     })
 }
 
 /// Pure predicate: should the "Restart required" badge fire?
 ///
-/// An orphaned linked instance (its persona/definition no longer exists)
-/// can never be restarted successfully — `spawn_agent_child` refuses to
 /// spawn it before any process side effect. Surfacing "Restart required"
 /// for one would offer an action guaranteed to fail, so this always
 /// returns `false` for an orphan regardless of drift. Extracted for unit

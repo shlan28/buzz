@@ -273,8 +273,6 @@ export type {
   SearchMessagesResponse,
 } from "./searchTypes";
 
-// ── Relay Members ────────────────────────────────────────────────────────────
-
 export type RelayMemberRole = "owner" | "admin" | "member";
 
 export type RelayMember = {
@@ -294,6 +292,8 @@ export type RelayAgent = {
   status: "online" | "away" | "offline";
   respondTo: RespondToMode | null;
   respondToAllowlist: string[];
+  taskAssignmentPolicy?: TaskAssignmentPolicy | null;
+  taskAssignmentAllowlist?: string[];
 };
 
 export type ManagedAgentRuntimeLifecycle =
@@ -399,6 +399,8 @@ export type ManagedAgent = {
   respondToAllowlist: string[];
   /** Allow owner-authored channel messages to trigger without an explicit mention. */
   respondToOwnerMessages: boolean;
+  taskAssignmentPolicy: TaskAssignmentPolicy;
+  taskAssignmentAllowlist: string[];
 };
 
 /**
@@ -407,6 +409,7 @@ export type ManagedAgent = {
  * it's a heartbeat-only mode without a meaningful GUI use case.
  */
 export type RespondToMode = "owner-only" | "allowlist" | "anyone";
+export type TaskAssignmentPolicy = "owner_only" | "allowlist" | "anyone";
 export type BackendProviderCandidate = {
   id: string;
   binaryPath: string;
@@ -631,8 +634,6 @@ export type AgentModelInfo = {
   description: string | null;
 };
 
-// ── Config bridge types ──────────────────────────────────────────────────────
-
 export type ConfigOrigin =
   | "buzzExplicit"
   | "acpNativeRead"
@@ -731,14 +732,11 @@ export type UpdateManagedAgentInput = {
   harnessOverride?: boolean;
   agentArgs?: string[];
   mcpCommand?: string;
-  /** Absent = don't touch. Present = set the mode. */
   respondTo?: RespondToMode;
-  /**
-   * Absent = don't touch. Present = replace the allowlist with this list
-   * (validated & normalized server-side).
-   */
   respondToAllowlist?: string[];
   respondToOwnerMessages?: boolean;
+  taskAssignmentPolicy?: TaskAssignmentPolicy;
+  taskAssignmentAllowlist?: string[];
 };
 export type AgentPersona = {
   id: string;
@@ -1025,8 +1023,6 @@ export type ChannelMessagesPageResponse = {
   /** Present only when a full page was returned — pass back to fetch the next (older) page. */
   nextCursor: ChannelPageCursor | null;
 };
-
-// ── Global agent configuration ────────────────────────────────────────────────
 
 /**
  * Global agent configuration defaults applied to ALL agents.
