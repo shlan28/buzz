@@ -1,7 +1,7 @@
 # Agent 可操作的任务看板规划
 
 > 更新日期：2026-08-03
-> 更新说明：完成首版 Task 协议、Relay/数据库、CLI、Desktop 看板与 Agent 指派权限实现；记录已完成验证和后续增强项。
+> 更新说明：按实际提交同步逐文件 Todo 状态，明确首版可用闭环与尚未完成的体验增强，并补充完整 Desktop Tauri 测试结果。
 
 ## 1. 产品目标
 
@@ -489,80 +489,80 @@ buzz tasks archive --id <task-id> --expected-event <event-id>
 
 ## 9. 逐文件 Todo List
 
-以下是规划级文件清单。正式实现前应根据最终权限选择校准文件名；每项 Todo 只对应一个文件。
+以下清单已按提交 `14cb5da4a` 的实际实现同步。`[x]` 表示已完成；`[ ]` 表示仍需后续实现；“无需修改”表示复核后由现有通用能力覆盖。实现时有少量职责合并或文件名调整，均在对应项中注明。
 
 ### 协议与数据层
 
-- [ ] `crates/buzz-core/src/kind.rs`：登记 `42500 KIND_TASK_CREATE`、`42501 KIND_TASK_MUTATE`、`30500 KIND_TASK_STATE`，加入 `ALL_KINDS` 和 Task kind 集合。
-- [ ] `crates/buzz-core/src/task.rs`：定义任务字段、枚举、tag 解析和领域校验。
-- [ ] `crates/buzz-core/src/lib.rs`：导出任务领域模块。
-- [ ] `crates/buzz-sdk/src/builders.rs`：增加 Task Create/Mutate Command typed builders 和单元测试。
-- [ ] `migrations/<timestamp>_agent_task_assignment_policy.sql`：为 community 用户投影增加 Agent 任务指派策略与 allowlist，旧记录安全默认 `owner_only`。
-- [ ] `migrations/<timestamp>_task_event_search.sql`：仅让 Task State 可搜索、排除 Command kinds，并兼容 fresh-install allowlist 与 brownfield 表达式。
-- [ ] `crates/buzz-db/src/user.rs`：保存和读取 Agent 任务指派策略，验证枚举、allowlist 与 community 身份。
-- [ ] `crates/buzz-db/src/tasks.rs`：实现按 task ID 加锁、expected state CAS、Command 与 Relay-signed State 原子写入。
-- [ ] `crates/buzz-db/src/lib.rs`：导出任务数据访问模块。
-- [ ] `crates/buzz-db/src/event.rs`：为 `#t` 增加 JSONB SQL pushdown，保证过滤发生在 LIMIT 前。
-- [ ] `crates/buzz-relay/src/handlers/command_executor.rs`：路由 Task Commands，完成写前权限校验、构建 Relay-signed State 和提交后 fan-out。
-- [ ] `crates/buzz-relay/src/handlers/ingest.rs`：登记 Task Command scope、command routing 和 Task State relay-only 拒绝规则。
-- [ ] `crates/buzz-relay/src/handlers/side_effects.rs`：从 Agent Profile kind `10100` 校验并投影任务指派策略，保存完成后才确认设置生效。
-- [ ] `crates/buzz-relay/src/handlers/event.rs`：登记 bounded kind metrics，并复核 global/Channel Task State 的 guarded fan-out。
-- [ ] `crates/buzz-relay/src/handlers/req.rs`：下推 `#t` 并让 Task State 查询继承 community 与可选 Channel ACL。
-- [ ] `crates/buzz-relay/src/handlers/count.rs`：让 Task State 计数复用相同过滤和可见性边界。
+- [x] `crates/buzz-core/src/kind.rs`：登记三类 Task kind 并加入 kind registry。
+- [x] `crates/buzz-core/src/task.rs`：定义任务字段、枚举、tag 解析和领域校验。
+- [x] `crates/buzz-core/src/lib.rs`：导出任务领域模块。
+- [x] `crates/buzz-sdk/src/builders.rs`：增加 Task Create/Mutate typed builders 和单元测试。
+- [x] `migrations/0028_agent_task_assignment_policy.sql`：增加 Agent 任务指派策略投影，旧记录默认 `owner_only`。
+- [x] `migrations/0029_task_event_search.sql`：仅让 Task State 进入全文搜索。
+- [x] `crates/buzz-db/src/user.rs`：保存和读取 Agent 任务指派策略。
+- [x] `crates/buzz-db/src/tasks.rs`：实现 expected state CAS 以及 Command/State 原子写入。
+- [x] `crates/buzz-db/src/lib.rs`：导出任务数据访问模块。
+- [x] `crates/buzz-db/src/event.rs`：增加 `#t` JSONB SQL pushdown。
+- [x] `crates/buzz-relay/src/handlers/command_executor.rs`：完成 Task Command 权限校验、State 构建、原子提交及提交后实时发布。
+- [x] `crates/buzz-relay/src/handlers/ingest.rs`：登记 Task Command 路由和 Relay-only State 规则。
+- [x] `crates/buzz-relay/src/handlers/side_effects.rs`：校验并投影 Agent Profile 中的任务指派策略。
+- [x] `crates/buzz-relay/src/handlers/req.rs`：Task State 查询继承 community 与 Channel 可见性边界。
+- 无需修改 `crates/buzz-relay/src/handlers/event.rs`：现有通用事件发布路径可承载 Task State。
+- 无需修改 `crates/buzz-relay/src/handlers/count.rs`：现有 count 路径复用相同查询过滤。
 
 ### CLI 与 Agent
 
-- [ ] `crates/buzz-cli/src/lib.rs`：注册 `tasks` 子命令、参数和帮助文案。
-- [ ] `crates/buzz-cli/src/commands/tasks.rs`：实现 create/get/list/update/assign/archive 与稳定 JSON 输出。
-- [ ] `crates/buzz-cli/src/commands/channels.rs`：扩展 Agent Profile 策略发布能力，支持设置任务指派模式与 allowlist；实现时评估是否拆到 Agent 专用命令。
-- [ ] `crates/buzz-cli/src/commands/mod.rs`：导出并分发 tasks 命令模块。
-- [ ] `crates/buzz-cli/TESTING.md`：补充任务 CLI 的本地与 Agent 身份测试流程。
-- [ ] `crates/buzz-acp/src/base_prompt.md`：说明任务命令、幂等、权限和“指派不自动执行”语义；实现时先确认实际 prompt 文件位置。
+- [x] `crates/buzz-cli/src/lib.rs`：注册 `tasks` 子命令、参数和帮助文案。
+- [x] `crates/buzz-cli/src/commands/tasks.rs`：实现 create/get/list/update/assign/archive 与稳定 JSON 输出。
+- [x] `crates/buzz-cli/src/commands/mod.rs`：导出并分发 tasks 命令模块。
+- [x] `crates/buzz-cli/TESTING.md`：补充任务 CLI 测试流程。
+- [x] `crates/buzz-acp/src/base_prompt.md`：说明任务命令、幂等、权限和“指派不自动执行”。
+- 无需修改 `crates/buzz-cli/src/commands/channels.rs`：Agent 策略发布由 Desktop/Tauri 的 Agent 配置链路承载，任务 CLI 不承担 Agent 管理设置。
 
 ### Desktop
 
-- [ ] `desktop/src/shared/constants/kinds.ts`：同步 Task kinds。
-- [ ] `desktop/src/features/agents/channelAgents.ts`：为 Agent 配置增加任务指派权限模式和 allowlist 字段。
-- [ ] `desktop/src/features/agents/ui/AgentInstanceEditDialog.tsx`：在单个 Agent 的 Access & permissions 区域接入任务指派权限设置。
-- [ ] `desktop/src/features/agents/ui/TaskAssignmentAccessField.tsx`：实现 Only me、Allowlist、Anyone in this community 选择和名单编辑。
-- [ ] `desktop/src-tauri/src/managed_agents/types.rs`：为本地 Agent 记录增加兼容旧数据的任务指派策略字段。
-- [ ] `desktop/src-tauri/src/managed_agents/types/requests.rs`：为 Agent 更新请求增加任务指派策略 patch 字段。
-- [ ] `desktop/src-tauri/src/commands/agent_models.rs`：校验并保存设置，发布 Agent Profile，并仅在 Relay 策略生效后返回成功。
-- [ ] `desktop/src/features/tasks/types.ts`：定义任务、负责人、筛选、Command 和分页类型。
-- [ ] `desktop/src/features/tasks/lib/taskEvents.ts`：验证 Relay signer、解析 Task State，并构建 Create/Mutate Command tags。
-- [ ] `desktop/src/features/tasks/lib/taskBoard.ts`：实现负责人分组、排序、筛选和身份分类纯逻辑。
-- [ ] `desktop/src/features/tasks/hooks.ts`：实现分页查询、成员/Agent 合并、实时失效和 Command mutations。
-- [ ] `desktop/src/features/tasks/ui/TasksScreen.tsx`：承载 URL 状态、看板/列表切换和页面级状态。
-- [ ] `desktop/src/features/tasks/ui/TaskBoard.tsx`：渲染横向负责人列、空列和分页加载。
-- [ ] `desktop/src/features/tasks/ui/TaskColumn.tsx`：渲染单个负责人列及拖动接收状态。
-- [ ] `desktop/src/features/tasks/ui/TaskCard.tsx`：渲染任务摘要、身份、状态、优先级与截止时间。
-- [ ] `desktop/src/features/tasks/ui/TaskDetailPanel.tsx`：实现详情、编辑、冲突提示和活动历史。
-- [ ] `desktop/src/features/tasks/ui/CreateTaskDialog.tsx`：实现创建表单、负责人选择和失败保留输入。
-- [ ] `desktop/src/features/tasks/ui/TaskFilters.tsx`：实现搜索、筛选、显示空负责人和视图切换。
-- [ ] `desktop/src/features/tasks/ui/AssigneePicker.tsx`：统一展示人、Agent、未指派和不可选身份状态。
-- [ ] `desktop/src/app/routes/tasks.tsx`：注册 `/tasks` 页面路由。
-- [ ] `desktop/src/app/routes.ts`：加入 Tasks 文件路由配置。
-- [ ] `desktop/src/app/navigation/useAppNavigation.ts`：增加 Tasks 与任务深链导航。
-- [ ] `desktop/src/app/AppShell.helpers.ts`：识别 Tasks 页面壳层状态。
-- [ ] `desktop/src/app/AppShell.tsx`：把 Tasks 入口和导航回调接入全局壳层。
-- [ ] `desktop/src/features/sidebar/ui/AppSidebar.tsx`：增加 Tasks 一级入口。
-- [ ] `desktop/src/shared/api/relayQueryInvalidation.ts`：把任务查询加入 Relay/community 失效边界。
-- [ ] `desktop/src/features/communities/useCommunityInit.ts`：仅当 Tasks 新增 module-level community cache 时接入 reset。
+- [x] `desktop/src/shared/constants/kinds.ts`：同步 Task kinds。
+- [x] `desktop/src/features/agents/ui/AgentInstanceEditDialog.tsx`：接入独立任务指派权限设置。
+- [x] `desktop/src/features/agents/ui/TaskAssignmentAccessField.tsx`：实现三种模式和 allowlist 编辑。
+- [x] `desktop/src-tauri/src/managed_agents/types.rs`：增加兼容旧数据的策略字段。
+- [x] `desktop/src-tauri/src/managed_agents/types/requests.rs`：增加策略更新字段。
+- [x] `desktop/src-tauri/src/commands/agent_models.rs`：接入 Agent 设置保存流程；具体任务指派校验拆至 `agent_task_assignment.rs`。
+- [x] `desktop/src/features/tasks/types.ts`：定义任务与筛选类型。
+- [x] `desktop/src/features/tasks/lib/taskEvents.ts`：解析可信 Task State 并构建 Commands。
+- [x] `desktop/src/features/tasks/lib/taskBoard.ts`：实现负责人分组、排序和基础筛选。
+- [x] `desktop/src/features/tasks/hooks.ts`：实现查询、实时刷新和写操作。
+- [x] `desktop/src/features/tasks/ui/TasksScreen.tsx`：实现 Board/List、搜索、页面状态和负责人分列。
+- [x] `desktop/src/features/tasks/ui/TaskCard.tsx`：渲染任务摘要。
+- [x] `desktop/src/features/tasks/ui/TaskDetailPanel.tsx`：实现详情、编辑和归档；完整变更历史仍为后续项。
+- [x] `desktop/src/features/tasks/ui/CreateTaskDialog.tsx`：实现创建表单和负责人选择。
+- [x] `desktop/src/app/routes/tasks.tsx`：注册 `/tasks` 页面。
+- [x] `desktop/src/app/routes.ts`：加入 Tasks 路由配置。
+- [x] `desktop/src/app/navigation/useAppNavigation.ts`：增加 Tasks 导航。
+- [x] `desktop/src/app/AppShell.helpers.ts`：识别 Tasks 页面状态。
+- [x] `desktop/src/app/AppShell.tsx`：接入 Tasks 导航。
+- [x] `desktop/src/features/sidebar/ui/AppSidebar.tsx`：增加 Tasks 一级入口。
+- 无需新增 `TaskBoard.tsx`、`TaskColumn.tsx`、`TaskFilters.tsx`、`AssigneePicker.tsx`：首版实现合并在现有 Tasks 组件中，避免过早拆分小文件。
+- 无需修改 `channelAgents.ts`、`relayQueryInvalidation.ts`、`useCommunityInit.ts`：类型由现有 Agent/Tauri 模型承载，Tasks 未引入需要重置的 module-level community cache，实时刷新由 Tasks hooks 处理。
+- [ ] 看板拖拽转派与键盘等价操作。
+- [ ] 完整任务变更历史展示。
+- [ ] 标签、Project、Channel 等组合筛选。
 
 ### 测试与文档
 
-- [ ] `crates/buzz-core/tests/task_events.rs`：覆盖 Command/State tag、枚举、非法负责人、任务 ID 和 expected state 校验。
-- [ ] `crates/buzz-db/src/user.rs`：覆盖任务指派策略默认值、三种模式、allowlist 归一化、非法值和跨 community 身份。
-- [ ] `crates/buzz-test-client/tests/e2e_tasks.rs`：覆盖创建、编辑、转派、ACL、community/Channel 隔离和冲突。
-- [ ] `desktop/src/features/agents/ui/TaskAssignmentAccessField.test.mjs`：覆盖模式切换、名单编辑、重复项、空名单和错误提示。
-- [ ] `desktop/src-tauri/src/commands/agent_models_tests.rs`：覆盖旧 Agent 兼容、设置持久化、Relay 发布失败和重载后一致性。
-- [ ] `desktop/src/features/tasks/lib/taskBoard.test.mjs`：覆盖人/Agent/未指派分组与筛选排序。
+- [x] `crates/buzz-core/src/task.rs`：以内联单元测试覆盖 Command/State 解析与校验。
+- [x] `crates/buzz-db/src/user.rs`：覆盖任务指派策略默认值和读取写入。
+- [x] `crates/buzz-db/src/tasks.rs`：覆盖真实 PostgreSQL 原子回滚、CAS、权限及 Channel 隔离。
+- [x] `desktop/src/features/tasks/lib/taskAssignmentAccess.test.mjs`：覆盖 Agent 指派策略逻辑。
+- [x] `desktop/src-tauri/src/commands/agents_tests.rs` 及相关 managed-agent 测试：覆盖旧 Agent 兼容与设置持久化。
+- [x] `desktop/src/features/tasks/lib/taskBoard.test.mjs`：覆盖负责人分组与基础筛选排序。
+- [x] `desktop/src/features/tasks/lib/taskEvents.test.mjs`：覆盖 Task State 解析和事件构建。
+- 无需新增 `crates/buzz-test-client/tests/e2e_tasks.rs`：Relay/数据库关键链路已由原子事务与权限集成测试覆盖；独立跨进程 E2E 可作为后续增强。
 - [ ] `desktop/tests/e2e/tasks.spec.ts`：覆盖创建、编辑、拖动转派、键盘转派、失败回滚和深链。
 - [ ] `desktop/playwright.config.ts`：把 Tasks E2E 纳入 smoke 项目。
 - [ ] `desktop/src/testing/e2eBridge.ts`：增加成员、Agent、任务事件、冲突和拒绝场景 fixtures。
-- [ ] `wiki/concepts.md`：补充 Task 与 Project Issue 的边界。
-- [ ] `wiki/modules.md`：登记 Tasks 的 Relay、CLI 与 Desktop 模块入口。
-- [ ] `docs/2026-08-03-agent-operable-task-board-plan.md`：实现中持续更新确认项、Todo 状态和验收结果。
+- [x] `wiki/concepts.md`：补充 Task 与 Project Issue 的边界。
+- [x] `wiki/modules.md`：登记 Tasks 的 Relay、CLI 与 Desktop 模块入口。
+- [x] `docs/2026-08-03-agent-operable-task-board-plan.md`：同步实施状态和验收结果。
 
 ## 10. 测试与验收重点
 
@@ -661,7 +661,7 @@ buzz tasks archive --id <task-id> --expected-event <event-id>
 
 首版可用闭环已经完成：Task 三类 event、Relay 签名当前状态、原子写入与并发冲突、实时发布、私密 Channel 和 Agent 指派权限校验、`buzz tasks` 命令、Desktop Tasks 页面，以及 Agent 编辑页中的独立指派权限设置均已落地。
 
-已完成的核心验证包括 Rust workspace 格式与 Clippy、Task Core/SDK/CLI 单元测试、真实 PostgreSQL 原子回滚和 CAS 测试、Desktop TypeScript/文件大小/文本缩放检查、Tasks 逻辑测试、Tauri 编译检查和 Desktop production/E2E build。
+已完成的核心验证包括 Rust workspace 格式与 Clippy、Task Core/SDK/CLI 单元测试、真实 PostgreSQL 原子回滚和 CAS 测试、Desktop TypeScript/文件大小/文本缩放检查、Tasks 逻辑测试、Tauri 编译检查和 Desktop production/E2E build。设置本机测试绕过 loopback 代理后，Desktop Tauri 全套测试通过：`1881 passed; 0 failed; 14 ignored`；此前的 HTTP 502 来自系统代理转发 `127.0.0.1` 测试地址，并非 Task 功能失败。
 
 以下体验增强没有阻断首版基本读写闭环，保留为后续工作：看板拖拽转派、完整任务变更历史、标签/Project/Channel 组合筛选，以及专门的 Tasks Playwright E2E 截图验收。
 
@@ -677,4 +677,4 @@ buzz tasks archive --id <task-id> --expected-event <event-id>
 - `crates/buzz-db/src/event.rs`、现有 FTS 与 Calendar migrations、`crates/buzz-cli/TESTING.md`；
 - Desktop Projects、Agent、Calendar、路由、导航、sidebar 与 query invalidation 相关代码。
 
-功能范围已经确认。按照仓库规则，仍需鹿鹿子大王确认这版技术方案后，才能进入代码实现。
+功能范围与首版实现已经确认并提交。第 9 节未勾选项以及第 11.1 节列出的内容为后续体验增强，不属于当前已经完成的基础读写闭环。
