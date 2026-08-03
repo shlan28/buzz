@@ -16,6 +16,10 @@ import type {
   TaskPriority,
   TaskStatus,
 } from "../types";
+import {
+  dueTimestampToLocalDate,
+  localDateToDueTimestamp,
+} from "../lib/taskDates";
 
 export function CreateTaskDialog({
   assignees,
@@ -116,9 +120,12 @@ export function CreateTaskDialog({
               <Input
                 id="create-task-due-date"
                 type="date"
-                value={draft.dueDate ?? ""}
+                value={dueTimestampToLocalDate(draft.dueDate)}
                 onChange={(event) =>
-                  setDraft({ ...draft, dueDate: event.target.value || null })
+                  setDraft({
+                    ...draft,
+                    dueDate: localDateToDueTimestamp(event.target.value),
+                  })
                 }
               />
             </label>

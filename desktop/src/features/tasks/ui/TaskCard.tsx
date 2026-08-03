@@ -1,6 +1,10 @@
 import { CalendarDays, CircleAlert } from "lucide-react";
 import { cn } from "@/shared/lib/cn";
 import type { Task, TaskAssignee } from "../types";
+import {
+  dueTimestampToLocalDate,
+  isDueTimestampOverdue,
+} from "../lib/taskDates";
 
 const STATUS_LABELS = {
   backlog: "Backlog",
@@ -21,11 +25,7 @@ export function TaskCard({
   onOpen: () => void;
   onReassign?: (assignee: string | null) => void;
 }) {
-  const overdue = Boolean(
-    task.dueDate &&
-      task.status !== "done" &&
-      task.dueDate < new Date().toISOString().slice(0, 10),
-  );
+  const overdue = task.status !== "done" && isDueTimestampOverdue(task.dueDate);
   return (
     <article
       className="w-full rounded-xl border border-border bg-card p-3 text-left shadow-xs transition-colors hover:border-primary/30 hover:bg-muted/30 focus-within:ring-2 focus-within:ring-ring"
@@ -52,7 +52,7 @@ export function TaskCard({
             {task.priority}
           </span>
         ) : null}
-        {task.dueDate ? (
+        {task.dueDate !== null ? (
           <span
             className={cn(
               "inline-flex items-center gap-1",
@@ -64,7 +64,7 @@ export function TaskCard({
             ) : (
               <CalendarDays className="h-3 w-3" />
             )}
-            {task.dueDate}
+            {dueTimestampToLocalDate(task.dueDate)}
           </span>
         ) : null}
       </span>

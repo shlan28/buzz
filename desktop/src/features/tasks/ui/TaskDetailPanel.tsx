@@ -12,6 +12,10 @@ import type {
   TaskStatus,
 } from "../types";
 import { TaskHistory } from "./TaskHistory";
+import {
+  dueTimestampToLocalDate,
+  localDateToDueTimestamp,
+} from "../lib/taskDates";
 
 export function TaskDetailPanel({
   task,
@@ -30,10 +34,14 @@ export function TaskDetailPanel({
 }) {
   const [title, setTitle] = React.useState(task.title);
   const [description, setDescription] = React.useState(task.description);
+  const [dueDate, setDueDate] = React.useState(() =>
+    dueTimestampToLocalDate(task.dueDate),
+  );
   React.useEffect(() => {
     setTitle(task.title);
     setDescription(task.description);
-  }, [task.description, task.title]);
+    setDueDate(dueTimestampToLocalDate(task.dueDate));
+  }, [task.description, task.dueDate, task.title]);
   const textChanged =
     title.trim() !== task.title || description !== task.description;
   return (
@@ -125,6 +133,48 @@ export function TaskDetailPanel({
             { value: "urgent", label: "Urgent" },
           ]}
         />
+        <label
+          className="block space-y-1.5 text-sm font-medium"
+          htmlFor="task-detail-due-date"
+        >
+          Due date
+          <Input
+            disabled={pending}
+            id="task-detail-due-date"
+            type="date"
+            value={dueDate}
+            onChange={(event) => setDueDate(event.target.value)}
+          />
+        </label>
+        <div className="flex gap-2">
+          <Button
+            disabled={
+              pending ||
+              dueDate === dueTimestampToLocalDate(task.dueDate) ||
+              (dueDate.length > 0 && localDateToDueTimestamp(dueDate) === null)
+            }
+            onClick={() =>
+              onUpdate({ dueDate: localDateToDueTimestamp(dueDate) })
+            }
+            size="sm"
+            variant="outline"
+          >
+            Save due date
+          </Button>
+          {task.dueDate !== null ? (
+            <Button
+              disabled={pending}
+              onClick={() => {
+                setDueDate("");
+                onUpdate({ dueDate: null });
+              }}
+              size="sm"
+              variant="ghost"
+            >
+              Clear
+            </Button>
+          ) : null}
+        </div>
         <div className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
           <p>Created by {shortPubkey(task.creator)}</p>
           <p className="mt-1">Last edited by {shortPubkey(task.lastEditor)}</p>

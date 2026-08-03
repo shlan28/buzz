@@ -107,7 +107,7 @@ export function parseTaskState(
     assignee,
     status,
     priority,
-    dueDate: firstTag(event, "due") ?? null,
+    dueDate: parseDueTimestamp(firstTag(event, "due")),
     labels: event.tags
       .filter((tag) => tag[0] === "t" && tag[1]?.startsWith("label:"))
       .map((tag) => tag[1].slice(6)),
@@ -149,7 +149,7 @@ export function buildMutateTaskEvent(task: Task, patch: TaskPatch) {
   if (patch.priority !== undefined)
     tags.push(["t", `task-priority:${patch.priority}`]);
   if (patch.dueDate !== undefined) {
-    if (patch.dueDate) tags.push(["due", patch.dueDate]);
+    if (patch.dueDate !== null) tags.push(["due", String(patch.dueDate)]);
     else tags.push(["clear", "due"]);
   }
   if (patch.description !== undefined)
@@ -171,6 +171,12 @@ function taskFieldTags(draft: TaskDraft): string[][] {
     ["t", `task-priority:${draft.priority}`],
   ];
   if (draft.assignee) tags.push(["p", draft.assignee]);
-  if (draft.dueDate) tags.push(["due", draft.dueDate]);
+  if (draft.dueDate !== null) tags.push(["due", String(draft.dueDate)]);
   return tags;
+}
+
+function parseDueTimestamp(value: string | undefined): number | null {
+  if (!value || !/^\d+$/.test(value)) return null;
+  const timestamp = Number(value);
+  return Number.isSafeInteger(timestamp) ? timestamp : null;
 }

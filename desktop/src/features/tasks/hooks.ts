@@ -10,7 +10,6 @@ import { useIdentityQuery } from "@/shared/api/hooks";
 import { useUsersBatchQuery } from "@/features/profile/hooks";
 import { relayClient } from "@/shared/api/relayClient";
 import { signRelayEvent } from "@/shared/api/tauri";
-import { truncatePubkey } from "@/shared/lib/pubkey";
 import type { RelayEvent } from "@/shared/api/types";
 import {
   KIND_TASK_CREATE,
@@ -23,7 +22,7 @@ import {
   parseTaskState,
   parseTaskHistoryEvent,
 } from "./lib/taskEvents";
-import { resolveTaskAssignmentAccess } from "./lib/taskAssignmentAccess";
+import { buildTaskAssignees } from "./lib/taskAssignees";
 import type {
   Task,
   TaskAssignee,
@@ -114,94 +113,21 @@ export function useTasks() {
     };
   }, [queryClient]);
 
-  const agentByPubkey = React.useMemo(() => {
-    const map = new Map<string, string>();
-    for (const agent of [
-      ...(managedAgents.data ?? []),
-      ...(relayAgents.data ?? []),
-    ]) {
-      map.set(agent.pubkey.toLowerCase(), agent.name);
-    }
-    return map;
-  }, [managedAgents.data, relayAgents.data]);
-  const localByPubkey = React.useMemo(
-    () =>
-      new Map(
-        (managedAgents.data ?? []).map((agent) => [
-          agent.pubkey.toLowerCase(),
-          agent,
-        ]),
-      ),
-    [managedAgents.data],
-  );
-  const relayByPubkey = React.useMemo(
-    () =>
-      new Map(
-        (relayAgents.data ?? []).map((agent) => [
-          agent.pubkey.toLowerCase(),
-          agent,
-        ]),
-      ),
-    [relayAgents.data],
-  );
-  const accessFor = React.useCallback(
-    (pubkey: string) => {
-      const local = localByPubkey.get(pubkey);
-      const relay = relayByPubkey.get(pubkey);
-      return resolveTaskAssignmentAccess({
-        viewerPubkey: identity.data?.pubkey,
-        ownerPubkey: profiles.data?.profiles[pubkey]?.ownerPubkey,
-        policy:
-          local?.taskAssignmentPolicy ?? relay?.taskAssignmentPolicy ?? null,
-        allowlist:
-          local?.taskAssignmentAllowlist ??
-          relay?.taskAssignmentAllowlist ??
-          [],
-        locallyManaged: Boolean(local),
-      });
-    },
-    [
-      identity.data?.pubkey,
-      localByPubkey,
-      profiles.data?.profiles,
-      relayByPubkey,
-    ],
-  );
   const assignees = React.useMemo<TaskAssignee[]>(() => {
-    const result: TaskAssignee[] = [
-      { pubkey: null, label: "Unassigned", kind: "unassigned" },
-    ];
-    const seen = new Set<string>();
-    for (const member of members.data ?? []) {
-      const normalized = member.pubkey.toLowerCase();
-      seen.add(normalized);
-      const isAgent = agentByPubkey.has(normalized);
-      const access = isAgent ? accessFor(normalized) : { allowed: true };
-      result.push({
-        pubkey: member.pubkey,
-        label:
-          profiles.data?.profiles[normalized]?.displayName ??
-          agentByPubkey.get(normalized) ??
-          truncatePubkey(member.pubkey),
-        kind: isAgent ? "agent" : "person",
-        canAssign: access.allowed,
-        unavailableReason: access.reason,
-      });
-    }
-    for (const [pubkey, label] of agentByPubkey) {
-      if (!seen.has(pubkey)) {
-        const access = accessFor(pubkey);
-        result.push({
-          pubkey,
-          label,
-          kind: "agent",
-          canAssign: access.allowed,
-          unavailableReason: access.reason,
-        });
-      }
-    }
-    return result;
-  }, [accessFor, agentByPubkey, members.data, profiles.data?.profiles]);
+    return buildTaskAssignees({
+      members: members.data ?? [],
+      profiles: profiles.data?.profiles ?? {},
+      managedAgents: managedAgents.data ?? [],
+      relayAgents: relayAgents.data ?? [],
+      viewerPubkey: identity.data?.pubkey,
+    });
+  }, [
+    identity.data?.pubkey,
+    managedAgents.data,
+    members.data,
+    profiles.data?.profiles,
+    relayAgents.data,
+  ]);
 
   const create = useMutation({
     mutationFn: (draft: TaskDraft) =>

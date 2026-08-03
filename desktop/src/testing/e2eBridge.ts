@@ -5237,6 +5237,7 @@ function deriveMockTaskState(command: RelayEvent): RelayEvent | null {
       }
     };
     replaceNamed("title");
+    replaceNamed("due");
     if (command.tags.some((tag) => tag[0] === "p") || clears.has("assignee")) {
       tags = tags.filter((tag) => tag[0] !== "p");
       tags.push(

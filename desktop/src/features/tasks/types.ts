@@ -15,7 +15,7 @@ export type Task = {
   assignee: string | null;
   status: TaskStatus;
   priority: TaskPriority;
-  dueDate: string | null;
+  dueDate: number | null;
   labels: string[];
   project: string | null;
   channelId: string | null;

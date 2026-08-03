@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildCreateTaskEvent,
   buildMutateTaskEvent,
   parseTaskHistoryEvent,
   parseTaskState,
@@ -19,6 +20,7 @@ const event = {
     ["title", "Title"],
     ["t", "task-status:todo"],
     ["t", "task-priority:none"],
+    ["due", "1785868799"],
   ],
 };
 
@@ -26,6 +28,48 @@ test("rejects task state not signed by the Relay", () => {
   assert.equal(
     parseTaskState({ ...event, pubkey: "d".repeat(64) }, relay),
     null,
+  );
+});
+
+test("parses Relay due tags as Unix seconds", () => {
+  assert.equal(parseTaskState(event, relay)?.dueDate, 1785868799);
+  assert.equal(
+    parseTaskState(
+      { ...event, tags: [...event.tags.slice(0, -1), ["due", "invalid"]] },
+      relay,
+    )?.dueDate,
+    null,
+  );
+});
+
+test("create writes a Unix-second due tag", () => {
+  const command = buildCreateTaskEvent({
+    id: "task-id",
+    title: "Title",
+    description: "",
+    assignee: null,
+    status: "todo",
+    priority: "none",
+    dueDate: 1785868799,
+  });
+  assert.deepEqual(
+    command.tags.find((tag) => tag[0] === "due"),
+    ["due", "1785868799"],
+  );
+});
+
+test("mutation can modify and clear the due timestamp", () => {
+  const task = parseTaskState(event, relay);
+  assert.ok(task);
+  const changed = buildMutateTaskEvent(task, { dueDate: 1785955199 });
+  assert.deepEqual(
+    changed.tags.find((tag) => tag[0] === "due"),
+    ["due", "1785955199"],
+  );
+  const cleared = buildMutateTaskEvent(task, { dueDate: null });
+  assert.deepEqual(
+    cleared.tags.find((tag) => tag[0] === "clear"),
+    ["clear", "due"],
   );
 });
 

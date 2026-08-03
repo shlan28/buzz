@@ -16,6 +16,7 @@ function taskState(input: {
   assignee?: string | null;
   status?: "todo" | "in-progress" | "blocked" | "done";
   priority?: "none" | "high" | "urgent";
+  due?: number;
   createdAt?: number;
 }): RelayEvent {
   const createdAt = input.createdAt ?? 1_785_547_800;
@@ -34,6 +35,7 @@ function taskState(input: {
       ["last_editor", TYLER],
       ["source_event", "ab".repeat(32)],
       ["created_at", String(createdAt)],
+      ...(input.due ? [["due", String(input.due)]] : []),
     ],
     content: input.description ?? "",
     sig: "mocksig".repeat(20).slice(0, 128),
@@ -80,6 +82,7 @@ test("creates a task and shows its Relay-confirmed state", async ({ page }) => {
     .getByLabel("Description")
     .fill("Confirm owner-only assignment behavior.");
   await dialog.getByLabel("Priority").selectOption("urgent");
+  await dialog.getByLabel("Due date").fill("2026-08-20");
   await dialog.getByRole("button", { name: "Create task" }).click();
 
   await expect(dialog).toHaveCount(0);
@@ -87,6 +90,12 @@ test("creates a task and shows its Relay-confirmed state", async ({ page }) => {
     page.getByText("Review Agent task permissions", { exact: true }),
   ).toBeVisible();
   await expect(page.getByText("urgent", { exact: true })).toBeVisible();
+  await page
+    .getByRole("button", { name: "Review Agent task permissions" })
+    .click();
+  await expect(
+    page.getByTestId("task-detail-panel").getByLabel("Due date"),
+  ).toHaveValue("2026-08-20");
 });
 
 test("keyboard opens a task, edits text, and transfers its owner", async ({
@@ -115,6 +124,13 @@ test("keyboard opens a task, edits text, and transfers its owner", async ({
 
   await panel.getByLabel("Assignee").selectOption(BOB);
   await expect(panel.getByLabel("Assignee")).toHaveValue(BOB);
+
+  await panel.getByLabel("Due date").fill("2026-08-31");
+  await panel.getByRole("button", { name: "Save due date" }).click();
+  await expect(panel.getByLabel("Due date")).toHaveValue("2026-08-31");
+  await panel.getByRole("button", { name: "Clear" }).click();
+  await expect(panel.getByLabel("Due date")).toHaveValue("");
+
   await panel.getByRole("button", { name: "Close task details" }).click();
   await expect(
     page.getByText("Audit onboarding and recovery", { exact: true }),
@@ -122,6 +138,21 @@ test("keyboard opens a task, edits text, and transfers its owner", async ({
   await expect(
     page.getByRole("heading", { name: "bob", exact: true }),
   ).toBeVisible();
+});
+
+test("assignee options exclude Agent profiles outside current members", async ({
+  page,
+}) => {
+  await installTasks(page);
+  await page.goto(`/#/tasks?task=${FIRST_TASK}`);
+
+  const assignee = page.getByTestId("task-detail-panel").getByLabel("Assignee");
+  await expect(assignee.locator("option")).toContainText([
+    "Unassigned",
+    "alice · Agent",
+    "bob",
+  ]);
+  await expect(assignee.locator("option")).not.toContainText(["charlie"]);
 });
 
 test("dragging a card to another owner transfers the task", async ({
