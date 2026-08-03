@@ -16,6 +16,7 @@ import {
   dueTimestampToLocalDate,
   localDateToDueTimestamp,
 } from "../lib/taskDates";
+import { taskAssigneeFromSelectValue } from "../lib/taskAssigneeSelection";
 
 export function TaskDetailPanel({
   task,
@@ -100,7 +101,9 @@ export function TaskDetailPanel({
           label="Assignee"
           pending={pending}
           value={task.assignee ?? ""}
-          onChange={(value) => onUpdate({ assignee: value || null })}
+          onChange={(value) =>
+            onUpdate({ assignee: taskAssigneeFromSelectValue(value) })
+          }
           options={assignees.map((assignee) => ({
             value: assignee.pubkey ?? "",
             label: `${assignee.label}${assignee.kind === "agent" ? " · Agent" : ""}${assignee.canAssign === false ? ` — ${assignee.unavailableReason ?? "Unavailable"}` : ""}`,

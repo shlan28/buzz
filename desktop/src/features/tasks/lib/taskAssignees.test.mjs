@@ -84,3 +84,28 @@ test("keeps human members and applies Relay Agent assignment policy", () => {
   assert.equal(assignees[2].canAssign, false);
   assert.match(assignees[2].unavailableReason, /owner/);
 });
+
+test("keeps the current user assignable when stale Agent data shares their pubkey", () => {
+  const assignees = buildTaskAssignees({
+    members: [member("viewer")],
+    profiles: {
+      viewer: {
+        displayName: "lu",
+        avatarUrl: null,
+        nip05Handle: null,
+        ownerPubkey: null,
+      },
+    },
+    managedAgents: [],
+    relayAgents: [agent("viewer", "Stale agent identity")],
+    viewerPubkey: "VIEWER",
+  });
+
+  assert.deepEqual(assignees[1], {
+    pubkey: "viewer",
+    label: "lu",
+    kind: "person",
+    canAssign: true,
+    unavailableReason: undefined,
+  });
+});

@@ -5,6 +5,7 @@ import { installMockBridge, TEST_IDENTITIES } from "../helpers/bridge";
 const RELAY_SELF = "12".repeat(32);
 const BOB = TEST_IDENTITIES.bob.pubkey;
 const TYLER = TEST_IDENTITIES.tyler.pubkey;
+const MOCK_VIEWER = "deadbeef".repeat(8);
 const FIRST_TASK = "10eef02c-9be8-4055-a747-e348d5a405ad";
 const DONE_TASK = "f88ae55f-2fbb-45f4-a593-d9ab88e7cbe3";
 
@@ -48,6 +49,13 @@ async function installTasks(
 ) {
   await installMockBridge(page, {
     relaySelf: RELAY_SELF,
+    relayAgents: [
+      {
+        pubkey: MOCK_VIEWER,
+        name: "Stale viewer agent",
+        respondTo: "owner-only",
+      },
+    ],
     taskEvents: [
       taskState({
         id: FIRST_TASK,
@@ -56,6 +64,7 @@ async function installTasks(
         description: "Check the first-run experience.",
         assignee: null,
         priority: "high",
+        due: 1_787_241_599,
       }),
       taskState({
         id: DONE_TASK,
@@ -138,6 +147,42 @@ test("keyboard opens a task, edits text, and transfers its owner", async ({
   await expect(
     page.getByRole("heading", { name: "bob", exact: true }),
   ).toBeVisible();
+});
+
+test("assigning a task to the current user survives Relay confirmation", async ({
+  page,
+}) => {
+  await installTasks(page);
+  await page.goto(`/#/tasks?task=${FIRST_TASK}`);
+
+  const assignee = page.getByTestId("task-detail-panel").getByLabel("Assignee");
+  await assignee.selectOption(MOCK_VIEWER);
+  await expect(assignee).toHaveValue(MOCK_VIEWER);
+
+  const mutation = await page.evaluate(() =>
+    window.__BUZZ_E2E_SIGNED_EVENTS__?.findLast(
+      (event) => event.kind === 42_501,
+    ),
+  );
+  expect(mutation?.tags).toContainEqual(["p", MOCK_VIEWER]);
+  expect(mutation?.tags).not.toContainEqual(["clear", "assignee"]);
+});
+
+test("board cards and list rows show task planning details", async ({
+  page,
+}) => {
+  await installTasks(page);
+  await page.goto("/#/tasks");
+
+  const card = page.getByTestId(`task-card-${FIRST_TASK}`);
+  await expect(card).toContainText("Check the first-run experience.");
+  await expect(card).toContainText("2026-08-20");
+
+  await page.getByRole("button", { name: "List view" }).click();
+  const row = page.getByTestId(`task-list-row-${FIRST_TASK}`);
+  await expect(row).toContainText("Unassigned");
+  await expect(row).toContainText("2026-08-20");
+  await expect(row).toContainText("high");
 });
 
 test("assignee options exclude Agent profiles outside current members", async ({

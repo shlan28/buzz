@@ -10,6 +10,7 @@ import { CreateTaskDialog } from "./CreateTaskDialog";
 import { TaskDetailPanel } from "./TaskDetailPanel";
 import { TaskBoardView } from "./TaskBoardView";
 import { TaskFilterSelect } from "./TaskFilterSelect";
+import { TaskListView } from "./TaskListView";
 
 export function TasksScreen() {
   const location = useLocation();
@@ -209,25 +210,11 @@ export function TasksScreen() {
       !tasks.isError &&
       visible.length > 0 &&
       view === "list" ? (
-        <div className="min-h-0 flex-1 overflow-y-auto p-5">
-          <div className="mx-auto max-w-4xl divide-y divide-border rounded-xl border border-border">
-            {visible.map((task) => (
-              <button
-                className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-muted/40"
-                key={task.id}
-                onClick={() => openTask(task.id)}
-                type="button"
-              >
-                <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                  {task.title}
-                </span>
-                <span className="text-xs capitalize text-muted-foreground">
-                  {task.status.replace("-", " ")}
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
+        <TaskListView
+          assignees={tasks.assignees}
+          tasks={visible}
+          onOpen={openTask}
+        />
       ) : null}
       <CreateTaskDialog
         assignees={tasks.assignees}

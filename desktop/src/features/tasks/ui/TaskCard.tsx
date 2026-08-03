@@ -5,6 +5,7 @@ import {
   dueTimestampToLocalDate,
   isDueTimestampOverdue,
 } from "../lib/taskDates";
+import { taskAssigneeFromSelectValue } from "../lib/taskAssigneeSelection";
 
 const STATUS_LABELS = {
   backlog: "Backlog",
@@ -38,6 +39,16 @@ export function TaskCard({
       >
         {task.title}
       </button>
+      <p
+        className={cn(
+          "mt-1 line-clamp-2 min-h-10 text-xs leading-5",
+          task.description
+            ? "text-muted-foreground"
+            : "text-muted-foreground/60",
+        )}
+      >
+        {task.description || "No description"}
+      </p>
       <span className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
         <span className="rounded-full bg-muted px-2 py-0.5">
           {STATUS_LABELS[task.status]}
@@ -75,7 +86,9 @@ export function TaskCard({
             aria-label={`Move ${task.title} to`}
             className="h-7 w-full rounded-md border border-input bg-background px-2 text-xs"
             value={task.assignee ?? ""}
-            onChange={(event) => onReassign(event.target.value || null)}
+            onChange={(event) =>
+              onReassign(taskAssigneeFromSelectValue(event.target.value))
+            }
           >
             {assignees.map((assignee) => (
               <option

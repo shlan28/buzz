@@ -20,6 +20,7 @@ import {
   dueTimestampToLocalDate,
   localDateToDueTimestamp,
 } from "../lib/taskDates";
+import { taskAssigneeFromSelectValue } from "../lib/taskAssigneeSelection";
 
 export function CreateTaskDialog({
   assignees,
@@ -88,7 +89,10 @@ export function CreateTaskDialog({
               label="Assignee"
               value={draft.assignee ?? ""}
               onChange={(value) =>
-                setDraft({ ...draft, assignee: value || null })
+                setDraft({
+                  ...draft,
+                  assignee: taskAssigneeFromSelectValue(value),
+                })
               }
               options={assignees.map((a) => ({
                 value: a.pubkey ?? "",

@@ -44,7 +44,8 @@ export function buildTaskAssignees(input: {
     const managed = managedByPubkey.get(pubkey);
     const relay = relayByPubkey.get(pubkey);
     const profile = input.profiles[pubkey];
-    const isAgent = Boolean(managed ?? relay);
+    const isViewer = pubkey === input.viewerPubkey?.toLowerCase();
+    const isAgent = !isViewer && Boolean(managed ?? relay);
     const access = isAgent
       ? resolveTaskAssignmentAccess({
           viewerPubkey: input.viewerPubkey,
