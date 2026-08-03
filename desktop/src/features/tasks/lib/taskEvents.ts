@@ -7,6 +7,7 @@ import {
 import type {
   Task,
   TaskDraft,
+  TaskHistoryEntry,
   TaskPatch,
   TaskPriority,
   TaskStatus,
@@ -29,6 +30,44 @@ const PRIORITIES = new Set<TaskPriority>([
 
 function firstTag(event: RelayEvent, name: string) {
   return event.tags.find((tag) => tag[0] === name)?.[1];
+}
+
+export function parseTaskHistoryEvent(
+  event: RelayEvent,
+  taskId: string,
+): TaskHistoryEntry | null {
+  if (event.kind !== KIND_TASK_CREATE && event.kind !== KIND_TASK_MUTATE)
+    return null;
+  if (semanticTag(event, "task-id:") !== taskId) return null;
+  const changes: string[] = [];
+  const add = (name: string, value?: string) => {
+    if (value) changes.push(`${name}: ${value}`);
+  };
+  add("Title", firstTag(event, "title"));
+  add("Assignee", firstTag(event, "p"));
+  add("Status", semanticTag(event, "task-status:"));
+  add("Priority", semanticTag(event, "task-priority:"));
+  add("Due", firstTag(event, "due"));
+  add("Project", event.tags.find((tag) => tag[0] === "a")?.[1]);
+  add("Channel", firstTag(event, "h"));
+  for (const label of event.tags
+    .filter((tag) => tag[0] === "t" && tag[1]?.startsWith("label:"))
+    .map((tag) => tag[1].slice(6)))
+    add("Label", label);
+  for (const clear of event.tags.filter((tag) => tag[0] === "clear"))
+    add("Cleared", clear[1]);
+  if (event.tags.some((tag) => tag[0] === "set" && tag[1] === "description"))
+    changes.push("Description updated");
+  if (event.kind === KIND_TASK_CREATE && event.content)
+    changes.push("Description added");
+  if (firstTag(event, "archived") === "true") changes.push("Archived");
+  return {
+    id: event.id,
+    actor: event.pubkey,
+    createdAt: event.created_at,
+    action: event.kind === KIND_TASK_CREATE ? "created" : "updated",
+    changes: changes.length > 0 ? changes : ["Task updated"],
+  };
 }
 
 function semanticTag(event: RelayEvent, prefix: string) {

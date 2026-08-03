@@ -47,6 +47,9 @@ import {
   KIND_REPO_STATE,
   KIND_STREAM_MESSAGE_EDIT,
   KIND_SYSTEM_MESSAGE,
+  KIND_TASK_CREATE,
+  KIND_TASK_MUTATE,
+  KIND_TASK_STATE,
   KIND_TEXT_NOTE,
   KIND_USER_STATUS,
 } from "@/shared/constants/kinds";
@@ -248,6 +251,10 @@ type E2eConfig = {
     calendarDeleteErrors?: string[];
     /** Additional calendar events returned by the mock relay. */
     calendarEvents?: RelayEvent[];
+    /** Relay-signed current Task State events returned by mock REQs. */
+    taskEvents?: RelayEvent[];
+    /** Sequenced Task Command failures; null accepts that publish. */
+    taskPublishErrors?: (string | null)[];
     agentListDelayMs?: number;
     agentMemory?: RawAgentMemoryListing | Record<string, RawAgentMemoryListing>;
     addChannelMembersDelayMs?: number;
@@ -2823,6 +2830,7 @@ const mockMessages = new Map<string, RelayEvent[]>();
 const mockUserStatuses: RelayEvent[] = [];
 const mockReminderEvents: RelayEvent[] = [];
 const mockPersonaEvents: RelayEvent[] = [];
+const mockTaskEvents: RelayEvent[] = [];
 let mockRelayMembers: RawRelayMember[] = [];
 const mockSockets = new Map<number, MockSocket>();
 let mockWebsocketSendMutexWedged = false;
@@ -2859,6 +2867,16 @@ function resetMockPersonaCatalogEvents(config: E2eConfig | undefined) {
   mockPersonaEvents.length = 0;
   for (const event of config?.mock?.personaCatalogEvents ?? []) {
     mockPersonaEvents.push({
+      ...event,
+      tags: event.tags.map((tag) => [...tag]),
+    });
+  }
+}
+
+function resetMockTaskEvents(config: E2eConfig | undefined) {
+  mockTaskEvents.length = 0;
+  for (const event of config?.mock?.taskEvents ?? []) {
+    mockTaskEvents.push({
       ...event,
       tags: event.tags.map((tag) => [...tag]),
     });
@@ -5157,6 +5175,120 @@ function filterMockProjectEvents(filter: MockFilter): RelayEvent[] {
     })
     .sort((left, right) => right.created_at - left.created_at)
     .slice(0, filter.limit ?? 500);
+}
+
+function filterMockTaskEvents(filter: MockFilter): RelayEvent[] {
+  const authors = filter.authors?.map((author) => author.toLowerCase());
+  return mockTaskEvents
+    .filter((event) => {
+      if (filter.kinds && !filter.kinds.includes(event.kind)) return false;
+      if (authors && !authors.includes(event.pubkey.toLowerCase()))
+        return false;
+      if (
+        filter["#d"] &&
+        !event.tags.some(
+          (tag) => tag[0] === "d" && filter["#d"]?.includes(tag[1]),
+        )
+      )
+        return false;
+      return true;
+    })
+    .sort((left, right) => right.created_at - left.created_at)
+    .slice(0, filter.limit ?? 500);
+}
+
+function taskTag(event: RelayEvent, name: string) {
+  return event.tags.find((tag) => tag[0] === name)?.[1];
+}
+
+function taskSemanticTag(event: RelayEvent, prefix: string) {
+  return event.tags.find(
+    (tag) => tag[0] === "t" && tag[1]?.startsWith(prefix),
+  )?.[1];
+}
+
+function deriveMockTaskState(command: RelayEvent): RelayEvent | null {
+  const taskId = taskSemanticTag(command, "task-id:")?.slice("task-id:".length);
+  if (!taskId) return null;
+  const currentIndex = mockTaskEvents.findIndex(
+    (event) => taskTag(event, "d") === taskId,
+  );
+  const current = mockTaskEvents[currentIndex];
+  const isCreate = command.kind === KIND_TASK_CREATE;
+  if ((isCreate && current) || (!isCreate && !current)) return null;
+
+  let tags = current?.tags.map((tag) => [...tag]) ?? [];
+  let content = current?.content ?? command.content;
+  if (isCreate) {
+    tags = command.tags.map((tag) => [...tag]);
+    tags.push(["creator", command.pubkey]);
+    tags.push(["created_at", String(command.created_at)]);
+  } else {
+    const previous = taskTag(command, "previous");
+    if (!previous || previous !== current?.id) return null;
+    const clears = new Set(
+      command.tags.filter((tag) => tag[0] === "clear").map((tag) => tag[1]),
+    );
+    const replaceNamed = (stateName: string, commandName = stateName) => {
+      const incoming = command.tags.filter((tag) => tag[0] === commandName);
+      if (incoming.length > 0 || clears.has(stateName)) {
+        tags = tags.filter((tag) => tag[0] !== commandName);
+        tags.push(...incoming.map((tag) => [...tag]));
+      }
+    };
+    replaceNamed("title");
+    if (command.tags.some((tag) => tag[0] === "p") || clears.has("assignee")) {
+      tags = tags.filter((tag) => tag[0] !== "p");
+      tags.push(
+        ...command.tags.filter((tag) => tag[0] === "p").map((tag) => [...tag]),
+      );
+    }
+    for (const prefix of ["task-status:", "task-priority:"]) {
+      const incoming = command.tags.find(
+        (tag) => tag[0] === "t" && tag[1]?.startsWith(prefix),
+      );
+      if (incoming) {
+        tags = tags.filter(
+          (tag) => !(tag[0] === "t" && tag[1]?.startsWith(prefix)),
+        );
+        tags.push([...incoming]);
+      }
+    }
+    if (
+      command.tags.some((tag) => tag[0] === "set" && tag[1] === "description")
+    )
+      content = command.content;
+    if (clears.has("description")) content = "";
+    replaceNamed("archived");
+  }
+  tags = tags.filter(
+    (tag) =>
+      ![
+        "d",
+        "previous",
+        "action",
+        "clear",
+        "set",
+        "last_editor",
+        "source_event",
+      ].includes(tag[0]),
+  );
+  tags.push(["d", taskId]);
+  tags.push(["last_editor", command.pubkey]);
+  tags.push(["source_event", command.id]);
+  const relaySelf = getConfig()?.mock?.relaySelf;
+  if (!relaySelf) return null;
+  const state = createMockEvent(
+    KIND_TASK_STATE,
+    content,
+    tags,
+    relaySelf,
+    Math.max(command.created_at, (current?.created_at ?? 0) + 1),
+    mockEventId(),
+  );
+  if (currentIndex >= 0) mockTaskEvents.splice(currentIndex, 1, state);
+  else mockTaskEvents.push(state);
+  return state;
 }
 
 function mockEventId(): string {
@@ -9270,6 +9402,14 @@ function sendToMockSocket(args: {
       return;
     }
 
+    if (filter.kinds?.includes(KIND_TASK_STATE)) {
+      for (const event of filterMockTaskEvents(filter)) {
+        sendWsText(socket.handler, ["EVENT", subId, event]);
+      }
+      sendWsText(socket.handler, ["EOSE", subId]);
+      return;
+    }
+
     // Project queries: NIP-34 kinds, or kind:1 comments scoped by repo `a`
     // tag (PR/issue discussions, approvals, review requests).
     if (
@@ -9333,6 +9473,27 @@ function sendToMockSocket(args: {
 
   if (type === "EVENT") {
     const event = rest[0] as RelayEvent;
+
+    if (event.kind === KIND_TASK_CREATE || event.kind === KIND_TASK_MUTATE) {
+      const rejection = getConfig()?.mock?.taskPublishErrors?.shift();
+      if (rejection) {
+        sendWsText(socket.handler, ["OK", event.id, false, rejection]);
+        return;
+      }
+      const state = deriveMockTaskState(event);
+      if (!state) {
+        sendWsText(socket.handler, [
+          "OK",
+          event.id,
+          false,
+          "conflict: invalid task command",
+        ]);
+        return;
+      }
+      emitMockGlobalEvent(state);
+      sendWsText(socket.handler, ["OK", event.id, true, "stored"]);
+      return;
+    }
 
     if ([9030, 9031, 9032].includes(event.kind)) {
       const accepted = updateMockRelayMembershipFromAdminEvent(event);
@@ -9545,6 +9706,7 @@ export function maybeInstallE2eTauriMocks() {
   resetMockMesh();
   resetMockUserStatuses();
   resetMockPersonaCatalogEvents(config);
+  resetMockTaskEvents(config);
   resetMockSaveSubscriptions(config);
   resetMockPendingCommunityDeepLinks(config);
   mockWebsocketSendMutexWedged = false;

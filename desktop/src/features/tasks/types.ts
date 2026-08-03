@@ -33,6 +33,14 @@ export type TaskDraft = Pick<
 
 export type TaskPatch = Partial<TaskDraft> & { archived?: boolean };
 
+export type TaskHistoryEntry = {
+  id: string;
+  actor: string;
+  createdAt: number;
+  action: "created" | "updated";
+  changes: string[];
+};
+
 export type TaskAssignee = {
   pubkey: string | null;
   label: string;
@@ -46,4 +54,7 @@ export type TaskFilters = {
   statuses: ReadonlySet<TaskStatus>;
   showDone: boolean;
   showEmptyAssignees: boolean;
+  labels: ReadonlySet<string>;
+  projects: ReadonlySet<string>;
+  channels: ReadonlySet<string>;
 };

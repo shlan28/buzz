@@ -1,7 +1,7 @@
 # Agent 可操作的任务看板规划
 
 > 更新日期：2026-08-03
-> 更新说明：按实际提交同步逐文件 Todo 状态，明确首版可用闭环与尚未完成的体验增强，并补充完整 Desktop Tauri 测试结果。
+> 更新说明：完成看板拖拽与键盘转派、失败回滚、完整可见历史、组合筛选及 Tasks Playwright E2E，并同步最终验收状态。
 
 ## 1. 产品目标
 
@@ -543,9 +543,10 @@ buzz tasks archive --id <task-id> --expected-event <event-id>
 - [x] `desktop/src/features/sidebar/ui/AppSidebar.tsx`：增加 Tasks 一级入口。
 - 无需新增 `TaskBoard.tsx`、`TaskColumn.tsx`、`TaskFilters.tsx`、`AssigneePicker.tsx`：首版实现合并在现有 Tasks 组件中，避免过早拆分小文件。
 - 无需修改 `channelAgents.ts`、`relayQueryInvalidation.ts`、`useCommunityInit.ts`：类型由现有 Agent/Tauri 模型承载，Tasks 未引入需要重置的 module-level community cache，实时刷新由 Tasks hooks 处理。
-- [ ] 看板拖拽转派与键盘等价操作。
-- [ ] 完整任务变更历史展示。
-- [ ] 标签、Project、Channel 等组合筛选。
+- [x] `desktop/src/features/tasks/ui/TaskBoardView.tsx`：实现看板拖拽转派和负责人列展示。
+- [x] `desktop/src/features/tasks/ui/TaskCard.tsx`：提供键盘可操作的负责人选择，作为拖拽的等价入口。
+- [x] `desktop/src/features/tasks/ui/TaskHistory.tsx`：分页读取并展示当前用户有权查看的完整 Task Command 历史。
+- [x] `desktop/src/features/tasks/ui/TaskFilterSelect.tsx`：实现标签、Project、Channel 组合筛选。
 
 ### 测试与文档
 
@@ -557,9 +558,9 @@ buzz tasks archive --id <task-id> --expected-event <event-id>
 - [x] `desktop/src/features/tasks/lib/taskBoard.test.mjs`：覆盖负责人分组与基础筛选排序。
 - [x] `desktop/src/features/tasks/lib/taskEvents.test.mjs`：覆盖 Task State 解析和事件构建。
 - 无需新增 `crates/buzz-test-client/tests/e2e_tasks.rs`：Relay/数据库关键链路已由原子事务与权限集成测试覆盖；独立跨进程 E2E 可作为后续增强。
-- [ ] `desktop/tests/e2e/tasks.spec.ts`：覆盖创建、编辑、拖动转派、键盘转派、失败回滚和深链。
-- [ ] `desktop/playwright.config.ts`：把 Tasks E2E 纳入 smoke 项目。
-- [ ] `desktop/src/testing/e2eBridge.ts`：增加成员、Agent、任务事件、冲突和拒绝场景 fixtures。
+- [x] `desktop/tests/e2e/tasks.spec.ts`：覆盖创建、编辑、拖动转派、键盘转派、失败回滚、深链和筛选。
+- [x] `desktop/playwright.config.ts`：把 Tasks E2E 纳入 smoke 项目。
+- [x] `desktop/src/testing/e2eBridge.ts`：增加 Task State、Command 派生状态和 Relay 拒绝场景 fixtures。
 - [x] `wiki/concepts.md`：补充 Task 与 Project Issue 的边界。
 - [x] `wiki/modules.md`：登记 Tasks 的 Relay、CLI 与 Desktop 模块入口。
 - [x] `docs/2026-08-03-agent-operable-task-board-plan.md`：同步实施状态和验收结果。
@@ -659,11 +660,11 @@ buzz tasks archive --id <task-id> --expected-event <event-id>
 
 ### 11.1 2026-08-03 实施结果
 
-首版可用闭环已经完成：Task 三类 event、Relay 签名当前状态、原子写入与并发冲突、实时发布、私密 Channel 和 Agent 指派权限校验、`buzz tasks` 命令、Desktop Tasks 页面，以及 Agent 编辑页中的独立指派权限设置均已落地。
+首版功能已经完成：Task 三类 event、Relay 签名当前状态、原子写入与并发冲突、实时发布、私密 Channel 和 Agent 指派权限校验、`buzz tasks` 命令、Desktop Tasks 页面，以及 Agent 编辑页中的独立指派权限设置均已落地。看板现已支持拖拽与键盘转派、Relay 失败自动回滚、完整可见变更历史和标签/Project/Channel 组合筛选。
 
 已完成的核心验证包括 Rust workspace 格式与 Clippy、Task Core/SDK/CLI 单元测试、真实 PostgreSQL 原子回滚和 CAS 测试、Desktop TypeScript/文件大小/文本缩放检查、Tasks 逻辑测试、Tauri 编译检查和 Desktop production/E2E build。设置本机测试绕过 loopback 代理后，Desktop Tauri 全套测试通过：`1881 passed; 0 failed; 14 ignored`；此前的 HTTP 502 来自系统代理转发 `127.0.0.1` 测试地址，并非 Task 功能失败。
 
-以下体验增强没有阻断首版基本读写闭环，保留为后续工作：看板拖拽转派、完整任务变更历史、标签/Project/Channel 组合筛选，以及专门的 Tasks Playwright E2E 截图验收。
+Tasks Playwright E2E 已纳入 smoke 项目，覆盖创建、编辑、拖拽转派、键盘转派、Relay 拒绝回滚、深链、搜索和完成状态筛选。历史遵守原事件的 Channel 权限：任务曾位于用户无权访问的私密 Channel 时，那一段历史不会为了当前任务详情而越权显示。
 
 ## 12. 本轮技术复核依据
 
@@ -677,4 +678,4 @@ buzz tasks archive --id <task-id> --expected-event <event-id>
 - `crates/buzz-db/src/event.rs`、现有 FTS 与 Calendar migrations、`crates/buzz-cli/TESTING.md`；
 - Desktop Projects、Agent、Calendar、路由、导航、sidebar 与 query invalidation 相关代码。
 
-功能范围与首版实现已经确认并提交。第 9 节未勾选项以及第 11.1 节列出的内容为后续体验增强，不属于当前已经完成的基础读写闭环。
+功能范围与首版实现已经完成；第 9 节规划 Todo 已全部落实或明确由现有通用能力覆盖。

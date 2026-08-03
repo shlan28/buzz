@@ -11,6 +11,7 @@ import type {
   TaskPriority,
   TaskStatus,
 } from "../types";
+import { TaskHistory } from "./TaskHistory";
 
 export function TaskDetailPanel({
   task,
@@ -128,6 +129,7 @@ export function TaskDetailPanel({
           <p>Created by {shortPubkey(task.creator)}</p>
           <p className="mt-1">Last edited by {shortPubkey(task.lastEditor)}</p>
         </div>
+        <TaskHistory taskId={task.id} />
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
       </div>
       <footer className="border-t border-border p-4">

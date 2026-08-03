@@ -240,6 +240,10 @@ type MockBridgeOptions = {
   calendarDeleteErrors?: string[];
   /** Additional calendar events returned by the mock relay. */
   calendarEvents?: RelayEvent[];
+  /** Relay-signed current Task State events returned by mock REQs. */
+  taskEvents?: RelayEvent[];
+  /** Sequenced Task Command failures; null accepts that publish. */
+  taskPublishErrors?: (string | null)[];
   agentListDelayMs?: number;
   createManagedAgentDelayMs?: number;
   channelTemplates?: ChannelTemplate[];

@@ -12,14 +12,25 @@ import { relayClient } from "@/shared/api/relayClient";
 import { signRelayEvent } from "@/shared/api/tauri";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import type { RelayEvent } from "@/shared/api/types";
-import { KIND_TASK_STATE } from "@/shared/constants/kinds";
+import {
+  KIND_TASK_CREATE,
+  KIND_TASK_MUTATE,
+  KIND_TASK_STATE,
+} from "@/shared/constants/kinds";
 import {
   buildCreateTaskEvent,
   buildMutateTaskEvent,
   parseTaskState,
+  parseTaskHistoryEvent,
 } from "./lib/taskEvents";
 import { resolveTaskAssignmentAccess } from "./lib/taskAssignmentAccess";
-import type { Task, TaskAssignee, TaskDraft, TaskPatch } from "./types";
+import type {
+  Task,
+  TaskAssignee,
+  TaskDraft,
+  TaskHistoryEntry,
+  TaskPatch,
+} from "./types";
 
 export const tasksQueryKey = ["tasks"] as const;
 
@@ -83,8 +94,13 @@ export function useTasks() {
     void relayClient
       .subscribeLive(
         { kinds: [KIND_TASK_STATE], limit: 0 },
-        (_event: RelayEvent) => {
+        (event: RelayEvent) => {
           void queryClient.invalidateQueries({ queryKey: tasksQueryKey });
+          const taskId = event.tags.find((tag) => tag[0] === "d")?.[1];
+          if (taskId)
+            void queryClient.invalidateQueries({
+              queryKey: ["task-history", taskId],
+            });
         },
       )
       .then((nextDispose) => {
@@ -195,7 +211,28 @@ export function useTasks() {
   const update = useMutation({
     mutationFn: ({ task, patch }: { task: Task; patch: TaskPatch }) =>
       publishCommand(buildMutateTaskEvent(task, patch)),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: tasksQueryKey }),
+    onMutate: async ({ task, patch }) => {
+      await queryClient.cancelQueries({ queryKey: tasksQueryKey });
+      const snapshots = queryClient.getQueriesData<Task[]>({
+        queryKey: tasksQueryKey,
+      });
+      queryClient.setQueriesData<Task[]>({ queryKey: tasksQueryKey }, (old) =>
+        old?.map((item) =>
+          item.id === task.id ? { ...item, ...patch } : item,
+        ),
+      );
+      return { snapshots };
+    },
+    onError: (_error, _variables, context) => {
+      for (const [key, value] of context?.snapshots ?? [])
+        queryClient.setQueryData(key, value);
+    },
+    onSettled: (_data, _error, { task }) => {
+      void queryClient.invalidateQueries({ queryKey: tasksQueryKey });
+      void queryClient.invalidateQueries({
+        queryKey: ["task-history", task.id],
+      });
+    },
   });
 
   return {
@@ -206,4 +243,29 @@ export function useTasks() {
     create,
     update,
   };
+}
+
+export function useTaskHistory(taskId: string) {
+  return useQuery<TaskHistoryEntry[]>({
+    queryKey: ["task-history", taskId],
+    queryFn: async () => {
+      const events: RelayEvent[] = [];
+      let until: number | undefined;
+      for (;;) {
+        const page = await relayClient.fetchEvents({
+          kinds: [KIND_TASK_CREATE, KIND_TASK_MUTATE],
+          "#t": [`task-id:${taskId}`],
+          limit: 500,
+          ...(until === undefined ? {} : { until }),
+        });
+        events.push(...page);
+        if (page.length < 500) break;
+        until = Math.min(...page.map((event) => event.created_at)) - 1;
+      }
+      return events
+        .map((event) => parseTaskHistoryEvent(event, taskId))
+        .filter((entry): entry is TaskHistoryEntry => entry !== null)
+        .sort((a, b) => b.createdAt - a.createdAt);
+    },
+  });
 }

@@ -47,10 +47,35 @@ test("filters archived and done tasks by default", () => {
       statuses: new Set(),
       showDone: false,
       showEmptyAssignees: false,
+      labels: new Set(),
+      projects: new Set(),
+      channels: new Set(),
     },
   );
   assert.deepEqual(
     result.map((item) => item.id),
     ["todo"],
+  );
+});
+
+test("combines label, project, and channel filters", () => {
+  const matching = {
+    ...task("matching", null),
+    labels: ["launch"],
+    project: "30617:owner:roadmap",
+    channelId: "planning",
+  };
+  const result = filterTasks([matching, task("other", null)], {
+    query: "",
+    statuses: new Set(),
+    showDone: true,
+    showEmptyAssignees: false,
+    labels: new Set(["launch"]),
+    projects: new Set(["30617:owner:roadmap"]),
+    channels: new Set(["planning"]),
+  });
+  assert.deepEqual(
+    result.map((item) => item.id),
+    ["matching"],
   );
 });

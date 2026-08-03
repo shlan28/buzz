@@ -24,6 +24,12 @@ export function filterTasks(tasks: Task[], filters: TaskFilters) {
       !task.archived &&
       (filters.showDone || task.status !== "done") &&
       (filters.statuses.size === 0 || filters.statuses.has(task.status)) &&
+      (filters.labels.size === 0 ||
+        task.labels.some((label) => filters.labels.has(label))) &&
+      (filters.projects.size === 0 ||
+        (task.project !== null && filters.projects.has(task.project))) &&
+      (filters.channels.size === 0 ||
+        (task.channelId !== null && filters.channels.has(task.channelId))) &&
       (!query ||
         task.title.toLocaleLowerCase().includes(query) ||
         task.description.toLocaleLowerCase().includes(query)),

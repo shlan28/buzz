@@ -1,14 +1,15 @@
 import * as React from "react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { Bot, LayoutGrid, List, Plus, Search, UserRound } from "lucide-react";
+import { LayoutGrid, List, Plus, Search } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { buildTaskColumns, filterTasks } from "../lib/taskBoard";
 import { useTasks } from "../hooks";
 import type { TaskFilters } from "../types";
 import { CreateTaskDialog } from "./CreateTaskDialog";
-import { TaskCard } from "./TaskCard";
 import { TaskDetailPanel } from "./TaskDetailPanel";
+import { TaskBoardView } from "./TaskBoardView";
+import { TaskFilterSelect } from "./TaskFilterSelect";
 
 export function TasksScreen() {
   const location = useLocation();
@@ -21,6 +22,9 @@ export function TasksScreen() {
     statuses: new Set(),
     showDone: false,
     showEmptyAssignees: false,
+    labels: new Set(),
+    projects: new Set(),
+    channels: new Set(),
   });
   const [creating, setCreating] = React.useState(false);
   const [mutationError, setMutationError] = React.useState<string>();
@@ -39,6 +43,14 @@ export function TasksScreen() {
     [filters.showEmptyAssignees, tasks.assignees, tasks.currentPubkey, visible],
   );
   const selected = tasks.tasks.find((task) => task.id === routeTaskId) ?? null;
+  const filterOptions = React.useMemo(
+    () => ({
+      labels: unique(tasks.tasks.flatMap((task) => task.labels)),
+      projects: unique(tasks.tasks.flatMap((task) => task.project ?? [])),
+      channels: unique(tasks.tasks.flatMap((task) => task.channelId ?? [])),
+    }),
+    [tasks.tasks],
+  );
   const openTask = (taskId: string | null) =>
     void navigate({
       to: "/tasks",
@@ -58,6 +70,24 @@ export function TasksScreen() {
             Work grouped by its current owner
           </p>
         </div>
+        <TaskFilterSelect
+          label="labels"
+          selected={filters.labels}
+          values={filterOptions.labels}
+          onChange={(labels) => setFilters({ ...filters, labels })}
+        />
+        <TaskFilterSelect
+          label="projects"
+          selected={filters.projects}
+          values={filterOptions.projects}
+          onChange={(projects) => setFilters({ ...filters, projects })}
+        />
+        <TaskFilterSelect
+          label="channels"
+          selected={filters.channels}
+          values={filterOptions.channels}
+          onChange={(channels) => setFilters({ ...filters, channels })}
+        />
         <div className="relative min-w-52 flex-1 sm:max-w-xs">
           <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -79,6 +109,19 @@ export function TasksScreen() {
             type="checkbox"
           />
           Show done
+        </label>
+        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          <input
+            checked={filters.showEmptyAssignees}
+            onChange={(event) =>
+              setFilters({
+                ...filters,
+                showEmptyAssignees: event.target.checked,
+              })
+            }
+            type="checkbox"
+          />
+          Show empty owners
         </label>
         <div className="flex rounded-md border border-border p-0.5">
           <Button
@@ -111,6 +154,14 @@ export function TasksScreen() {
           Task
         </Button>
       </header>
+      {mutationError && !selected ? (
+        <div
+          className="border-b border-destructive/30 bg-destructive/10 px-5 py-2 text-sm text-destructive"
+          role="alert"
+        >
+          {mutationError} The task was moved back to its previous owner.
+        </div>
+      ) : null}
       {tasks.isLoading ? <Centered>Loading tasks…</Centered> : null}
       {tasks.isError ? (
         <Centered>
@@ -140,45 +191,19 @@ export function TasksScreen() {
       !tasks.isError &&
       visible.length > 0 &&
       view === "board" ? (
-        <div className="flex min-h-0 flex-1 gap-4 overflow-x-auto p-5">
-          {columns.map((column) => (
-            <section
-              className="flex w-72 shrink-0 flex-col rounded-xl bg-muted/40"
-              key={column.pubkey ?? "unassigned"}
-            >
-              <header className="flex items-center gap-2 px-3 py-3">
-                {column.kind === "agent" ? (
-                  <Bot className="h-4 w-4" />
-                ) : (
-                  <UserRound className="h-4 w-4" />
-                )}
-                <div className="min-w-0 flex-1">
-                  <h2 className="truncate text-sm font-semibold">
-                    {column.label}
-                  </h2>
-                  <p className="text-xs text-muted-foreground">
-                    {column.tasks.length}{" "}
-                    {column.tasks.length === 1 ? "task" : "tasks"} ·{" "}
-                    {column.kind === "agent"
-                      ? "Agent"
-                      : column.kind === "person"
-                        ? "Person"
-                        : "No owner"}
-                  </p>
-                </div>
-              </header>
-              <div className="space-y-2 overflow-y-auto px-2 pb-3">
-                {column.tasks.map((task) => (
-                  <TaskCard
-                    key={task.id}
-                    task={task}
-                    onOpen={() => openTask(task.id)}
-                  />
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
+        <TaskBoardView
+          assignees={tasks.assignees}
+          columns={columns}
+          pending={tasks.update.isPending}
+          onOpen={openTask}
+          onReassign={(task, assignee) => {
+            setMutationError(undefined);
+            tasks.update.mutate(
+              { task, patch: { assignee } },
+              { onError: (error) => setMutationError(message(error)) },
+            );
+          }}
+        />
       ) : null}
       {!tasks.isLoading &&
       !tasks.isError &&
@@ -250,4 +275,7 @@ function Centered({ children }: { children: React.ReactNode }) {
 }
 function message(error: unknown) {
   return error instanceof Error ? error.message : "Could not save task.";
+}
+function unique(values: string[]) {
+  return [...new Set(values)].sort((a, b) => a.localeCompare(b));
 }

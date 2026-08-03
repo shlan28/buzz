@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildMutateTaskEvent, parseTaskState } from "./taskEvents.ts";
+import {
+  buildMutateTaskEvent,
+  parseTaskHistoryEvent,
+  parseTaskState,
+} from "./taskEvents.ts";
 
 const relay = "a".repeat(64);
 const event = {
@@ -23,6 +27,29 @@ test("rejects task state not signed by the Relay", () => {
     parseTaskState({ ...event, pubkey: "d".repeat(64) }, relay),
     null,
   );
+});
+
+test("parses a complete command into a history entry", () => {
+  const history = parseTaskHistoryEvent(
+    {
+      ...event,
+      kind: 42501,
+      pubkey: "d".repeat(64),
+      tags: [
+        ["t", "task-id:task-id"],
+        ["p", "agent"],
+        ["t", "task-status:in-progress"],
+        ["clear", "due"],
+      ],
+    },
+    "task-id",
+  );
+  assert.ok(history);
+  assert.deepEqual(history.changes, [
+    "Assignee: agent",
+    "Status: in-progress",
+    "Cleared: due",
+  ]);
 });
 
 test("mutation carries conflict head and explicit archive change", () => {
