@@ -1,10 +1,21 @@
 import { useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, Bot, CalendarDays, ExternalLink } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowLeft,
+  CalendarDays,
+  CheckCircle2,
+  CheckSquare2,
+  ExternalLink,
+  Flag,
+} from "lucide-react";
 
 import type { InboxItem } from "@/features/home/lib/inbox";
 import { taskIdFromExecutionInboxItem } from "@/features/home/lib/taskExecutionInbox";
 import { TopChromeInsetHeader } from "@/shared/layout/TopChromeInsetHeader";
 import { Button } from "@/shared/ui/button";
+import { Markdown } from "@/shared/ui/markdown";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
+import { UserAvatar } from "@/shared/ui/UserAvatar";
 
 function tagValue(item: InboxItem, name: string) {
   return item.item.tags.find((tag) => tag[0] === name)?.[1] ?? null;
@@ -40,104 +51,131 @@ export function TaskExecutionInboxDetail({
   const taskId = taskIdFromExecutionInboxItem(item.item);
   const status = tagValue(item, "status");
   const title = tagValue(item, "task-title") ?? "Untitled task";
+  const description = tagValue(item, "task-description");
+  const failed = status === "failed";
 
   return (
     <section
       className="flex min-h-0 min-w-0 flex-1 flex-col bg-background"
       data-testid="task-execution-inbox-detail"
     >
-      <TopChromeInsetHeader className="flex items-center gap-3 border-b border-border px-4 pb-3">
-        {isSinglePanelView && onBack ? (
-          <Button
-            aria-label="Back to Inbox"
-            onClick={onBack}
-            size="icon"
-            type="button"
-            variant="ghost"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-        ) : null}
-        <div className="min-w-0">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Task result
-          </p>
-          <h2 className="truncate text-base font-semibold">{title}</h2>
+      <TopChromeInsetHeader flush>
+        <div className="flex min-h-9 items-center justify-between gap-3 px-5 py-2">
+          <div className="flex min-w-0 items-center gap-1">
+            {isSinglePanelView && onBack ? (
+              <Button
+                aria-label="Back to Inbox"
+                className="rounded-full text-muted-foreground"
+                onClick={onBack}
+                size="icon"
+                type="button"
+                variant="ghost"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+            ) : null}
+            <CheckSquare2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <h2 className="flex min-w-0 items-center gap-2 text-sm leading-5">
+              <span className="shrink-0 text-muted-foreground">
+                Task result
+              </span>
+              <span className="text-muted-foreground/60">·</span>
+              <span
+                className="truncate font-semibold tracking-tight"
+                title={title}
+              >
+                {title}
+              </span>
+            </h2>
+          </div>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                aria-label="Open task"
+                className="shrink-0 rounded-full text-muted-foreground"
+                disabled={!taskId}
+                onClick={() => {
+                  if (!taskId) return;
+                  void navigate({
+                    to: "/tasks",
+                    search: { task: taskId },
+                  } as never);
+                }}
+                size="icon"
+                type="button"
+                variant="ghost"
+              >
+                <ExternalLink className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Open task</TooltipContent>
+          </Tooltip>
         </div>
       </TopChromeInsetHeader>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-5">
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
-          <div className="rounded-lg border border-border bg-card p-4">
-            <div className="flex flex-wrap items-center gap-2 text-sm">
-              <span className="inline-flex items-center gap-1.5 font-medium">
-                <Bot className="h-4 w-4" />
-                {item.senderLabel}
-              </span>
-              <span className="text-muted-foreground">·</span>
-              <span
-                className={
-                  status === "failed"
-                    ? "text-destructive"
-                    : "text-muted-foreground"
-                }
-              >
-                {status === "failed" ? "Failed" : "Completed"}
-              </span>
-              <span className="text-muted-foreground">·</span>
-              <span className="text-muted-foreground">
-                {item.fullTimestampLabel}
-              </span>
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
+          <div>
+            <div className="flex items-center gap-2">
+              <UserAvatar
+                avatarUrl={item.avatarUrl}
+                displayName={item.senderLabel}
+                size="sm"
+              />
+              <p className="min-w-0 text-sm">
+                <span className="font-semibold">{item.senderLabel}</span>{" "}
+                <span className="text-muted-foreground">
+                  {failed
+                    ? "could not complete this task"
+                    : "completed this task"}
+                </span>{" "}
+                <span className="text-xs text-muted-foreground/70">
+                  {item.fullTimestampLabel}
+                </span>
+              </p>
             </div>
 
-            <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-3">
-              <div>
-                <dt className="text-xs text-muted-foreground">Task status</dt>
-                <dd className="mt-1 font-medium">
-                  {label(tagValue(item, "task-status"))}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-xs text-muted-foreground">Priority</dt>
-                <dd className="mt-1 font-medium">
-                  {label(tagValue(item, "task-priority"))}
-                </dd>
-              </div>
-              <div>
-                <dt className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <CalendarDays className="h-3.5 w-3.5" /> Due date
-                </dt>
-                <dd className="mt-1 font-medium">
-                  {dueDate(tagValue(item, "task-due"))}
-                </dd>
-              </div>
-            </dl>
+            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+              <span className="inline-flex items-center gap-1.5">
+                {failed ? (
+                  <AlertCircle className="h-3.5 w-3.5 text-destructive" />
+                ) : (
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                )}
+                {label(tagValue(item, "task-status"))}
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <Flag className="h-3.5 w-3.5" />
+                {label(tagValue(item, "task-priority"))} priority
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <CalendarDays className="h-3.5 w-3.5" />
+                {dueDate(tagValue(item, "task-due"))}
+              </span>
+            </div>
           </div>
 
-          <div>
+          {description ? (
+            <div>
+              <h3 className="text-xs font-medium text-muted-foreground">
+                Description
+              </h3>
+              <Markdown
+                className="mt-1 text-sm leading-relaxed text-foreground"
+                content={description}
+                interactive={false}
+              />
+            </div>
+          ) : null}
+
+          <div className={failed ? "text-destructive" : undefined}>
             <h3 className="text-sm font-semibold">
-              {status === "failed" ? "Failure details" : "Execution result"}
+              {failed ? "Failure details" : "Execution result"}
             </h3>
-            <div className="mt-2 whitespace-pre-wrap rounded-lg border border-border bg-muted/20 p-4 text-base leading-relaxed">
-              {item.item.content}
-            </div>
-          </div>
-
-          <div>
-            <Button
-              disabled={!taskId}
-              onClick={() => {
-                if (!taskId) return;
-                void navigate({
-                  to: "/tasks",
-                  search: { task: taskId },
-                } as never);
-              }}
-              type="button"
-            >
-              Open task
-              <ExternalLink className="h-4 w-4" />
-            </Button>
+            <Markdown
+              className="mt-2 text-base leading-relaxed text-inherit"
+              content={item.item.content}
+            />
           </div>
         </div>
       </div>

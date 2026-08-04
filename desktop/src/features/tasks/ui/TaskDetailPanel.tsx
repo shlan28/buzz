@@ -46,6 +46,7 @@ export function TaskDetailPanel({
   agentOnline,
   canExecute,
   onExecute,
+  onOpenExecutionResult,
 }: {
   task: Task;
   assignees: TaskAssignee[];
@@ -62,6 +63,7 @@ export function TaskDetailPanel({
   agentOnline: boolean;
   canExecute: boolean;
   onExecute: () => void;
+  onOpenExecutionResult: (eventId: string) => void;
 }) {
   const [deleteOpen, setDeleteOpen] = React.useState(false);
   const [deleteAttempted, setDeleteAttempted] = React.useState(false);
@@ -136,7 +138,7 @@ export function TaskDetailPanel({
           value={task.assignee}
           onChange={(assignee) => onUpdate({ assignee })}
         />
-        {canExecute && task.status !== "done" && !task.archived ? (
+        {canExecute && !task.archived ? (
           <TaskExecutionControl
             agentName={
               assignees.find((assignee) => assignee.pubkey === task.assignee)
@@ -144,9 +146,15 @@ export function TaskDetailPanel({
             }
             error={executionError}
             execution={execution}
+            canStart={task.status !== "done"}
             online={agentOnline}
             pending={executionPending}
             onExecute={onExecute}
+            onOpenResult={
+              execution?.status === "finished" || execution?.status === "failed"
+                ? () => onOpenExecutionResult(execution.eventId)
+                : undefined
+            }
           />
         ) : null}
         <Select

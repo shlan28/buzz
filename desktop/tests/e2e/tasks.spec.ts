@@ -181,19 +181,62 @@ test("completed Agent task appears in Inbox with task context", async ({
   const row = page.getByTestId(`home-inbox-item-${"31".repeat(32)}`);
   await expect(row).toContainText("Task completed");
   await expect(row).toContainText("Run Agent task");
-  await row
-    .getByRole("button", { name: "Open inbox item from bumble" })
-    .click();
+  await row.getByText("Run Agent task", { exact: true }).click();
 
   const detail = page.getByTestId("task-execution-inbox-detail");
   await expect(detail).toContainText("Run Agent task");
   await expect(detail).toContainText(
+    "Execute this task with the assigned Agent.",
+  );
+  await expect(detail).toContainText(
     "Prepared the prioritized outreach list and daily pitch plan.",
   );
+  await expect(detail.getByTestId("message-input")).toHaveCount(0);
   await detail.getByRole("button", { name: "Open task" }).click();
   await expect(page.getByTestId("task-detail-panel")).toContainText(
     "Run Agent task",
   );
+});
+
+test("switches Board grouping and preserves it in the URL", async ({
+  page,
+}) => {
+  await installTasks(page);
+  await page.goto("/#/tasks");
+
+  await page.getByLabel("Group tasks by").selectOption("status");
+  await expect(page).toHaveURL(/group=status/);
+  await expect(page.getByTestId("task-column-todo")).toBeVisible();
+  await expect(page.getByTestId("task-column-in-progress")).toBeVisible();
+
+  await page.getByLabel("List view").click();
+  await expect(page).toHaveURL(/view=list/);
+  await page.reload();
+  await expect(page.getByLabel("List view")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+});
+
+test("dragging in Status grouping changes task status", async ({ page }) => {
+  await installTasks(page);
+  await page.goto("/#/tasks?group=status");
+
+  const card = page.getByTestId(`task-card-${FIRST_TASK}`);
+  const blockedColumn = page.getByTestId("task-column-blocked");
+  const transfer = await page.evaluateHandle(() => new DataTransfer());
+  await card
+    .locator("..")
+    .dispatchEvent("dragstart", { dataTransfer: transfer });
+  await blockedColumn.dispatchEvent("dragover", { dataTransfer: transfer });
+  await blockedColumn.dispatchEvent("drop", { dataTransfer: transfer });
+
+  await expect(
+    blockedColumn.getByTestId(`task-card-${FIRST_TASK}`),
+  ).toBeVisible();
+  await expect(
+    page.getByTestId("task-column-todo").getByTestId(`task-card-${FIRST_TASK}`),
+  ).toHaveCount(0);
 });
 
 test("failed Agent task appears in Inbox with its failure reason", async ({
@@ -204,9 +247,7 @@ test("failed Agent task appears in Inbox with its failure reason", async ({
 
   const row = page.getByTestId(`home-inbox-item-${"31".repeat(32)}`);
   await expect(row).toContainText("Task failed");
-  await row
-    .getByRole("button", { name: "Open inbox item from bumble" })
-    .click();
+  await row.getByText("Run Agent task", { exact: true }).click();
   await expect(page.getByTestId("task-execution-inbox-detail")).toContainText(
     "The Agent could not access the investor source.",
   );
@@ -416,7 +457,7 @@ test("dragging a card to another owner transfers the task", async ({
 }) => {
   await installTasks(page);
   await page.goto("/#/tasks");
-  await page.getByRole("checkbox", { name: "Show empty owners" }).check();
+  await page.getByRole("checkbox", { name: "Show empty groups" }).check();
 
   const card = page.getByTestId(`task-card-${FIRST_TASK}`);
   const bobColumn = page.getByTestId(`task-column-${BOB}`);

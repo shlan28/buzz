@@ -93,6 +93,7 @@ export function buildTaskExecutionInboxItems({
           ["requester", execution.requester],
           ["p", execution.assignee, "", "agent"],
           ["task-title", task.title],
+          ["task-description", task.description],
           ["task-status", task.status],
           ["task-priority", task.priority],
           ...taskTag("task-due", task.dueDate),

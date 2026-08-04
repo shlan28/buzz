@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildTaskColumns, filterTasks } from "./taskBoard.ts";
+import {
+  buildTaskColumns,
+  buildTaskStatusColumns,
+  filterTasks,
+} from "./taskBoard.ts";
 
 const task = (id, assignee, status = "todo") => ({
   id,
@@ -55,6 +59,34 @@ test("filters archived and done tasks by default", () => {
   assert.deepEqual(
     result.map((item) => item.id),
     ["todo"],
+  );
+});
+
+test("builds status columns in workflow order", () => {
+  const columns = buildTaskStatusColumns(
+    [
+      task("todo", "me", "todo"),
+      task("blocked", "other", "blocked"),
+      task("done", "me", "done"),
+    ],
+    true,
+    true,
+  );
+  assert.deepEqual(
+    columns.map((column) => column.status),
+    ["backlog", "todo", "in-progress", "blocked", "done"],
+  );
+  assert.deepEqual(
+    columns[1].tasks.map((item) => item.id),
+    ["todo"],
+  );
+});
+
+test("hides the done status column when done tasks are hidden", () => {
+  const columns = buildTaskStatusColumns([], true, false);
+  assert.equal(
+    columns.some((column) => column.status === "done"),
+    false,
   );
 });
 

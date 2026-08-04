@@ -69,6 +69,10 @@ test("builds a terminal task result with task context for the requester", () => 
     item.tags.find((tag) => tag[0] === "task-priority"),
     ["task-priority", "high"],
   );
+  assert.deepEqual(
+    item.tags.find((tag) => tag[0] === "task-description"),
+    ["task-description", "Build a 14-day plan"],
+  );
 });
 
 test("hides queued and running executions", () => {

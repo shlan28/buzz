@@ -3,9 +3,13 @@ import { useLocation, useNavigate } from "@tanstack/react-router";
 import { LayoutGrid, List, Plus, Search } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
-import { buildTaskColumns, filterTasks } from "../lib/taskBoard";
+import {
+  buildTaskColumns,
+  buildTaskStatusColumns,
+  filterTasks,
+} from "../lib/taskBoard";
 import { useTasks } from "../hooks";
-import type { TaskFilters } from "../types";
+import type { TaskBoardGroup, TaskFilters } from "../types";
 import { CreateTaskDialog } from "./CreateTaskDialog";
 import { TaskDetailPanel } from "./TaskDetailPanel";
 import { TaskBoardView } from "./TaskBoardView";
@@ -15,9 +19,15 @@ import { TaskListView } from "./TaskListView";
 export function TasksScreen() {
   const location = useLocation();
   const navigate = useNavigate();
-  const routeTaskId = (location.search as { task?: string }).task ?? null;
+  const routeSearch = location.search as {
+    task?: string;
+    view?: "board" | "list";
+    group?: TaskBoardGroup;
+  };
+  const routeTaskId = routeSearch.task ?? null;
   const tasks = useTasks();
-  const [view, setView] = React.useState<"board" | "list">("board");
+  const view = routeSearch.view ?? "board";
+  const groupBy = routeSearch.group ?? "assignee";
   const [filters, setFilters] = React.useState<TaskFilters>({
     query: "",
     statuses: new Set(),
@@ -35,13 +45,26 @@ export function TasksScreen() {
   );
   const columns = React.useMemo(
     () =>
-      buildTaskColumns(
-        visible,
-        tasks.assignees,
-        tasks.currentPubkey,
-        filters.showEmptyAssignees,
-      ),
-    [filters.showEmptyAssignees, tasks.assignees, tasks.currentPubkey, visible],
+      groupBy === "status"
+        ? buildTaskStatusColumns(
+            visible,
+            filters.showEmptyAssignees,
+            filters.showDone,
+          )
+        : buildTaskColumns(
+            visible,
+            tasks.assignees,
+            tasks.currentPubkey,
+            filters.showEmptyAssignees,
+          ),
+    [
+      filters.showDone,
+      filters.showEmptyAssignees,
+      groupBy,
+      tasks.assignees,
+      tasks.currentPubkey,
+      visible,
+    ],
   );
   const selected = tasks.tasks.find((task) => task.id === routeTaskId) ?? null;
   const filterOptions = React.useMemo(
@@ -52,12 +75,25 @@ export function TasksScreen() {
     }),
     [tasks.tasks],
   );
-  const openTask = (taskId: string | null) =>
+  const updateRoute = (
+    patch: Partial<{
+      task: string | undefined;
+      view: "board" | "list";
+      group: TaskBoardGroup;
+    }>,
+  ) =>
     void navigate({
       to: "/tasks",
-      search: taskId ? { task: taskId } : {},
+      search: {
+        ...(routeTaskId ? { task: routeTaskId } : {}),
+        view,
+        group: groupBy,
+        ...patch,
+      },
       replace: true,
     } as never);
+  const openTask = (taskId: string | null) =>
+    updateRoute({ task: taskId ?? undefined });
 
   return (
     <div
@@ -68,9 +104,29 @@ export function TasksScreen() {
         <div className="mr-auto">
           <h1 className="text-lg font-semibold tracking-tight">Tasks</h1>
           <p className="text-xs text-muted-foreground">
-            Work grouped by its current owner
+            {view === "board"
+              ? groupBy === "status"
+                ? "Work grouped by status"
+                : "Work grouped by its current owner"
+              : "All task details in one list"}
           </p>
         </div>
+        {view === "board" ? (
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            Group by
+            <select
+              aria-label="Group tasks by"
+              className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground"
+              value={groupBy}
+              onChange={(event) =>
+                updateRoute({ group: event.target.value as TaskBoardGroup })
+              }
+            >
+              <option value="assignee">Assignee</option>
+              <option value="status">Status</option>
+            </select>
+          </label>
+        ) : null}
         <TaskFilterSelect
           label="labels"
           selected={filters.labels}
@@ -122,13 +178,14 @@ export function TasksScreen() {
             }
             type="checkbox"
           />
-          Show empty owners
+          Show empty groups
         </label>
         <div className="flex rounded-md border border-border p-0.5">
           <Button
             aria-label="Board view"
+            aria-pressed={view === "board"}
             className="h-7 px-2"
-            onClick={() => setView("board")}
+            onClick={() => updateRoute({ view: "board" })}
             size="sm"
             variant={view === "board" ? "secondary" : "ghost"}
           >
@@ -136,8 +193,9 @@ export function TasksScreen() {
           </Button>
           <Button
             aria-label="List view"
+            aria-pressed={view === "list"}
             className="h-7 px-2"
-            onClick={() => setView("list")}
+            onClick={() => updateRoute({ view: "list" })}
             size="sm"
             variant={view === "list" ? "secondary" : "ghost"}
           >
@@ -196,12 +254,20 @@ export function TasksScreen() {
           assignees={tasks.assignees}
           columns={columns}
           executions={tasks.executions}
+          groupBy={groupBy}
           pending={tasks.update.isPending}
           onOpen={openTask}
           onReassign={(task, assignee) => {
             setMutationError(undefined);
             tasks.update.mutate(
               { task, patch: { assignee } },
+              { onError: (error) => setMutationError(message(error)) },
+            );
+          }}
+          onStatusChange={(task, status) => {
+            setMutationError(undefined);
+            tasks.update.mutate(
+              { task, patch: { status } },
               { onError: (error) => setMutationError(message(error)) },
             );
           }}
@@ -256,6 +322,12 @@ export function TasksScreen() {
             })
           }
           onExecute={() => tasks.execute.mutate(selected)}
+          onOpenExecutionResult={(eventId) => {
+            void navigate({
+              to: "/",
+              search: { item: eventId },
+            } as never);
+          }}
           onUpdate={(patch, onSuccess) => {
             setMutationError(undefined);
             tasks.update.mutate(

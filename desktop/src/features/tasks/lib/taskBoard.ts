@@ -1,6 +1,14 @@
-import type { Task, TaskAssignee, TaskFilters } from "../types";
+import type { Task, TaskAssignee, TaskFilters, TaskStatus } from "../types";
 
-export type TaskColumnModel = TaskAssignee & { tasks: Task[] };
+export type TaskColumnModel = {
+  id: string;
+  label: string;
+  kind: TaskAssignee["kind"] | "status";
+  pubkey: string | null;
+  status?: TaskStatus;
+  canAssign?: boolean;
+  tasks: Task[];
+};
 
 const STATUS_ORDER = new Map([
   ["blocked", 0],
@@ -61,6 +69,7 @@ export function buildTaskColumns(
   return ordered
     .map((assignee) => ({
       ...assignee,
+      id: assignee.pubkey ?? "unassigned",
       tasks: [
         ...(byAssignee.get(assignee.pubkey?.toLowerCase() ?? "") ?? []),
       ].sort(
@@ -71,6 +80,38 @@ export function buildTaskColumns(
             (PRIORITY_ORDER.get(b.priority) ?? 9) ||
           a.updatedAt - b.updatedAt,
       ),
+    }))
+    .filter((column) => showEmpty || column.tasks.length > 0);
+}
+
+const BOARD_STATUSES: { status: TaskStatus; label: string }[] = [
+  { status: "backlog", label: "Backlog" },
+  { status: "todo", label: "Todo" },
+  { status: "in-progress", label: "In progress" },
+  { status: "blocked", label: "Blocked" },
+  { status: "done", label: "Done" },
+];
+
+export function buildTaskStatusColumns(
+  tasks: Task[],
+  showEmpty: boolean,
+  includeDone: boolean,
+): TaskColumnModel[] {
+  return BOARD_STATUSES.filter(({ status }) => includeDone || status !== "done")
+    .map(({ status, label }) => ({
+      id: status,
+      label,
+      kind: "status" as const,
+      pubkey: null,
+      status,
+      tasks: tasks
+        .filter((task) => task.status === status)
+        .sort(
+          (a, b) =>
+            (PRIORITY_ORDER.get(a.priority) ?? 9) -
+              (PRIORITY_ORDER.get(b.priority) ?? 9) ||
+            a.updatedAt - b.updatedAt,
+        ),
     }))
     .filter((column) => showEmpty || column.tasks.length > 0);
 }

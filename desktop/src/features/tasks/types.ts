@@ -7,6 +7,8 @@ export type TaskStatus =
 
 export type TaskPriority = "none" | "low" | "medium" | "high" | "urgent";
 
+export type TaskBoardGroup = "assignee" | "status";
+
 export type Task = {
   id: string;
   eventId: string;

@@ -1,21 +1,31 @@
-import type { Task, TaskAssignee, TaskExecution } from "../types";
+import type {
+  Task,
+  TaskAssignee,
+  TaskBoardGroup,
+  TaskExecution,
+  TaskStatus,
+} from "../types";
 import type { TaskColumnModel } from "../lib/taskBoard";
-import { Bot, UserRound } from "lucide-react";
+import { Bot, Columns3, UserRound } from "lucide-react";
 import { TaskCard } from "./TaskCard";
 
 export function TaskBoardView({
   columns,
   assignees,
   pending,
+  groupBy,
   onOpen,
   onReassign,
+  onStatusChange,
   executions,
 }: {
   columns: TaskColumnModel[];
   assignees: TaskAssignee[];
   pending: boolean;
+  groupBy: TaskBoardGroup;
   onOpen: (taskId: string) => void;
   onReassign: (task: Task, assignee: string | null) => void;
+  onStatusChange: (task: Task, status: TaskStatus) => void;
   executions: ReadonlyMap<string, TaskExecution>;
 }) {
   return (
@@ -24,10 +34,14 @@ export function TaskBoardView({
         // biome-ignore lint/a11y/noStaticElementInteractions: Native drop target; each card also has a keyboard-operable assignee select.
         <section
           className="flex w-72 shrink-0 flex-col rounded-xl bg-muted/40 ring-primary/0 transition-shadow data-[drag-over=true]:ring-2"
-          data-testid={`task-column-${column.pubkey ?? "unassigned"}`}
-          key={column.pubkey ?? "unassigned"}
+          data-testid={`task-column-${column.id}`}
+          key={column.id}
           onDragOver={(event) => {
-            if (column.canAssign !== false && !pending) event.preventDefault();
+            if (
+              (groupBy === "status" || column.canAssign !== false) &&
+              !pending
+            )
+              event.preventDefault();
           }}
           onDrop={(event) => {
             event.preventDefault();
@@ -41,12 +55,20 @@ export function TaskBoardView({
                 (item) =>
                   item.id === event.dataTransfer.getData("text/task-id"),
               );
-            if (dragged && dragged.assignee !== column.pubkey)
+            if (!dragged) return;
+            if (groupBy === "status" && column.status) {
+              if (dragged.status !== column.status)
+                onStatusChange(dragged, column.status);
+              return;
+            }
+            if (dragged.assignee !== column.pubkey)
               onReassign(dragged, column.pubkey);
           }}
         >
           <header className="flex items-center gap-2 px-3 py-3">
-            {column.kind === "agent" ? (
+            {column.kind === "status" ? (
+              <Columns3 className="h-4 w-4" />
+            ) : column.kind === "agent" ? (
               <Bot className="h-4 w-4" />
             ) : (
               <UserRound className="h-4 w-4" />
@@ -56,11 +78,13 @@ export function TaskBoardView({
               <p className="text-xs text-muted-foreground">
                 {column.tasks.length}{" "}
                 {column.tasks.length === 1 ? "task" : "tasks"} ·{" "}
-                {column.kind === "agent"
-                  ? "Agent"
-                  : column.kind === "person"
-                    ? "Person"
-                    : "No owner"}
+                {column.kind === "status"
+                  ? "Status"
+                  : column.kind === "agent"
+                    ? "Agent"
+                    : column.kind === "person"
+                      ? "Person"
+                      : "No owner"}
               </p>
             </div>
           </header>
