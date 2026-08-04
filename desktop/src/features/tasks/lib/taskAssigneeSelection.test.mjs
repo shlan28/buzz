@@ -1,17 +1,41 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { taskAssigneeFromSelectValue } from "./taskAssigneeSelection.ts";
+import {
+  taskAssigneeFromSelectValue,
+  taskAssigneeSelectValue,
+} from "./taskAssigneeSelection.ts";
 
-test("preserves the current user's pubkey", () => {
-  const pubkey =
-    "b2fa0399d5e1487ee90b88e0d18223fb17e382d711aaee0e7f0ad5ee7d363f4e";
-  assert.equal(taskAssigneeFromSelectValue(pubkey), pubkey);
+const assignees = [
+  { pubkey: null, label: "Unassigned", kind: "unassigned" },
+  { pubkey: "b2fa", label: "lu", kind: "person" },
+  { pubkey: "agent-pubkey", label: "Bumble", kind: "agent" },
+];
+
+test("resolves the current user from a stable candidate index", () => {
+  assert.equal(
+    taskAssigneeFromSelectValue(taskAssigneeSelectValue(1), assignees),
+    "b2fa",
+  );
 });
 
-test("preserves any other non-empty assignee value", () => {
-  assert.equal(taskAssigneeFromSelectValue("agent-pubkey"), "agent-pubkey");
+test("resolves an Agent from the same candidate collection", () => {
+  assert.equal(
+    taskAssigneeFromSelectValue(taskAssigneeSelectValue(2), assignees),
+    "agent-pubkey",
+  );
 });
 
-test("only an explicit empty value clears the assignee", () => {
-  assert.equal(taskAssigneeFromSelectValue(""), null);
+test("resolves only the explicit Unassigned candidate to null", () => {
+  assert.equal(
+    taskAssigneeFromSelectValue(taskAssigneeSelectValue(0), assignees),
+    null,
+  );
+});
+
+test("rejects stale and malformed option values", () => {
+  assert.equal(taskAssigneeFromSelectValue("", assignees), undefined);
+  assert.equal(
+    taskAssigneeFromSelectValue(taskAssigneeSelectValue(99), assignees),
+    undefined,
+  );
 });

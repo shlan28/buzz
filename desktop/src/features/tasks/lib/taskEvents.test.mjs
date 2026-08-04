@@ -73,6 +73,36 @@ test("mutation can modify and clear the due timestamp", () => {
   );
 });
 
+test("mutation writes the selected user's pubkey and explicit clear separately", () => {
+  const task = parseTaskState(event, relay);
+  assert.ok(task);
+  const lu = "b2fa0399d5e1487ee90b88e0d18223fb17e382d711aaee0e7f0ad5ee7d363f4e";
+  const assigned = buildMutateTaskEvent(task, { assignee: lu });
+  assert.deepEqual(
+    assigned.tags.find((tag) => tag[0] === "p"),
+    ["p", lu],
+  );
+  assert.equal(
+    assigned.tags.some((tag) => tag[0] === "clear"),
+    false,
+  );
+
+  const cleared = buildMutateTaskEvent(task, { assignee: null });
+  assert.deepEqual(
+    cleared.tags.find((tag) => tag[0] === "clear"),
+    ["clear", "assignee"],
+  );
+});
+
+test("rejects a mutation without any changed field", () => {
+  const task = parseTaskState(event, relay);
+  assert.ok(task);
+  assert.throws(
+    () => buildMutateTaskEvent(task, {}),
+    /does not contain any changes/,
+  );
+});
+
 test("parses a complete command into a history entry", () => {
   const history = parseTaskHistoryEvent(
     {

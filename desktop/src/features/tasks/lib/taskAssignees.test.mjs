@@ -10,11 +10,17 @@ const agent = (pubkey, name, overrides = {}) => ({
   taskAssignmentAllowlist: [],
   ...overrides,
 });
+const profile = (displayName, ownerPubkey = null) => ({
+  displayName,
+  avatarUrl: null,
+  nip05Handle: null,
+  ownerPubkey,
+});
 
 test("excludes historical Agent profiles that are not community members", () => {
   const assignees = buildTaskAssignees({
     members: [member("human")],
-    profiles: {},
+    profiles: { human: profile("Human") },
     managedAgents: [],
     relayAgents: [agent("historical-agent", "Old Agent")],
     viewerPubkey: "viewer",
@@ -29,7 +35,7 @@ test("excludes historical Agent profiles that are not community members", () => 
 test("deduplicates the same pubkey across members and Agent sources", () => {
   const assignees = buildTaskAssignees({
     members: [member("AGENT"), member("agent")],
-    profiles: {},
+    profiles: { human: profile("Human") },
     managedAgents: [agent("agent", "Local Agent")],
     relayAgents: [agent("AGENT", "Relay Agent")],
     viewerPubkey: "viewer",
@@ -72,7 +78,7 @@ test("keeps an offline Relay Agent when it remains a community member", () => {
 test("keeps human members and applies Relay Agent assignment policy", () => {
   const assignees = buildTaskAssignees({
     members: [member("human"), member("restricted-agent")],
-    profiles: {},
+    profiles: { human: profile("Human") },
     managedAgents: [],
     relayAgents: [agent("restricted-agent", "Restricted Agent")],
     viewerPubkey: "viewer",
@@ -108,4 +114,33 @@ test("keeps the current user assignable when stale Agent data shares their pubke
     canAssign: true,
     unavailableReason: undefined,
   });
+});
+
+test("matches the live community when an old local Agent remains only in member profiles", () => {
+  const viewer = "b2fa";
+  const currentBumble = "1bcf";
+  const oldBumble = "d5f5";
+  const assignees = buildTaskAssignees({
+    members: [
+      member(viewer),
+      member(currentBumble),
+      member(oldBumble),
+      member("blank-one"),
+      member("blank-two"),
+    ],
+    profiles: {
+      [viewer]: profile("lu"),
+      [currentBumble]: profile("Bumble"),
+      [oldBumble]: profile("Bumble", viewer),
+    },
+    managedAgents: [agent(currentBumble, "Bumble")],
+    relayAgents: [],
+    viewerPubkey: viewer,
+  });
+
+  assert.deepEqual(
+    assignees.map(({ pubkey }) => pubkey),
+    [null, viewer, currentBumble],
+  );
+  assert.equal(assignees.filter(({ label }) => label === "Bumble").length, 1);
 });

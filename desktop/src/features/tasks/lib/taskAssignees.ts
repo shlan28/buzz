@@ -31,6 +31,14 @@ export function buildTaskAssignees(input: {
   const relayByPubkey = new Map(
     input.relayAgents.map((agent) => [agent.pubkey.toLowerCase(), agent]),
   );
+  const viewerPubkey = input.viewerPubkey?.toLowerCase();
+  const managedIdentityKeys = new Set(
+    viewerPubkey
+      ? input.managedAgents.map(
+          (agent) => `${viewerPubkey}:${normalizeIdentityName(agent.name)}`,
+        )
+      : [],
+  );
   const result: TaskAssignee[] = [
     { pubkey: null, label: "Unassigned", kind: "unassigned" },
   ];
@@ -44,8 +52,25 @@ export function buildTaskAssignees(input: {
     const managed = managedByPubkey.get(pubkey);
     const relay = relayByPubkey.get(pubkey);
     const profile = input.profiles[pubkey];
-    const isViewer = pubkey === input.viewerPubkey?.toLowerCase();
-    const isAgent = !isViewer && Boolean(managed ?? relay);
+    const isViewer = pubkey === viewerPubkey;
+    if (!isViewer && !profile && !managed && !relay) continue;
+
+    const label =
+      profile?.displayName ??
+      managed?.name ??
+      relay?.name ??
+      truncatePubkey(member.pubkey);
+    const profileOwner = profile?.ownerPubkey?.toLowerCase();
+    const replacedByManaged =
+      !managed &&
+      profileOwner !== undefined &&
+      managedIdentityKeys.has(
+        `${profileOwner}:${normalizeIdentityName(label)}`,
+      );
+    if (replacedByManaged) continue;
+
+    const isAgent =
+      !isViewer && Boolean(managed ?? relay ?? profile?.ownerPubkey);
     const access = isAgent
       ? resolveTaskAssignmentAccess({
           viewerPubkey: input.viewerPubkey,
@@ -64,11 +89,7 @@ export function buildTaskAssignees(input: {
 
     result.push({
       pubkey: member.pubkey,
-      label:
-        profile?.displayName ??
-        managed?.name ??
-        relay?.name ??
-        truncatePubkey(member.pubkey),
+      label,
       kind: isAgent ? "agent" : "person",
       canAssign: access.allowed,
       unavailableReason: access.reason,
@@ -76,4 +97,8 @@ export function buildTaskAssignees(input: {
   }
 
   return result;
+}
+
+function normalizeIdentityName(name: string) {
+  return name.trim().toLocaleLowerCase().replace(/\s+/g, " ");
 }

@@ -5,7 +5,7 @@ import {
   dueTimestampToLocalDate,
   isDueTimestampOverdue,
 } from "../lib/taskDates";
-import { taskAssigneeFromSelectValue } from "../lib/taskAssigneeSelection";
+import { TaskAssigneeSelect } from "./TaskAssigneeSelect";
 
 const STATUS_LABELS = {
   backlog: "Backlog",
@@ -80,27 +80,15 @@ export function TaskCard({
         ) : null}
       </span>
       {assignees && onReassign ? (
-        <label className="mt-2 block text-xs text-muted-foreground">
-          <span className="sr-only">Move {task.title} to</span>
-          <select
-            aria-label={`Move ${task.title} to`}
-            className="h-7 w-full rounded-md border border-input bg-background px-2 text-xs"
-            value={task.assignee ?? ""}
-            onChange={(event) =>
-              onReassign(taskAssigneeFromSelectValue(event.target.value))
-            }
-          >
-            {assignees.map((assignee) => (
-              <option
-                disabled={assignee.canAssign === false}
-                key={assignee.pubkey ?? "unassigned"}
-                value={assignee.pubkey ?? ""}
-              >
-                {assignee.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="mt-2 text-xs text-muted-foreground">
+          <TaskAssigneeSelect
+            assignees={assignees}
+            compact
+            label={`Move ${task.title} to`}
+            value={task.assignee}
+            onChange={onReassign}
+          />
+        </div>
       ) : null}
     </article>
   );

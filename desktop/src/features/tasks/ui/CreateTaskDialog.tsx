@@ -20,7 +20,7 @@ import {
   dueTimestampToLocalDate,
   localDateToDueTimestamp,
 } from "../lib/taskDates";
-import { taskAssigneeFromSelectValue } from "../lib/taskAssigneeSelection";
+import { TaskAssigneeSelect } from "./TaskAssigneeSelect";
 
 export function CreateTaskDialog({
   assignees,
@@ -85,20 +85,11 @@ export function CreateTaskDialog({
             />
           </label>
           <div className="grid grid-cols-2 gap-3">
-            <SelectField
+            <TaskAssigneeSelect
+              assignees={assignees}
               label="Assignee"
-              value={draft.assignee ?? ""}
-              onChange={(value) =>
-                setDraft({
-                  ...draft,
-                  assignee: taskAssigneeFromSelectValue(value),
-                })
-              }
-              options={assignees.map((a) => ({
-                value: a.pubkey ?? "",
-                label: `${a.label}${a.kind === "agent" ? " · Agent" : ""}${a.canAssign === false ? ` — ${a.unavailableReason ?? "Unavailable"}` : ""}`,
-                disabled: a.canAssign === false,
-              }))}
+              value={draft.assignee}
+              onChange={(assignee) => setDraft({ ...draft, assignee })}
             />
             <SelectField
               label="Status"

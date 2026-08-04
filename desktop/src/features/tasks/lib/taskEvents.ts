@@ -156,6 +156,8 @@ export function buildMutateTaskEvent(task: Task, patch: TaskPatch) {
     tags.push([patch.description.length > 0 ? "set" : "clear", "description"]);
   if (patch.archived !== undefined)
     tags.push(["archived", String(patch.archived)]);
+  if (tags.length === 4)
+    throw new Error("Task update does not contain any changes.");
   return {
     kind: KIND_TASK_MUTATE as typeof KIND_TASK_MUTATE,
     content: patch.description ?? "",

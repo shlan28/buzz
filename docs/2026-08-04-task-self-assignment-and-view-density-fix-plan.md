@@ -1,7 +1,7 @@
 # Task 自我指派与信息展示优化方案
 
 > 更新日期：2026-08-04
-> 更新说明：修复已完成；负责人选择现在会保留当前用户 pubkey，看板卡片已补充两行描述区域和截止日期，列表已补充负责人、截止日期与优先级，并通过自动化测试。
+> 更新说明：2026-08-04 第二轮负责人修复已完成：选择值改为从当前候选对象解析，旧 Bumble 与无资料身份被过滤，空更新被阻止，并补齐现场同构测试和验收结果。
 
 ## 1. 本次要解决的问题
 
@@ -124,3 +124,79 @@
 - Desktop 字号与文件大小检查：通过。
 - Desktop E2E 构建：通过。
 - Tasks E2E：8 项全部通过，包含指派给当前用户后检查签名事件 `p` tag、Relay 回写、卡片描述/截止日期和列表新增字段。
+
+## 8. 第二轮现场核查（2026-08-04）
+
+### 8.1 首次修复为什么没有解决
+
+首次测试只模拟了一个干净的当前用户和少量 Agent，没有复现当前 community 中“旧 Agent 身份、当前 Agent 身份、空 Profile 成员同时存在”的真实数据，因此测试通过，但现场问题仍然存在。
+
+当前数据库证明：
+
+- 选择运行中的 Agent 时，任务更新事件会正确携带负责人 `p` tag；
+- 选择 `lu（b2fa0399…3f4e）` 时，客户端仍生成了不含 `p` tag、也不含清空标记的空更新；
+- Relay 没有拒绝 `lu`，故障仍发生在 Desktop 下拉选项到任务事件的传值阶段。
+
+### 8.2 多余身份的真实来源
+
+- 当前有效 Bumble：`1bcf94f9…3163`，存在于当前 Desktop Managed Agent 记录中，并有当前运行记录。
+- 历史 Bumble：`d5f5cf02…6049`，仍是 community 成员并保留旧 Profile，但已不在当前 Managed Agent 列表；其旧头像地址仍指向 `localhost:3000`。
+- 两个无名身份：`81d9781a…cc99`、`fc6d19b9…215d`，只有 community 成员记录，没有 Profile，也没有任何事件。
+
+因此，单纯“只显示 community 成员”仍然会把历史身份和空身份带进负责人列表。
+
+## 9. 第二轮修复方案
+
+### 9.1 负责人选择不再直接相信 DOM 字符串
+
+新增统一的负责人选择组件。下拉框内部使用候选位置作为稳定值，选中后再从当前候选对象中取得 pubkey：
+
+- `Unassigned` 明确解析为 `null`；
+- `lu` 明确解析为 `b2fa0399…3f4e`；
+- Agent 明确解析为各自 pubkey；
+- 找不到候选时不发送任务更新，并显示错误；
+- 任务事件生成器拒绝没有任何实际字段的空更新，避免错误继续被 Relay 当作成功保存。
+
+详情面板、卡片快速指派和创建任务共用同一个组件与解析规则，避免三个入口再次出现不同表现。
+
+### 9.2 负责人候选必须是可识别的当前身份
+
+候选规则调整为：
+
+- 当前登录用户始终保留；
+- 有 Profile 的普通 community 成员保留；
+- 当前 Managed Agent 且仍是 community 成员的身份保留；
+- 可识别的 Relay Agent 且仍是 community 成员的身份保留；
+- 只有成员记录、没有 Profile、也不是任何有效 Agent 来源的空身份不显示；
+- 当旧 Relay Agent 与当前本机 Managed Agent 的 owner 和标准化名称相同，优先当前本机 Agent，隐藏旧身份；
+- 不对两个普通同名用户做合并，避免误删真实的人类成员。
+
+这只清理负责人选择列表，不直接删除数据库成员或历史事件，数据操作仍然可恢复、可审计。
+
+## 10. 第二轮 Todo List
+
+- [x] `desktop/src/features/tasks/ui/TaskAssigneeSelect.tsx`：新增基于候选对象解析的统一负责人选择组件，并处理无效选项。
+- [x] `desktop/src/features/tasks/ui/TaskDetailPanel.tsx`：改用统一负责人选择组件，确保 `lu` 产生明确 pubkey。
+- [x] `desktop/src/features/tasks/ui/CreateTaskDialog.tsx`：改用统一负责人选择组件。
+- [x] `desktop/src/features/tasks/ui/TaskCard.tsx`：卡片快速指派改用统一负责人选择组件。
+- [x] `desktop/src/features/tasks/lib/taskEvents.ts`：拒绝没有任何实际变更字段的 Task Mutate 空更新。
+- [x] `desktop/src/features/tasks/lib/taskEvents.test.mjs`：覆盖 `lu` 的 `p` tag、明确清空和空更新拒绝。
+- [x] `desktop/src/features/tasks/lib/taskAssignees.ts`：过滤无 Profile 空成员，并优先同 owner 同名的当前 Managed Agent。
+- [x] `desktop/src/features/tasks/lib/taskAssignees.test.mjs`：使用现场同构数据覆盖两个 Bumble、两个空身份和 `lu`；旧 Bumble 仅残留在成员 Profile 中也能识别。
+- [x] `desktop/tests/e2e/tasks.spec.ts`：覆盖详情与卡片把任务指派给 `lu`，检查签名事件 `p` tag、Relay 回写和列表结果。
+- [x] `docs/2026-08-04-task-self-assignment-and-view-density-fix-plan.md`：完成后更新第二轮 Todo 和验证结果。
+
+## 11. 第二轮验收标准
+
+1. 从详情面板和卡片下拉框选择 `lu（b2fa0399…3f4e）` 后，任务更新事件都包含该 pubkey 的 `p` tag，Relay 回写后不回退。
+2. 负责人列表只显示当前 Bumble `1bcf94f9…3163`，不显示历史 Bumble `d5f5cf02…6049`。
+3. `81d9781a…cc99` 和 `fc6d19b9…215d` 不再出现在负责人列表。
+4. 当前可运行 Agent 和有 Profile 的真实成员仍可正常指派。
+5. Desktop 不再向 Relay 发送没有任何实际变更字段的 Task Mutate 空更新。
+
+## 12. 第二轮验证结果
+
+- Desktop 单元测试：3823 项全部通过；现场同构用例包含当前 `lu`、当前 Bumble、仅残留 Profile 的旧 Bumble 和两个无资料身份。
+- Desktop TypeScript 类型检查：通过。
+- Desktop Biome、文件大小、字号和 pubkey 展示检查：通过；Biome 仅报告两条本次改动之外的既有提示。
+- Tasks E2E：8 项全部通过；详情面板与卡片快速指派均验证 `lu` 的 `p` tag，Relay 回写后负责人保持为 `lu`。

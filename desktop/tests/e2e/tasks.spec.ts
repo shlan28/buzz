@@ -56,6 +56,14 @@ async function installTasks(
         respondTo: "owner-only",
       },
     ],
+    searchProfiles: [
+      {
+        pubkey: MOCK_VIEWER,
+        displayName: "lu",
+        ownerPubkey: null,
+        isAgent: false,
+      },
+    ],
     taskEvents: [
       taskState({
         id: FIRST_TASK,
@@ -131,8 +139,10 @@ test("keyboard opens a task, edits text, and transfers its owner", async ({
     panel.getByRole("heading", { name: "Audit onboarding and recovery" }),
   ).toBeVisible();
 
-  await panel.getByLabel("Assignee").selectOption(BOB);
-  await expect(panel.getByLabel("Assignee")).toHaveValue(BOB);
+  await panel.getByLabel("Assignee").selectOption({ label: "bob" });
+  await expect(
+    panel.getByLabel("Assignee").locator("option:checked"),
+  ).toHaveText("bob");
 
   await panel.getByLabel("Due date").fill("2026-08-31");
   await panel.getByRole("button", { name: "Save due date" }).click();
@@ -156,8 +166,8 @@ test("assigning a task to the current user survives Relay confirmation", async (
   await page.goto(`/#/tasks?task=${FIRST_TASK}`);
 
   const assignee = page.getByTestId("task-detail-panel").getByLabel("Assignee");
-  await assignee.selectOption(MOCK_VIEWER);
-  await expect(assignee).toHaveValue(MOCK_VIEWER);
+  await assignee.selectOption({ label: "lu" });
+  await expect(assignee.locator("option:checked")).toHaveText("lu");
 
   const mutation = await page.evaluate(() =>
     window.__BUZZ_E2E_SIGNED_EVENTS__?.findLast(
@@ -178,9 +188,25 @@ test("board cards and list rows show task planning details", async ({
   await expect(card).toContainText("Check the first-run experience.");
   await expect(card).toContainText("2026-08-20");
 
+  await card.getByLabel("Move Audit onboarding flow to").selectOption({
+    label: "lu",
+  });
+  await expect(
+    page
+      .getByTestId(`task-column-${MOCK_VIEWER}`)
+      .getByTestId(`task-card-${FIRST_TASK}`),
+  ).toBeVisible();
+
+  const cardMutation = await page.evaluate(() =>
+    window.__BUZZ_E2E_SIGNED_EVENTS__?.findLast(
+      (event) => event.kind === 42_501,
+    ),
+  );
+  expect(cardMutation?.tags).toContainEqual(["p", MOCK_VIEWER]);
+
   await page.getByRole("button", { name: "List view" }).click();
   const row = page.getByTestId(`task-list-row-${FIRST_TASK}`);
-  await expect(row).toContainText("Unassigned");
+  await expect(row).toContainText("lu");
   await expect(row).toContainText("2026-08-20");
   await expect(row).toContainText("high");
 });
