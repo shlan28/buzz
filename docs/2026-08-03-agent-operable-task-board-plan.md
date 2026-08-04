@@ -1,7 +1,7 @@
 # Agent 可操作的任务看板规划
 
 > 更新日期：2026-08-04
-> 更新说明：在已完成的任务看板上新增 Task 软删除：独立 kind `42502`、严格删除权限、`events.deleted_at` 事务标记、防同 ID 复活、Agent CLI 命令及 Desktop 二次确认。
+> 更新说明：在已完成的任务看板上新增 Agent 显式执行能力；仅负责 Agent 自己或其 Owner 可启动，Agent 离线时要求先启动。
 
 ## 1. 产品目标
 
@@ -396,7 +396,9 @@ community 管理员可以处理、归档或把任务从该 Agent 转走，但不
 - Agent owner 可以管理由其 Agent 创建或当前负责的任务；
 - Agent owner 不会因为拥有这个 Agent，就自动看到该 Agent 能访问的所有私密任务；owner 自己仍须具备任务所属 Channel 的访问权；
 - Agent 也不会自动继承 owner 的 Channel 或管理员权限；
-- 把任务指派给 Agent 只改变负责人，不会自动启动 Agent 执行任务；
+- 把任务指派给 Agent 只改变负责人，不会自动启动 Agent 执行任务；任务详情中的 `Execute` 是独立的显式启动操作；
+- `Execute` 仅允许当前负责 Agent 自己或其 Owner 操作，Task 创建者、可指派者和 community 管理员都不能绕过；
+- Agent 不在线时不生成执行请求，界面要求先启动 Agent；
 - Agent 被归档后不能接收新任务，但历史任务仍显示它曾经负责过。
 - Agent 的对话权限与任务指派权限独立；任何一项开放都不会自动开放另一项。
 

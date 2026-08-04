@@ -23,6 +23,148 @@ pub enum DeleteTaskResult {
     Deleted,
 }
 
+/// Atomically store an execution command and replace its relay-derived state.
+/// The task advisory lock serializes requests and Agent claims across relay pods.
+pub async fn apply_task_execution_events(
+    pool: &PgPool,
+    community_id: CommunityId,
+    task_id: Uuid,
+    execution_id: Uuid,
+    command: &Event,
+    state: &Event,
+    channel_id: Option<Uuid>,
+    is_new_request: bool,
+) -> Result<ApplyTaskResult> {
+    let mut tx = pool.begin().await?;
+    let lock_key = i64::from_le_bytes(
+        task_id.as_bytes()[..8]
+            .try_into()
+            .map_err(|_| DbError::InvalidData("task UUID could not produce lock key".into()))?,
+    );
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(lock_key)
+        .execute(tx.as_mut())
+        .await?;
+
+    let duplicate = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM events WHERE community_id = $1 AND id = $2)",
+    )
+    .bind(community_id.as_uuid())
+    .bind(command.id.as_bytes().as_slice())
+    .fetch_one(tx.as_mut())
+    .await?;
+    if duplicate {
+        return Ok(ApplyTaskResult::Duplicate);
+    }
+
+    let active = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM events WHERE community_id = $1 AND kind = $2 \
+         AND deleted_at IS NULL AND tags @> $3 AND (tags @> $4 OR tags @> $5))",
+    )
+    .bind(community_id.as_uuid())
+    .bind(buzz_core::kind::KIND_TASK_EXECUTION_STATE as i32)
+    .bind(serde_json::json!([["t", format!("task-id:{task_id}")]]))
+    .bind(serde_json::json!([["status", "queued"]]))
+    .bind(serde_json::json!([["status", "running"]]))
+    .fetch_one(tx.as_mut())
+    .await?;
+    if is_new_request && active {
+        return Err(DbError::Conflict(
+            "task already has an active execution".into(),
+        ));
+    }
+
+    let current = sqlx::query(
+        "SELECT id, tags FROM events WHERE community_id = $1 AND kind = $2 AND d_tag = $3 \
+         AND deleted_at IS NULL FOR UPDATE",
+    )
+    .bind(community_id.as_uuid())
+    .bind(buzz_core::kind::KIND_TASK_EXECUTION_STATE as i32)
+    .bind(execution_id.to_string())
+    .fetch_optional(tx.as_mut())
+    .await?;
+    if is_new_request && current.is_some() {
+        return Err(DbError::Conflict("execution id already exists".into()));
+    }
+    if !is_new_request && current.is_none() {
+        return Err(DbError::NotFound("execution not found".into()));
+    }
+    if !is_new_request {
+        let current_tags: serde_json::Value = current
+            .as_ref()
+            .ok_or_else(|| DbError::NotFound("execution not found".into()))?
+            .try_get("tags")?;
+        let belongs_to_task = current_tags.as_array().is_some_and(|tags| {
+            tags.iter().any(|tag| {
+                let Some(parts) = tag.as_array() else {
+                    return false;
+                };
+                parts.first().and_then(serde_json::Value::as_str) == Some("t")
+                    && parts.get(1).and_then(serde_json::Value::as_str)
+                        == Some(format!("task-id:{task_id}").as_str())
+            })
+        });
+        if !belongs_to_task {
+            return Err(DbError::Conflict(
+                "execution belongs to another task".into(),
+            ));
+        }
+        let previous_status = current_tags
+            .as_array()
+            .and_then(|tags| {
+                tags.iter().find_map(|tag| {
+                    let parts = tag.as_array()?;
+                    (parts.first()?.as_str()? == "status")
+                        .then(|| parts.get(1)?.as_str())
+                        .flatten()
+                })
+            })
+            .unwrap_or_default();
+        let next_status = command
+            .tags
+            .iter()
+            .find_map(|tag| {
+                let parts = tag.as_slice();
+                (parts.first().map(String::as_str) == Some("status"))
+                    .then(|| parts.get(1).map(String::as_str))
+                    .flatten()
+            })
+            .unwrap_or_default();
+        let allowed = matches!(
+            (previous_status, next_status),
+            ("queued", "running") | ("running", "finished") | ("running", "failed")
+        );
+        if !allowed {
+            return Err(DbError::Conflict(format!(
+                "invalid execution transition {previous_status} -> {next_status}"
+            )));
+        }
+    }
+
+    insert_raw(&mut tx, community_id, command, channel_id, None).await?;
+    if current.is_some() {
+        sqlx::query(
+            "UPDATE events SET deleted_at = NOW() WHERE community_id = $1 AND kind = $2 \
+             AND d_tag = $3 AND deleted_at IS NULL",
+        )
+        .bind(community_id.as_uuid())
+        .bind(buzz_core::kind::KIND_TASK_EXECUTION_STATE as i32)
+        .bind(execution_id.to_string())
+        .execute(tx.as_mut())
+        .await?;
+    }
+    insert_raw(
+        &mut tx,
+        community_id,
+        state,
+        channel_id,
+        Some(execution_id.to_string()),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(ApplyTaskResult::Applied)
+}
+
 /// Store an actor command and replace its relay-signed state under one lock.
 pub async fn apply_task_events(
     pool: &PgPool,

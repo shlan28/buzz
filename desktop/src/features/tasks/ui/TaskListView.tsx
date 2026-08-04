@@ -4,17 +4,19 @@ import {
   dueTimestampToLocalDate,
   isDueTimestampOverdue,
 } from "../lib/taskDates";
-import type { Task, TaskAssignee } from "../types";
+import type { Task, TaskAssignee, TaskExecution } from "../types";
 import { TaskStatusBadge } from "./TaskStatusBadge";
 
 export function TaskListView({
   tasks,
   assignees,
   onOpen,
+  executions,
 }: {
   tasks: Task[];
   assignees: TaskAssignee[];
   onOpen: (taskId: string) => void;
+  executions: ReadonlyMap<string, TaskExecution>;
 }) {
   const labels = new Map(
     assignees
@@ -45,7 +47,14 @@ export function TaskListView({
               <span className="min-w-0 truncate text-sm font-medium">
                 {task.title}
               </span>
-              <TaskStatusBadge status={task.status} />
+              <span className="flex items-center gap-1.5">
+                <TaskStatusBadge status={task.status} />
+                {executions.get(task.id)?.status === "running" ? (
+                  <span className="text-xs text-blue-700 dark:text-blue-300">
+                    Running
+                  </span>
+                ) : null}
+              </span>
               <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                 <UserRound className="h-3 w-3" />
                 {assignee}

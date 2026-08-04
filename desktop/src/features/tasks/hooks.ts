@@ -5,6 +5,7 @@ import {
   useRelayAgentsQuery,
 } from "@/features/agents/hooks";
 import { useRelayMembersQuery } from "@/features/community-members/hooks";
+import { usePresenceQuery } from "@/features/presence/hooks";
 import { useRelaySelfQuery } from "@/features/moderation/hooks";
 import { useIdentityQuery } from "@/shared/api/hooks";
 import { useUsersBatchQuery } from "@/features/profile/hooks";
@@ -14,16 +15,19 @@ import type { RelayEvent } from "@/shared/api/types";
 import {
   KIND_TASK_CREATE,
   KIND_TASK_DELETE,
+  KIND_TASK_EXECUTION_STATE,
   KIND_TASK_MUTATE,
   KIND_TASK_STATE,
 } from "@/shared/constants/kinds";
 import {
   buildCreateTaskEvent,
   buildDeleteTaskEvent,
+  buildExecuteTaskEvent,
   buildMutateTaskEvent,
   assertTaskAssigneeTags,
   parseTaskState,
   parseTaskHistoryEvent,
+  parseTaskExecutionState,
   taskIdFromDeleteEvent,
 } from "./lib/taskEvents";
 import { buildTaskAssignees } from "./lib/taskAssignees";
@@ -31,6 +35,7 @@ import type {
   Task,
   TaskAssignee,
   TaskDraft,
+  TaskExecution,
   TaskHistoryEntry,
   TaskPatch,
 } from "./types";
@@ -58,6 +63,24 @@ async function fetchTasks(relaySelfPubkey: string): Promise<Task[]> {
     until = Math.min(...events.map((event) => event.created_at)) - 1;
   }
   return [...byId.values()];
+}
+
+async function fetchTaskExecutions(
+  relaySelfPubkey: string,
+): Promise<Map<string, TaskExecution>> {
+  const events = await relayClient.fetchEvents({
+    kinds: [KIND_TASK_EXECUTION_STATE],
+    limit: 500,
+  });
+  const byTask = new Map<string, TaskExecution>();
+  for (const event of events) {
+    const execution = parseTaskExecutionState(event, relaySelfPubkey);
+    if (!execution) continue;
+    const current = byTask.get(execution.taskId);
+    if (!current || current.updatedAt < execution.updatedAt)
+      byTask.set(execution.taskId, execution);
+  }
+  return byTask;
 }
 
 async function publishCommand(
@@ -95,14 +118,35 @@ export function useTasks() {
     queryKey: [...tasksQueryKey, relaySelf.data ?? null],
     queryFn: () => fetchTasks(relaySelf.data ?? ""),
   });
+  const agentPubkeys = React.useMemo(
+    () => [
+      ...new Set(assigneeAgentPubkeys(managedAgents.data, relayAgents.data)),
+    ],
+    [managedAgents.data, relayAgents.data],
+  );
+  const presence = usePresenceQuery(agentPubkeys);
+  const executions = useQuery({
+    enabled: Boolean(relaySelf.data),
+    queryKey: ["task-executions", relaySelf.data ?? null],
+    queryFn: () => fetchTaskExecutions(relaySelf.data ?? ""),
+  });
 
   React.useEffect(() => {
     let disposed = false;
     let dispose: (() => void) | undefined;
     void relayClient
       .subscribeLive(
-        { kinds: [KIND_TASK_STATE, KIND_TASK_DELETE], limit: 0 },
+        {
+          kinds: [KIND_TASK_STATE, KIND_TASK_DELETE, KIND_TASK_EXECUTION_STATE],
+          limit: 0,
+        },
         (event: RelayEvent) => {
+          if (event.kind === KIND_TASK_EXECUTION_STATE) {
+            void queryClient.invalidateQueries({
+              queryKey: ["task-executions"],
+            });
+            return;
+          }
           const deletedTaskId = taskIdFromDeleteEvent(event);
           if (deletedTaskId) {
             removeTaskFromCache(queryClient, deletedTaskId);
@@ -185,6 +229,38 @@ export function useTasks() {
       void queryClient.invalidateQueries({ queryKey: tasksQueryKey });
     },
   });
+  const execute = useMutation({
+    mutationFn: (task: Task) => publishCommand(buildExecuteTaskEvent(task)),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["task-executions"] }),
+  });
+
+  const ownedAgentPubkeys = React.useMemo(
+    () =>
+      new Set(
+        (managedAgents.data ?? []).map((agent) => agent.pubkey.toLowerCase()),
+      ),
+    [managedAgents.data],
+  );
+  const agentPubkeySet = React.useMemo(
+    () => new Set(agentPubkeys.map((pubkey) => pubkey.toLowerCase())),
+    [agentPubkeys],
+  );
+  const onlineAgentPubkeys = React.useMemo(
+    () =>
+      new Set([
+        ...(managedAgents.data ?? [])
+          .filter(
+            (agent) =>
+              agent.status === "running" || agent.status === "deployed",
+          )
+          .map((agent) => agent.pubkey.toLowerCase()),
+        ...(relayAgents.data ?? [])
+          .filter((agent) => agent.status === "online")
+          .map((agent) => agent.pubkey.toLowerCase()),
+      ]),
+    [managedAgents.data, relayAgents.data],
+  );
 
   return {
     ...query,
@@ -194,7 +270,34 @@ export function useTasks() {
     create,
     update,
     deleteTask,
+    execute,
+    executions: executions.data ?? new Map<string, TaskExecution>(),
+    presence: presence.data ?? {},
+    isAgentOnline: (pubkey: string | null) =>
+      Boolean(
+        pubkey &&
+          ((presence.data?.[pubkey.toLowerCase()] ?? "offline") === "online" ||
+            onlineAgentPubkeys.has(pubkey.toLowerCase())),
+      ),
+    canExecute: (task: Task) =>
+      Boolean(
+        task.assignee &&
+          agentPubkeySet.has(task.assignee.toLowerCase()) &&
+          (task.assignee.toLowerCase() ===
+            identity.data?.pubkey.toLowerCase() ||
+            ownedAgentPubkeys.has(task.assignee.toLowerCase())),
+      ),
   };
+}
+
+function assigneeAgentPubkeys(
+  managed: ReturnType<typeof useManagedAgentsQuery>["data"],
+  relay: ReturnType<typeof useRelayAgentsQuery>["data"],
+) {
+  return [
+    ...(managed ?? []).map((agent) => agent.pubkey),
+    ...(relay ?? []).map((agent) => agent.pubkey),
+  ];
 }
 
 function removeTaskFromCache(

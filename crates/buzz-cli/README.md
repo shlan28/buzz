@@ -67,6 +67,7 @@ buzz dms list
 # Tasks
 buzz tasks create --title "Audit onboarding"
 buzz tasks get --id <task-uuid>
+buzz tasks execute --id <task-uuid> --expected-event <current-state-event-id>
 buzz tasks delete --id <task-uuid> --expected-event <current-state-event-id>
 
 # Workflows

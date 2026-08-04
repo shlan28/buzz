@@ -195,6 +195,7 @@ export function TasksScreen() {
         <TaskBoardView
           assignees={tasks.assignees}
           columns={columns}
+          executions={tasks.executions}
           pending={tasks.update.isPending}
           onOpen={openTask}
           onReassign={(task, assignee) => {
@@ -212,6 +213,7 @@ export function TasksScreen() {
       view === "list" ? (
         <TaskListView
           assignees={tasks.assignees}
+          executions={tasks.executions}
           tasks={visible}
           onOpen={openTask}
         />
@@ -240,12 +242,20 @@ export function TasksScreen() {
             tasks.deleteTask.error ? message(tasks.deleteTask.error) : undefined
           }
           task={selected}
+          agentOnline={tasks.isAgentOnline(selected.assignee)}
+          canExecute={tasks.canExecute(selected)}
+          execution={tasks.executions.get(selected.id)}
+          executionError={
+            tasks.execute.error ? message(tasks.execute.error) : undefined
+          }
+          executionPending={tasks.execute.isPending}
           onClose={() => openTask(null)}
           onDelete={() =>
             tasks.deleteTask.mutate(selected, {
               onSuccess: () => openTask(null),
             })
           }
+          onExecute={() => tasks.execute.mutate(selected)}
           onUpdate={(patch, onSuccess) => {
             setMutationError(undefined);
             tasks.update.mutate(

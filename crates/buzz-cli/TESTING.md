@@ -1,7 +1,7 @@
 # buzz-cli Live Testing Guide
 
 > Updated: 2026-08-04
-> Update: Added Task soft-delete, conflict, disappearance, and anti-recreation checks.
+> Update: Added Agent Task execution, strict owner/self permission, online presence, and execution conflict checks.
 
 Manual testing runbook for verifying every CLI command against a local relay.
 An agent or developer follows this step by step, running each command and
@@ -18,6 +18,16 @@ buzz tasks create --id "$TASK_ID" --title "Audit onboarding" \
 buzz tasks get --id "$TASK_ID"
 buzz tasks list --assignee me --status todo,in-progress
 ```
+
+For a Task assigned to an online Agent, use its current state head:
+
+```bash
+HEAD="$(buzz tasks get --id "$TASK_ID" | jq -r .state_event_id)"
+buzz tasks execute --id "$TASK_ID" --expected-event "$HEAD"
+```
+
+Verify that the Relay rejects a human who is neither the assigned Agent owner
+nor the Agent, and rejects the owner while the Agent presence is offline.
 
 Copy `state_event_id` from `tasks get` before every mutation:
 

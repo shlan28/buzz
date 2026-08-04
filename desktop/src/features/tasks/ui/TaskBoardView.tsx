@@ -1,4 +1,4 @@
-import type { Task, TaskAssignee } from "../types";
+import type { Task, TaskAssignee, TaskExecution } from "../types";
 import type { TaskColumnModel } from "../lib/taskBoard";
 import { Bot, UserRound } from "lucide-react";
 import { TaskCard } from "./TaskCard";
@@ -9,12 +9,14 @@ export function TaskBoardView({
   pending,
   onOpen,
   onReassign,
+  executions,
 }: {
   columns: TaskColumnModel[];
   assignees: TaskAssignee[];
   pending: boolean;
   onOpen: (taskId: string) => void;
   onReassign: (task: Task, assignee: string | null) => void;
+  executions: ReadonlyMap<string, TaskExecution>;
 }) {
   return (
     <div className="flex min-h-0 flex-1 gap-4 overflow-x-auto p-5">
@@ -74,6 +76,7 @@ export function TaskBoardView({
               >
                 <TaskCard
                   assignees={assignees}
+                  execution={executions.get(task.id)}
                   task={task}
                   onOpen={() => onOpen(task.id)}
                   onReassign={(assignee) => onReassign(task, assignee)}

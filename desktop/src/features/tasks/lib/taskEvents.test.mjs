@@ -4,8 +4,10 @@ import {
   assertTaskAssigneeTags,
   buildCreateTaskEvent,
   buildDeleteTaskEvent,
+  buildExecuteTaskEvent,
   buildMutateTaskEvent,
   parseTaskHistoryEvent,
+  parseTaskExecutionState,
   parseTaskState,
   taskIdFromDeleteEvent,
 } from "./taskEvents.ts";
@@ -30,6 +32,48 @@ const event = {
 test("rejects task state not signed by the Relay", () => {
   assert.equal(
     parseTaskState({ ...event, pubkey: "d".repeat(64) }, relay),
+    null,
+  );
+});
+
+test("builds a version-bound Agent execution request", () => {
+  const task = parseTaskState(
+    { ...event, tags: [...event.tags, ["p", "d".repeat(64)]] },
+    relay,
+  );
+  assert.ok(task);
+  const execution = buildExecuteTaskEvent(task);
+  assert.equal(execution.kind, 42503);
+  assert.deepEqual(
+    execution.tags.find((tag) => tag[0] === "previous"),
+    ["previous", event.id],
+  );
+  assert.deepEqual(
+    execution.tags.find((tag) => tag[0] === "p"),
+    ["p", "d".repeat(64), "", "agent"],
+  );
+  assert.match(
+    execution.tags.find((tag) => tag[0] === "d")?.[1] ?? "",
+    /^[0-9a-f-]{36}$/,
+  );
+});
+
+test("parses only Relay-signed execution state", () => {
+  const execution = {
+    ...event,
+    kind: 30501,
+    content: "",
+    tags: [
+      ["d", "00000000-0000-4000-8000-000000000001"],
+      ["t", "task-id:task-id"],
+      ["p", "d".repeat(64), "", "agent"],
+      ["requester", "e".repeat(64)],
+      ["status", "running"],
+    ],
+  };
+  assert.equal(parseTaskExecutionState(execution, relay)?.status, "running");
+  assert.equal(
+    parseTaskExecutionState({ ...execution, pubkey: "f".repeat(64) }, relay),
     null,
   );
 });

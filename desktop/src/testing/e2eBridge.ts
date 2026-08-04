@@ -49,6 +49,8 @@ import {
   KIND_SYSTEM_MESSAGE,
   KIND_TASK_CREATE,
   KIND_TASK_DELETE,
+  KIND_TASK_EXECUTION_REQUEST,
+  KIND_TASK_EXECUTION_STATE,
   KIND_TASK_MUTATE,
   KIND_TASK_STATE,
   KIND_TEXT_NOTE,
@@ -2136,6 +2138,12 @@ function resetMockManagedAgents(config?: E2eConfig) {
 
   for (const seed of config?.mock?.managedAgents ?? []) {
     mockManagedAgents.push(buildSeededManagedAgent(seed));
+    setMockPresenceStatus(
+      seed.pubkey,
+      seed.status === "running" || seed.status === "deployed"
+        ? "online"
+        : "offline",
+    );
     applyMockDisplayName(seed.pubkey, seed.name);
     mockAgentPubkeys.add(seed.pubkey);
     mockProfiles.set(seed.pubkey, {
@@ -2832,6 +2840,7 @@ const mockUserStatuses: RelayEvent[] = [];
 const mockReminderEvents: RelayEvent[] = [];
 const mockPersonaEvents: RelayEvent[] = [];
 const mockTaskEvents: RelayEvent[] = [];
+const mockTaskExecutionEvents: RelayEvent[] = [];
 let mockRelayMembers: RawRelayMember[] = [];
 const mockSockets = new Map<number, MockSocket>();
 let mockWebsocketSendMutexWedged = false;
@@ -2876,6 +2885,7 @@ function resetMockPersonaCatalogEvents(config: E2eConfig | undefined) {
 
 function resetMockTaskEvents(config: E2eConfig | undefined) {
   mockTaskEvents.length = 0;
+  mockTaskExecutionEvents.length = 0;
   for (const event of config?.mock?.taskEvents ?? []) {
     mockTaskEvents.push({
       ...event,
@@ -9412,6 +9422,14 @@ function sendToMockSocket(args: {
       return;
     }
 
+    if (filter.kinds?.includes(KIND_TASK_EXECUTION_STATE)) {
+      for (const event of mockTaskExecutionEvents) {
+        sendWsText(socket.handler, ["EVENT", subId, event]);
+      }
+      sendWsText(socket.handler, ["EOSE", subId]);
+      return;
+    }
+
     // Project queries: NIP-34 kinds, or kind:1 comments scoped by repo `a`
     // tag (PR/issue discussions, approvals, review requests).
     if (
@@ -9475,6 +9493,53 @@ function sendToMockSocket(args: {
 
   if (type === "EVENT") {
     const event = rest[0] as RelayEvent;
+
+    if (event.kind === KIND_TASK_EXECUTION_REQUEST) {
+      const taskId = taskSemanticTag(event, "task-id:")?.slice(
+        "task-id:".length,
+      );
+      const task = mockTaskEvents.find((item) => taskTag(item, "d") === taskId);
+      const executionId = taskTag(event, "d");
+      const assignee = taskTag(event, "p");
+      if (
+        !taskId ||
+        !task ||
+        !executionId ||
+        !assignee ||
+        taskTag(event, "previous") !== task.id
+      ) {
+        sendWsText(socket.handler, [
+          "OK",
+          event.id,
+          false,
+          "conflict: task changed",
+        ]);
+        return;
+      }
+      const state: RelayEvent = {
+        ...event,
+        id: mockEventId(),
+        pubkey: task.pubkey,
+        kind: KIND_TASK_EXECUTION_STATE,
+        content: "",
+        tags: [
+          ["d", executionId],
+          ["t", `task-id:${taskId}`],
+          ["p", assignee, "", "agent"],
+          ["requester", event.pubkey],
+          ["status", "queued"],
+        ],
+      };
+      mockTaskExecutionEvents.unshift(state);
+      emitMockGlobalEvent(state);
+      sendWsText(socket.handler, [
+        "OK",
+        event.id,
+        true,
+        `response:${JSON.stringify({ task_id: taskId, execution_id: executionId, assignee, status: "queued" })}`,
+      ]);
+      return;
+    }
 
     if (event.kind === KIND_TASK_CREATE || event.kind === KIND_TASK_MUTATE) {
       const rejection = getConfig()?.mock?.taskPublishErrors?.shift();

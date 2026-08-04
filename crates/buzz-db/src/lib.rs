@@ -1685,6 +1685,30 @@ impl Db {
         .await
     }
 
+    /// Atomically store a task execution command and its relay-derived state.
+    pub async fn apply_task_execution_events(
+        &self,
+        community_id: CommunityId,
+        task_id: Uuid,
+        execution_id: Uuid,
+        command: &nostr::Event,
+        state: &nostr::Event,
+        channel_id: Option<Uuid>,
+        is_new_request: bool,
+    ) -> Result<tasks::ApplyTaskResult> {
+        tasks::apply_task_execution_events(
+            &self.pool,
+            community_id,
+            task_id,
+            execution_id,
+            command,
+            state,
+            channel_id,
+            is_new_request,
+        )
+        .await
+    }
+
     /// [`Db::query_events`] with replica routing — the opt-in fast path for
     /// display reads.
     ///

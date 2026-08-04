@@ -102,13 +102,22 @@ pub const KIND_TASK_CREATE: u32 = 42500;
 pub const KIND_TASK_MUTATE: u32 = 42501;
 /// Buzz Tasks: actor-signed soft-delete command.
 pub const KIND_TASK_DELETE: u32 = 42502;
+/// Buzz Tasks: actor-signed request to start the assigned Agent.
+pub const KIND_TASK_EXECUTION_REQUEST: u32 = 42503;
+/// Buzz Tasks: assigned-Agent-signed execution lifecycle update.
+pub const KIND_TASK_EXECUTION_UPDATE: u32 = 42504;
+/// Buzz Tasks: relay-derived current execution state (NIP-33, keyed by execution UUID).
+pub const KIND_TASK_EXECUTION_STATE: u32 = 30501;
 
 /// All Buzz Tasks event kinds.
 pub const TASK_KINDS: &[u32] = &[
     KIND_TASK_CREATE,
     KIND_TASK_MUTATE,
     KIND_TASK_DELETE,
+    KIND_TASK_EXECUTION_REQUEST,
+    KIND_TASK_EXECUTION_UPDATE,
     KIND_TASK_STATE,
+    KIND_TASK_EXECUTION_STATE,
 ];
 
 /// NIP-AE: Agent Engram (parameterized replaceable, agent-authored).
@@ -622,6 +631,9 @@ pub const ALL_KINDS: &[u32] = &[
     KIND_TASK_CREATE,
     KIND_TASK_MUTATE,
     KIND_TASK_DELETE,
+    KIND_TASK_EXECUTION_REQUEST,
+    KIND_TASK_EXECUTION_UPDATE,
+    KIND_TASK_EXECUTION_STATE,
     KIND_AGENT_ENGRAM,
     KIND_EVENT_REMINDER,
     KIND_PERSONA,
@@ -794,6 +806,8 @@ pub const fn is_command_kind(kind: u32) -> bool {
             | KIND_TASK_CREATE
             | KIND_TASK_MUTATE
             | KIND_TASK_DELETE
+            | KIND_TASK_EXECUTION_REQUEST
+            | KIND_TASK_EXECUTION_UPDATE
     )
 }
 
@@ -809,6 +823,7 @@ pub const fn is_relay_only_kind(kind: u32) -> bool {
             | KIND_THREAD_SUMMARY
             | KIND_WINDOW_BOUNDS
             | KIND_TASK_STATE
+            | KIND_TASK_EXECUTION_STATE
     )
 }
 
@@ -831,6 +846,7 @@ const _: () = assert!(is_parameterized_replaceable(KIND_TEAM)); // 30176 ∈ 300
 const _: () = assert!(is_parameterized_replaceable(KIND_MANAGED_AGENT)); // 30177 ∈ 30000–39999
 const _: () = assert!(is_parameterized_replaceable(KIND_WORKFLOW_DEF)); // 30620 ∈ 30000–39999
 const _: () = assert!(is_parameterized_replaceable(KIND_TASK_STATE)); // 30500 ∈ 30000–39999
+const _: () = assert!(is_parameterized_replaceable(KIND_TASK_EXECUTION_STATE));
 const _: () = assert!(is_parameterized_replaceable(KIND_EVENT_REMINDER)); // 30300 ∈ 30000–39999
 const _: () = assert!(is_parameterized_replaceable(KIND_DM_VISIBILITY)); // 30622 ∈ 30000–39999
 const _: () = assert!(is_parameterized_replaceable(KIND_THREAD_SUMMARY)); // 39005 ∈ 30000–39999

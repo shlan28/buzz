@@ -1,6 +1,6 @@
 import { CalendarDays, CircleAlert } from "lucide-react";
 import { cn } from "@/shared/lib/cn";
-import type { Task, TaskAssignee } from "../types";
+import type { Task, TaskAssignee, TaskExecution } from "../types";
 import {
   dueTimestampToLocalDate,
   isDueTimestampOverdue,
@@ -13,11 +13,13 @@ export function TaskCard({
   assignees,
   onOpen,
   onReassign,
+  execution,
 }: {
   task: Task;
   assignees?: TaskAssignee[];
   onOpen: () => void;
   onReassign?: (assignee: string | null) => void;
+  execution?: TaskExecution;
 }) {
   const overdue = task.status !== "done" && isDueTimestampOverdue(task.dueDate);
   return (
@@ -44,6 +46,21 @@ export function TaskCard({
       </p>
       <span className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
         <TaskStatusBadge status={task.status} />
+        {execution?.status === "queued" ||
+        execution?.status === "running" ||
+        execution?.status === "failed" ? (
+          <span
+            className={cn(
+              "rounded-full border border-border px-1.5 py-0.5 capitalize",
+              execution.status === "running" &&
+                "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300",
+              execution.status === "failed" &&
+                "border-destructive/30 bg-destructive/10 text-destructive",
+            )}
+          >
+            {execution.status}
+          </span>
+        ) : null}
         {task.priority !== "none" ? (
           <span
             className={cn(

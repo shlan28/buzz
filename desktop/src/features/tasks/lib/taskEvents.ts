@@ -2,6 +2,8 @@ import type { RelayEvent } from "@/shared/api/types";
 import {
   KIND_TASK_CREATE,
   KIND_TASK_DELETE,
+  KIND_TASK_EXECUTION_REQUEST,
+  KIND_TASK_EXECUTION_STATE,
   KIND_TASK_MUTATE,
   KIND_TASK_STATE,
 } from "@/shared/constants/kinds";
@@ -9,6 +11,8 @@ import type {
   Task,
   TaskDraft,
   TaskHistoryEntry,
+  TaskExecution,
+  TaskExecutionStatus,
   TaskPatch,
   TaskPriority,
   TaskStatus,
@@ -27,6 +31,12 @@ const PRIORITIES = new Set<TaskPriority>([
   "medium",
   "high",
   "urgent",
+]);
+const EXECUTION_STATUSES = new Set<TaskExecutionStatus>([
+  "queued",
+  "running",
+  "finished",
+  "failed",
 ]);
 
 function firstTag(event: RelayEvent, name: string) {
@@ -123,6 +133,54 @@ export function parseTaskState(
     updatedAt: event.created_at,
     archived: firstTag(event, "archived") === "true",
   };
+}
+
+export function parseTaskExecutionState(
+  event: RelayEvent,
+  relaySelfPubkey: string,
+): TaskExecution | null {
+  if (
+    event.kind !== KIND_TASK_EXECUTION_STATE ||
+    event.pubkey.toLowerCase() !== relaySelfPubkey.toLowerCase()
+  )
+    return null;
+  const id = firstTag(event, "d");
+  const taskId = semanticTag(event, "task-id:");
+  const assignee = firstTag(event, "p");
+  const requester = firstTag(event, "requester");
+  const status = firstTag(event, "status") as TaskExecutionStatus | undefined;
+  if (
+    !id ||
+    !taskId ||
+    !assignee ||
+    !requester ||
+    !status ||
+    !EXECUTION_STATUSES.has(status)
+  )
+    return null;
+  return {
+    id,
+    eventId: event.id,
+    taskId,
+    assignee,
+    requester,
+    status,
+    message: event.content,
+    updatedAt: event.created_at,
+  };
+}
+
+export function buildExecuteTaskEvent(task: Task) {
+  if (!task.assignee) throw new Error("Task is not assigned to an Agent.");
+  const tags: string[][] = [
+    ["t", `task-id:${task.id}`],
+    ["d", crypto.randomUUID()],
+    ["previous", task.eventId],
+    ["e", task.eventId, "", "task-state"],
+    ["p", task.assignee, "", "agent"],
+  ];
+  if (task.channelId) tags.push(["h", task.channelId]);
+  return { kind: KIND_TASK_EXECUTION_REQUEST, content: "", tags };
 }
 
 export function buildCreateTaskEvent(draft: TaskDraft) {

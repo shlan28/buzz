@@ -12,8 +12,8 @@ use buzz_core::{
         KIND_GIT_STATUS_OPEN, KIND_IA_ARCHIVE_REQUEST, KIND_IA_UNARCHIVE_REQUEST,
         KIND_MODERATION_BAN, KIND_MODERATION_RESOLVE_REPORT, KIND_MODERATION_TIMEOUT,
         KIND_MODERATION_UNBAN, KIND_MODERATION_UNTIMEOUT, KIND_PRESENCE_UPDATE, KIND_TASK_CREATE,
-        KIND_TASK_DELETE, KIND_TASK_MUTATE, KIND_USER_STATUS, KIND_WORKFLOW_DEF,
-        KIND_WORKFLOW_TRIGGER,
+        KIND_TASK_DELETE, KIND_TASK_EXECUTION_REQUEST, KIND_TASK_EXECUTION_UPDATE,
+        KIND_TASK_MUTATE, KIND_USER_STATUS, KIND_WORKFLOW_DEF, KIND_WORKFLOW_TRIGGER,
     },
     observer::{
         content_looks_like_nip44, OBSERVER_AGENT_TAG, OBSERVER_FRAME_CONTROL, OBSERVER_FRAME_TAG,
@@ -25,7 +25,8 @@ use uuid::Uuid;
 
 use crate::{
     CalendarEventInput, ChannelKind, CustomEmoji, DiffMeta, MemberRole, SdkError, TaskCreateInput,
-    TaskDeleteInput, TaskMutateInput, ThreadRef, Visibility, VoteDirection,
+    TaskDeleteInput, TaskExecutionRequestInput, TaskExecutionUpdateInput, TaskMutateInput,
+    ThreadRef, Visibility, VoteDirection,
 };
 
 /// NIP-52 date-based calendar event kind.
@@ -233,6 +234,42 @@ pub fn build_task_delete(input: &TaskDeleteInput) -> Result<EventBuilder, SdkErr
         tag(&["e", &input.previous_event, "", "previous"])?,
     ];
     Ok(EventBuilder::new(Kind::Custom(KIND_TASK_DELETE as u16), "").tags(tags))
+}
+
+/// Build a request to execute the task with its currently assigned Agent.
+pub fn build_task_execution_request(
+    input: &TaskExecutionRequestInput,
+) -> Result<EventBuilder, SdkError> {
+    check_hex_len(&input.expected_event, 64, "expected event")?;
+    let assignee = check_pubkey_hex(&input.assignee, "assignee")?;
+    let mut tags = vec![
+        tag(&["t", &format!("task-id:{}", input.task_id)])?,
+        tag(&["d", &input.execution_id.to_string()])?,
+        tag(&["previous", &input.expected_event])?,
+        tag(&["e", &input.expected_event, "", "task-state"])?,
+        tag(&["p", &assignee, "", "agent"])?,
+    ];
+    if let Some(channel) = input.channel {
+        tags.push(tag(&["h", &channel.to_string()])?);
+    }
+    Ok(EventBuilder::new(Kind::Custom(KIND_TASK_EXECUTION_REQUEST as u16), "").tags(tags))
+}
+
+/// Build an execution lifecycle update signed by the assigned Agent.
+pub fn build_task_execution_update(
+    input: &TaskExecutionUpdateInput,
+) -> Result<EventBuilder, SdkError> {
+    check_content(&input.message, 4096)?;
+    let tags = vec![
+        tag(&["t", &format!("task-id:{}", input.task_id)])?,
+        tag(&["d", &input.execution_id.to_string()])?,
+        tag(&["status", input.status.as_str()])?,
+    ];
+    Ok(EventBuilder::new(
+        Kind::Custom(KIND_TASK_EXECUTION_UPDATE as u16),
+        &input.message,
+    )
+    .tags(tags))
 }
 
 fn check_calendar_id(id: &str) -> Result<(), SdkError> {
@@ -2221,6 +2258,43 @@ mod tests {
             .collect();
         assert!(tags.contains(&vec!["set".into(), "description".into()]));
         assert!(tags.contains(&vec!["previous".into(), "ab".repeat(32)]));
+    }
+
+    #[test]
+    fn task_execution_request_targets_agent_and_state() {
+        let agent = keys().public_key().to_hex();
+        let input = TaskExecutionRequestInput {
+            task_id: Uuid::nil(),
+            execution_id: Uuid::from_u128(1),
+            expected_event: "ab".repeat(32),
+            assignee: agent.clone(),
+            channel: None,
+        };
+        let event = sign(build_task_execution_request(&input).unwrap());
+        assert_eq!(event.kind.as_u16() as u32, KIND_TASK_EXECUTION_REQUEST);
+        let tags: Vec<Vec<String>> = event
+            .tags
+            .iter()
+            .map(|tag| tag.as_slice().to_vec())
+            .collect();
+        assert!(tags.contains(&vec!["p".into(), agent, "".into(), "agent".into()]));
+        assert!(tags.contains(&vec!["previous".into(), "ab".repeat(32)]));
+    }
+
+    #[test]
+    fn task_execution_update_has_stable_status() {
+        let input = TaskExecutionUpdateInput {
+            task_id: Uuid::nil(),
+            execution_id: Uuid::from_u128(1),
+            status: crate::TaskExecutionStatus::Running,
+            message: String::new(),
+        };
+        let event = sign(build_task_execution_update(&input).unwrap());
+        assert_eq!(event.kind.as_u16() as u32, KIND_TASK_EXECUTION_UPDATE);
+        assert!(event
+            .tags
+            .iter()
+            .any(|tag| tag.as_slice() == ["status", "running"]));
     }
 
     #[test]

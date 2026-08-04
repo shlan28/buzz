@@ -12,6 +12,8 @@ const DONE_TASK = "f88ae55f-2fbb-45f4-a593-d9ab88e7cbe3";
 const BACKLOG_TASK = "5e256e0b-427d-4126-a68c-680db60ef441";
 const IN_PROGRESS_TASK = "639e9db9-7869-4fe1-99bd-162776c5fe98";
 const BLOCKED_TASK = "c11a2bc2-709b-4c88-b14c-2b234cf8ecb2";
+const AGENT_TASK = "3bab72dd-370a-4712-8e87-12c93b251e98";
+const BUMBLE = "ba".repeat(32);
 
 function taskState(input: {
   id: string;
@@ -49,7 +51,7 @@ function taskState(input: {
 
 async function installTasks(
   page: Parameters<typeof installMockBridge>[0],
-  options?: { rejectNextPublish?: string },
+  options?: { rejectNextPublish?: string; agentOffline?: boolean },
 ) {
   await installMockBridge(page, {
     relaySelf: RELAY_SELF,
@@ -59,6 +61,19 @@ async function installTasks(
         name: "Stale viewer agent",
         respondTo: "owner-only",
       },
+      {
+        pubkey: BUMBLE,
+        name: "bumble",
+        status: options?.agentOffline ? "offline" : "online",
+        respondTo: "owner-only",
+      },
+    ],
+    managedAgents: [
+      {
+        pubkey: BUMBLE,
+        name: "bumble",
+        status: options?.agentOffline ? "stopped" : "running",
+      },
     ],
     searchProfiles: [
       {
@@ -66,6 +81,12 @@ async function installTasks(
         displayName: "lu",
         ownerPubkey: null,
         isAgent: false,
+      },
+      {
+        pubkey: BUMBLE,
+        displayName: "bumble",
+        ownerPubkey: MOCK_VIEWER,
+        isAgent: true,
       },
     ],
     taskEvents: [
@@ -77,6 +98,13 @@ async function installTasks(
         assignee: null,
         priority: "high",
         due: 1_787_241_599,
+      }),
+      taskState({
+        id: AGENT_TASK,
+        eventId: "26".repeat(32),
+        title: "Run Agent task",
+        description: "Execute this task with the assigned Agent.",
+        assignee: BUMBLE,
       }),
       taskState({
         id: DONE_TASK,
@@ -116,6 +144,33 @@ async function installTasks(
       : undefined,
   });
 }
+
+test("Agent owner executes an online Agent task", async ({ page }) => {
+  await installTasks(page);
+  await page.goto(`/#/tasks?task=${AGENT_TASK}`);
+  const execution = page.getByTestId("task-execution-control");
+  await expect(
+    execution.getByRole("button", { name: "Execute" }),
+  ).toBeEnabled();
+  await execution.getByRole("button", { name: "Execute" }).click();
+  await expect(
+    execution.getByRole("button", { name: "Queued" }),
+  ).toBeDisabled();
+});
+
+test("offline Agent must be started before task execution", async ({
+  page,
+}) => {
+  await installTasks(page, { agentOffline: true });
+  await page.goto(`/#/tasks?task=${AGENT_TASK}`);
+  const execution = page.getByTestId("task-execution-control");
+  await expect(
+    execution.getByRole("button", { name: "Execute" }),
+  ).toBeDisabled();
+  await expect(execution).toContainText(
+    "is offline. Start the Agent before executing this task.",
+  );
+});
 
 test("creates a task and shows its Relay-confirmed state", async ({ page }) => {
   await installTasks(page);

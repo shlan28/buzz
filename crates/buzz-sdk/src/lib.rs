@@ -89,6 +89,56 @@ pub struct TaskDeleteInput {
     pub previous_event: String,
 }
 
+/// Input for requesting that the assigned Agent execute a task.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaskExecutionRequestInput {
+    /// Stable task UUID.
+    pub task_id: uuid::Uuid,
+    /// Unique UUID for this execution attempt.
+    pub execution_id: uuid::Uuid,
+    /// Current Task State event ID used for optimistic concurrency.
+    pub expected_event: String,
+    /// Assigned Agent pubkey copied from the current task state.
+    pub assignee: String,
+    /// Optional task channel, used only for visibility scoping.
+    pub channel: Option<uuid::Uuid>,
+}
+
+/// Agent-reported execution lifecycle state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaskExecutionStatus {
+    /// The Agent has exclusively claimed the execution.
+    Running,
+    /// The Agent turn ended normally.
+    Finished,
+    /// The Agent could not start or continue the turn.
+    Failed,
+}
+
+impl TaskExecutionStatus {
+    /// Stable tag value.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Running => "running",
+            Self::Finished => "finished",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+/// Input for an assigned Agent execution update.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaskExecutionUpdateInput {
+    /// Stable task UUID.
+    pub task_id: uuid::Uuid,
+    /// Execution UUID returned by the request.
+    pub execution_id: uuid::Uuid,
+    /// Desired lifecycle transition.
+    pub status: TaskExecutionStatus,
+    /// Optional failure explanation; empty for non-failure updates.
+    pub message: String,
+}
+
 /// Thread reference for reply builders (NIP-10 markers).
 ///
 /// - Direct reply (root == parent): emits `["e", root, "", "reply"]`

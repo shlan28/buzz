@@ -17,6 +17,7 @@ import { truncatePubkey } from "@/shared/lib/pubkey";
 import type {
   Task,
   TaskAssignee,
+  TaskExecution,
   TaskPatch,
   TaskPriority,
   TaskStatus,
@@ -27,6 +28,7 @@ import {
   localDateToDueTimestamp,
 } from "../lib/taskDates";
 import { TaskAssigneeSelect } from "./TaskAssigneeSelect";
+import { TaskExecutionControl } from "./TaskExecutionControl";
 
 export function TaskDetailPanel({
   task,
@@ -38,6 +40,12 @@ export function TaskDetailPanel({
   deletePending,
   deleteError,
   onDelete,
+  execution,
+  executionPending,
+  executionError,
+  agentOnline,
+  canExecute,
+  onExecute,
 }: {
   task: Task;
   assignees: TaskAssignee[];
@@ -48,6 +56,12 @@ export function TaskDetailPanel({
   deletePending: boolean;
   deleteError?: string;
   onDelete: () => void;
+  execution?: TaskExecution;
+  executionPending: boolean;
+  executionError?: string;
+  agentOnline: boolean;
+  canExecute: boolean;
+  onExecute: () => void;
 }) {
   const [deleteOpen, setDeleteOpen] = React.useState(false);
   const [deleteAttempted, setDeleteAttempted] = React.useState(false);
@@ -122,6 +136,19 @@ export function TaskDetailPanel({
           value={task.assignee}
           onChange={(assignee) => onUpdate({ assignee })}
         />
+        {canExecute && task.status !== "done" && !task.archived ? (
+          <TaskExecutionControl
+            agentName={
+              assignees.find((assignee) => assignee.pubkey === task.assignee)
+                ?.label ?? "Agent"
+            }
+            error={executionError}
+            execution={execution}
+            online={agentOnline}
+            pending={executionPending}
+            onExecute={onExecute}
+          />
+        ) : null}
         <Select
           label="Status"
           pending={pending}

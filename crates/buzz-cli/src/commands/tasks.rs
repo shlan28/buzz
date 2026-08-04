@@ -9,8 +9,9 @@ use crate::client::BuzzClient;
 use crate::error::CliError;
 use crate::TasksCmd;
 use buzz_sdk::{
-    build_task_create, build_task_delete, build_task_mutate, TaskCreateInput, TaskDeleteInput,
-    TaskMutateInput, TaskPriority, TaskStatus,
+    build_task_create, build_task_delete, build_task_execution_request, build_task_mutate,
+    TaskCreateInput, TaskDeleteInput, TaskExecutionRequestInput, TaskMutateInput, TaskPriority,
+    TaskStatus,
 };
 
 const KIND_TASK_STATE: u16 = buzz_core::kind::KIND_TASK_STATE as u16;
@@ -315,6 +316,70 @@ async fn relay_self(client: &BuzzClient) -> Result<String, CliError> {
 
 pub async fn dispatch(command: TasksCmd, client: &BuzzClient) -> Result<(), CliError> {
     match command {
+        TasksCmd::Execute { id, expected_event } => {
+            let id = parse_task_id(&id)?;
+            validate_event_id(&expected_event, "--expected-event")?;
+            let task = fetch_task(client, &id.to_string())
+                .await?
+                .ok_or_else(|| CliError::NotFound(format!("task not found: {id}")))?;
+            if task.state_event_id != expected_event {
+                return Err(CliError::Conflict("task state changed".into()));
+            }
+            let assignee = task
+                .assignee
+                .ok_or_else(|| CliError::Usage("task is not assigned".into()))?;
+            let channel = task
+                .channel
+                .as_deref()
+                .map(uuid::Uuid::parse_str)
+                .transpose()
+                .map_err(|error| CliError::Other(format!("task has invalid channel: {error}")))?;
+            let execution_id = uuid::Uuid::new_v4();
+            let builder = build_task_execution_request(&TaskExecutionRequestInput {
+                task_id: id,
+                execution_id,
+                expected_event,
+                assignee,
+                channel,
+            })
+            .map_err(|error| CliError::Usage(error.to_string()))?;
+            let event = client.sign_event(builder)?;
+            let raw = client.submit_event(event).await?;
+            let response: serde_json::Value = serde_json::from_str(&raw)
+                .map_err(|error| CliError::Other(format!("relay response is not JSON: {error}")))?;
+            if !response
+                .get("accepted")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false)
+            {
+                return Err(CliError::Other(
+                    response
+                        .get("message")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("relay rejected task execution")
+                        .to_string(),
+                ));
+            }
+            let result = response
+                .get("message")
+                .and_then(serde_json::Value::as_str)
+                .and_then(|message| message.strip_prefix("response:"))
+                .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
+                .unwrap_or_else(|| {
+                    serde_json::json!({
+                        "task_id": id,
+                        "execution_id": execution_id,
+                        "status": "queued",
+                        "accepted": true
+                    })
+                });
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&result)
+                    .map_err(|error| CliError::Other(error.to_string()))?
+            );
+            Ok(())
+        }
         TasksCmd::Create {
             title,
             id,

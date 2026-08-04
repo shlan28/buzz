@@ -1214,6 +1214,14 @@ pub enum CalendarCmd {
 
 #[derive(Subcommand)]
 pub enum TasksCmd {
+    /// Start the assigned Agent. Only that Agent or its owner may execute.
+    Execute {
+        #[arg(long)]
+        id: String,
+        /// Current Task State event id; prevents executing stale task content.
+        #[arg(long)]
+        expected_event: String,
+    },
     /// Create a task. Assignment records responsibility but does not start an Agent.
     Create {
         #[arg(long)]

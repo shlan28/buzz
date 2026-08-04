@@ -55,6 +55,10 @@ fn task_delete_allowed(
     actor == creator || creator_owner == Some(actor) || actor_is_admin
 }
 
+fn task_execution_start_allowed(actor: &[u8], agent: &[u8], owner: &[u8]) -> bool {
+    actor == agent || actor == owner
+}
+
 /// Route a command-kind event to the appropriate handler.
 pub async fn handle_command(
     tenant: &TenantContext,
@@ -96,8 +100,223 @@ pub async fn handle_command(
             handle_task_command(tenant, state, &event, &auth).await
         }
         KIND_TASK_DELETE => handle_task_delete(tenant, state, &event, &auth).await,
+        KIND_TASK_EXECUTION_REQUEST | KIND_TASK_EXECUTION_UPDATE => {
+            handle_task_execution(tenant, state, &event, &auth).await
+        }
         _ => Err(IngestError::Rejected(format!(
             "unknown command kind: {kind}"
+        ))),
+    }
+}
+
+async fn handle_task_execution(
+    tenant: &TenantContext,
+    state: &Arc<AppState>,
+    command: &Event,
+    auth: &IngestAuth,
+) -> Result<IngestResult, IngestError> {
+    let kind = command.kind.as_u16() as u32;
+    let is_request = kind == KIND_TASK_EXECUTION_REQUEST;
+    let task_id = buzz_core::task::task_id(command)
+        .map_err(|error| IngestError::Rejected(format!("invalid: {error}")))?;
+    let execution_id = extract_d_tag(command)
+        .and_then(|value| Uuid::parse_str(&value).ok())
+        .ok_or_else(|| IngestError::Rejected("invalid: execution requires a UUID d tag".into()))?;
+
+    let mut task_query = buzz_db::EventQuery::for_community(tenant.community());
+    task_query.kinds = Some(vec![KIND_TASK_STATE as i32]);
+    task_query.d_tag = Some(task_id.to_string());
+    task_query.limit = Some(1);
+    let task = state
+        .db
+        .query_events(&task_query)
+        .await
+        .map_err(|error| IngestError::Internal(format!("error: query task state: {error}")))?
+        .into_iter()
+        .next()
+        .ok_or_else(|| IngestError::Rejected("not found: task does not exist".into()))?;
+    let assignee_hex = extract_tag(&task.event, "p")
+        .ok_or_else(|| IngestError::Rejected("invalid: task is not assigned".into()))?;
+    let assignee = decode_pubkey(&assignee_hex)?;
+    let owner = state
+        .db
+        .get_agent_owner_pubkey(tenant.community(), &assignee)
+        .await
+        .map_err(|error| IngestError::Internal(format!("error: read Agent owner: {error}")))?
+        .ok_or_else(|| IngestError::Rejected("invalid: task assignee is not an Agent".into()))?;
+    let actor = auth.pubkey().to_bytes().to_vec();
+
+    if is_request {
+        if !task_execution_start_allowed(&actor, &assignee, &owner) {
+            return Err(IngestError::AuthFailed(
+                "restricted: only the assigned Agent or its owner may execute this task".into(),
+            ));
+        }
+        let requested_assignee = extract_tag(command, "p")
+            .ok_or_else(|| IngestError::Rejected("invalid: execution missing Agent".into()))?;
+        if requested_assignee != assignee_hex {
+            return Err(IngestError::Rejected(
+                "conflict: task assignee changed".into(),
+            ));
+        }
+        let expected = extract_tag(command, "previous")
+            .ok_or_else(|| IngestError::Rejected("invalid: execution missing task state".into()))?;
+        if expected != task.event.id.to_hex() {
+            return Err(IngestError::Rejected("conflict: task state changed".into()));
+        }
+        let status = extract_tag(&task.event, "t").unwrap_or_default();
+        let is_done = task.event.tags.iter().any(|tag| {
+            tag.as_slice() == ["t", "task-status:done"] || tag.as_slice() == ["archived", "true"]
+        });
+        if is_done || status == "task-status:done" {
+            return Err(IngestError::Rejected(
+                "invalid: completed or archived tasks cannot execute".into(),
+            ));
+        }
+        let agent_key = nostr::PublicKey::from_hex(&assignee_hex)
+            .map_err(|_| IngestError::Rejected("invalid: bad Agent pubkey".into()))?;
+        let presence = state
+            .pubsub
+            .get_presence(tenant, &agent_key)
+            .await
+            .map_err(|error| {
+                IngestError::Internal(format!("error: read Agent presence: {error}"))
+            })?;
+        if presence.as_deref() != Some("online") {
+            return Err(IngestError::Rejected(
+                "unavailable: Agent is offline; start the Agent before executing this task".into(),
+            ));
+        }
+    } else {
+        if actor != assignee {
+            return Err(IngestError::AuthFailed(
+                "restricted: only the assigned Agent may update execution state".into(),
+            ));
+        }
+    }
+
+    let mut requester_hex = hex::encode(&actor);
+    if !is_request {
+        let mut execution_query = buzz_db::EventQuery::for_community(tenant.community());
+        execution_query.kinds = Some(vec![KIND_TASK_EXECUTION_STATE as i32]);
+        execution_query.d_tag = Some(execution_id.to_string());
+        execution_query.limit = Some(1);
+        let current_execution = state
+            .db
+            .query_events(&execution_query)
+            .await
+            .map_err(|error| {
+                IngestError::Internal(format!("error: query execution state: {error}"))
+            })?
+            .into_iter()
+            .next()
+            .ok_or_else(|| IngestError::Rejected("not found: execution does not exist".into()))?;
+        if extract_tag(&current_execution.event, "t").as_deref()
+            != Some(format!("task-id:{task_id}").as_str())
+        {
+            return Err(IngestError::Rejected(
+                "conflict: execution belongs to another task".into(),
+            ));
+        }
+        requester_hex = extract_tag(&current_execution.event, "requester")
+            .ok_or_else(|| IngestError::Rejected("invalid: execution missing requester".into()))?;
+    }
+
+    let status = if is_request {
+        "queued".to_string()
+    } else {
+        let value = extract_tag(command, "status").ok_or_else(|| {
+            IngestError::Rejected("invalid: execution update missing status".into())
+        })?;
+        if !matches!(value.as_str(), "running" | "finished" | "failed") {
+            return Err(IngestError::Rejected(
+                "invalid: execution status must be running, finished, or failed".into(),
+            ));
+        }
+        value
+    };
+    let mut raw_tags = vec![
+        vec!["d".into(), execution_id.to_string()],
+        vec!["t".into(), format!("task-id:{task_id}")],
+        vec!["p".into(), assignee_hex.clone(), "".into(), "agent".into()],
+        vec!["status".into(), status.clone()],
+        vec!["requester".into(), requester_hex],
+        vec!["source_event".into(), command.id.to_hex()],
+    ];
+    if let Some(channel_id) = task.channel_id {
+        raw_tags.push(vec!["h".into(), channel_id.to_string()]);
+    }
+    let tags = raw_tags
+        .into_iter()
+        .map(|parts| {
+            Tag::parse(parts)
+                .map_err(|error| IngestError::Rejected(format!("invalid: execution tag: {error}")))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let execution_state = EventBuilder::new(
+        Kind::Custom(KIND_TASK_EXECUTION_STATE as u16),
+        &command.content,
+    )
+    .tags(tags)
+    .sign_with_keys(&state.relay_keypair)
+    .map_err(|error| IngestError::Internal(format!("error: sign execution state: {error}")))?;
+    let result = state
+        .db
+        .apply_task_execution_events(
+            tenant.community(),
+            task_id,
+            execution_id,
+            command,
+            &execution_state,
+            task.channel_id,
+            is_request,
+        )
+        .await;
+    match result {
+        Ok(buzz_db::tasks::ApplyTaskResult::Applied) => {
+            let topic = task
+                .channel_id
+                .map_or(EventTopic::Global, EventTopic::Channel);
+            if is_request {
+                if let Err(error) = state.pubsub.publish_event(tenant, topic, command).await {
+                    warn!(%execution_id, "execution request committed but live publish failed: {error}");
+                }
+            }
+            if let Err(error) = state
+                .pubsub
+                .publish_event(tenant, topic, &execution_state)
+                .await
+            {
+                warn!(%execution_id, "execution state committed but live publish failed: {error}");
+            }
+            Ok(IngestResult {
+                event_id: command.id.to_hex(),
+                accepted: true,
+                message: format!(
+                    "response:{}",
+                    serde_json::json!({
+                        "task_id": task_id,
+                        "execution_id": execution_id,
+                        "assignee": assignee_hex,
+                        "status": status,
+                        "state_event_id": execution_state.id.to_hex()
+                    })
+                ),
+            })
+        }
+        Ok(buzz_db::tasks::ApplyTaskResult::Duplicate) => Ok(IngestResult {
+            event_id: command.id.to_hex(),
+            accepted: true,
+            message: "duplicate: already processed".into(),
+        }),
+        Err(DbError::Conflict(message)) => {
+            Err(IngestError::Rejected(format!("conflict: {message}")))
+        }
+        Err(DbError::NotFound(message)) => {
+            Err(IngestError::Rejected(format!("not found: {message}")))
+        }
+        Err(error) => Err(IngestError::Internal(format!(
+            "error: persist task execution: {error}"
         ))),
     }
 }
@@ -2016,7 +2235,23 @@ async fn resume_workflow_after_approval(
 
 #[cfg(test)]
 mod task_permission_tests {
-    use super::{agent_assignment_allowed, task_delete_allowed};
+    use super::{agent_assignment_allowed, task_delete_allowed, task_execution_start_allowed};
+
+    #[test]
+    fn execution_is_strictly_agent_or_owner_only() {
+        let owner = [1_u8; 32];
+        let agent = [2_u8; 32];
+        let task_creator = [3_u8; 32];
+        let community_admin = [4_u8; 32];
+        assert!(task_execution_start_allowed(&agent, &agent, &owner));
+        assert!(task_execution_start_allowed(&owner, &agent, &owner));
+        assert!(!task_execution_start_allowed(&task_creator, &agent, &owner));
+        assert!(!task_execution_start_allowed(
+            &community_admin,
+            &agent,
+            &owner
+        ));
+    }
 
     #[test]
     fn owner_only_does_not_admit_admin_or_sibling_agent() {

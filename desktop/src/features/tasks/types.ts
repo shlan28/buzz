@@ -41,6 +41,19 @@ export type TaskHistoryEntry = {
   changes: string[];
 };
 
+export type TaskExecutionStatus = "queued" | "running" | "finished" | "failed";
+
+export type TaskExecution = {
+  id: string;
+  eventId: string;
+  taskId: string;
+  assignee: string;
+  requester: string;
+  status: TaskExecutionStatus;
+  message: string;
+  updatedAt: number;
+};
+
 export type TaskAssignee = {
   pubkey: string | null;
   label: string;
