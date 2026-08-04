@@ -6,14 +6,7 @@ import {
   isDueTimestampOverdue,
 } from "../lib/taskDates";
 import { TaskAssigneeSelect } from "./TaskAssigneeSelect";
-
-const STATUS_LABELS = {
-  backlog: "Backlog",
-  todo: "Todo",
-  "in-progress": "In progress",
-  blocked: "Blocked",
-  done: "Done",
-} as const;
+import { TaskStatusBadge } from "./TaskStatusBadge";
 
 export function TaskCard({
   task,
@@ -50,9 +43,7 @@ export function TaskCard({
         {task.description || "No description"}
       </p>
       <span className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-        <span className="rounded-full bg-muted px-2 py-0.5">
-          {STATUS_LABELS[task.status]}
-        </span>
+        <TaskStatusBadge status={task.status} />
         {task.priority !== "none" ? (
           <span
             className={cn(

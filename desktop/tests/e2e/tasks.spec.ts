@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import type { RelayEvent } from "../../src/shared/api/types";
+import { waitForAnimations } from "../helpers/animations";
 import { installMockBridge, TEST_IDENTITIES } from "../helpers/bridge";
 
 const RELAY_SELF = "12".repeat(32);
@@ -8,6 +9,9 @@ const TYLER = TEST_IDENTITIES.tyler.pubkey;
 const MOCK_VIEWER = "deadbeef".repeat(8);
 const FIRST_TASK = "10eef02c-9be8-4055-a747-e348d5a405ad";
 const DONE_TASK = "f88ae55f-2fbb-45f4-a593-d9ab88e7cbe3";
+const BACKLOG_TASK = "5e256e0b-427d-4126-a68c-680db60ef441";
+const IN_PROGRESS_TASK = "639e9db9-7869-4fe1-99bd-162776c5fe98";
+const BLOCKED_TASK = "c11a2bc2-709b-4c88-b14c-2b234cf8ecb2";
 
 function taskState(input: {
   id: string;
@@ -15,7 +19,7 @@ function taskState(input: {
   title: string;
   description?: string;
   assignee?: string | null;
-  status?: "todo" | "in-progress" | "blocked" | "done";
+  status?: "backlog" | "todo" | "in-progress" | "blocked" | "done";
   priority?: "none" | "high" | "urgent";
   due?: number;
   createdAt?: number;
@@ -81,6 +85,30 @@ async function installTasks(
         assignee: BOB,
         status: "done",
         createdAt: 1_785_547_700,
+      }),
+      taskState({
+        id: BACKLOG_TASK,
+        eventId: "23".repeat(32),
+        title: "Review future automation ideas",
+        description: "Keep promising ideas ready for the next planning cycle.",
+        assignee: null,
+        status: "backlog",
+      }),
+      taskState({
+        id: IN_PROGRESS_TASK,
+        eventId: "24".repeat(32),
+        title: "Implement task status colors",
+        description: "Add subtle visual distinction without coloring cards.",
+        assignee: BOB,
+        status: "in-progress",
+      }),
+      taskState({
+        id: BLOCKED_TASK,
+        eventId: "25".repeat(32),
+        title: "Confirm release checklist",
+        description: "Waiting for the final deployment window.",
+        assignee: BOB,
+        status: "blocked",
       }),
     ],
     taskPublishErrors: options?.rejectNextPublish
@@ -350,4 +378,68 @@ test("failed delete keeps the task and Relay reason visible", async ({
   await expect(panel).toBeVisible();
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await expect(page.getByTestId(`task-card-${FIRST_TASK}`)).toBeVisible();
+});
+
+test("status colors stay distinct in board, list, light, and dark themes", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const theme =
+      window.sessionStorage.getItem("task-status-test-theme") === "dark"
+        ? "buzz-dark"
+        : "buzz";
+    window.localStorage.setItem("buzz-theme", theme);
+  });
+  await installTasks(page);
+  await page.goto("/#/tasks");
+  await page.getByRole("checkbox", { name: "Show done" }).check();
+
+  const statuses = ["backlog", "todo", "in-progress", "blocked", "done"];
+  const statusColors = async () =>
+    Promise.all(
+      statuses.map((status) =>
+        page
+          .locator(`[data-task-status="${status}"]`)
+          .first()
+          .evaluate((node) => {
+            const style = getComputedStyle(node);
+            return `${style.backgroundColor}|${style.color}`;
+          }),
+      ),
+    );
+
+  for (const status of statuses) {
+    await expect(
+      page.locator(`[data-task-status="${status}"]`).first(),
+    ).toBeVisible();
+  }
+  expect(new Set(await statusColors()).size).toBe(statuses.length);
+
+  await waitForAnimations(page);
+  await page.screenshot({
+    path: "test-results/task-status-colors-light.png",
+    fullPage: true,
+  });
+
+  await page.getByRole("button", { name: "List view" }).click();
+  for (const status of statuses) {
+    await expect(
+      page.locator(`[data-task-status="${status}"]`).first(),
+    ).toBeVisible();
+  }
+  expect(new Set(await statusColors()).size).toBe(statuses.length);
+
+  await page.evaluate(() => {
+    window.sessionStorage.setItem("task-status-test-theme", "dark");
+  });
+  await page.reload();
+  await expect(page.locator("html")).toHaveClass(/dark/);
+  await page.getByRole("checkbox", { name: "Show done" }).check();
+  expect(new Set(await statusColors()).size).toBe(statuses.length);
+
+  await waitForAnimations(page);
+  await page.screenshot({
+    path: "test-results/task-status-colors-dark.png",
+    fullPage: true,
+  });
 });

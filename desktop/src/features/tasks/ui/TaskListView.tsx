@@ -5,14 +5,7 @@ import {
   isDueTimestampOverdue,
 } from "../lib/taskDates";
 import type { Task, TaskAssignee } from "../types";
-
-const STATUS_LABELS = {
-  backlog: "Backlog",
-  todo: "Todo",
-  "in-progress": "In progress",
-  blocked: "Blocked",
-  done: "Done",
-} as const;
+import { TaskStatusBadge } from "./TaskStatusBadge";
 
 export function TaskListView({
   tasks,
@@ -52,9 +45,7 @@ export function TaskListView({
               <span className="min-w-0 truncate text-sm font-medium">
                 {task.title}
               </span>
-              <span className="text-xs text-muted-foreground">
-                {STATUS_LABELS[task.status]}
-              </span>
+              <TaskStatusBadge status={task.status} />
               <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                 <UserRound className="h-3 w-3" />
                 {assignee}
