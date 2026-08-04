@@ -397,8 +397,9 @@ pub async fn get_agent_owner_pubkey(
             .bind(agent_pubkey)
             .fetch_optional(pool)
             .await?;
-    row.map(|row| row.try_get("agent_owner_pubkey"))
+    row.map(|row| row.try_get::<Option<Vec<u8>>, _>("agent_owner_pubkey"))
         .transpose()
+        .map(|owner| owner.flatten())
         .map_err(Into::into)
 }
 
@@ -675,6 +676,47 @@ mod tests {
             .expect("get policy")
             .expect("should be Some");
         assert_eq!(owner, Some(owner1), "original owner should be preserved");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Postgres"]
+    async fn test_get_agent_owner_pubkey_returns_none_for_human() {
+        let db = setup_db().await;
+        let community = make_community(&db.pool).await;
+        let human_pk = random_pubkey();
+
+        ensure_user(&db.pool, community, &human_pk)
+            .await
+            .expect("ensure human");
+
+        let owner = get_agent_owner_pubkey(&db.pool, community, &human_pk)
+            .await
+            .expect("read nullable agent owner");
+        assert_eq!(owner, None);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Postgres"]
+    async fn test_get_agent_owner_pubkey_returns_owner_for_agent() {
+        let db = setup_db().await;
+        let community = make_community(&db.pool).await;
+        let agent_pk = random_pubkey();
+        let owner_pk = random_pubkey();
+
+        ensure_user(&db.pool, community, &agent_pk)
+            .await
+            .expect("ensure agent");
+        ensure_user(&db.pool, community, &owner_pk)
+            .await
+            .expect("ensure owner");
+        assert!(set_agent_owner(&db.pool, community, &agent_pk, &owner_pk)
+            .await
+            .expect("set agent owner"));
+
+        let owner = get_agent_owner_pubkey(&db.pool, community, &agent_pk)
+            .await
+            .expect("read agent owner");
+        assert_eq!(owner, Some(owner_pk));
     }
 
     /// set_channel_add_policy should return Err when the pubkey does not exist

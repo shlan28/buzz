@@ -124,7 +124,13 @@ async fn seed_relay_member(host: &str, keys: &Keys, role: &str) {
 }
 
 async fn seed_relay_owner(keys: &Keys) {
-    seed_relay_member("localhost:3000", keys, "owner").await;
+    let url = relay_url();
+    let host = url
+        .strip_prefix("ws://")
+        .or_else(|| url.strip_prefix("wss://"))
+        .and_then(|authority| authority.split('/').next())
+        .expect("RELAY_URL must contain a host");
+    seed_relay_member(host, keys, "owner").await;
 }
 
 fn http_origin_for_host(host: &str) -> String {
@@ -233,6 +239,7 @@ async fn query_task_state(
 #[tokio::test]
 #[ignore]
 async fn test_task_creator_delete_hides_state_and_blocks_same_id_recreation() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let keys = test_owner_keys();
     seed_relay_owner(&keys).await;
     let mut client = BuzzTestClient::connect(&relay_url(), &keys)
