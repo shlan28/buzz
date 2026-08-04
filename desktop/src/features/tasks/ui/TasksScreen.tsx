@@ -235,8 +235,17 @@ export function TasksScreen() {
           assignees={tasks.assignees}
           error={mutationError}
           pending={tasks.update.isPending}
+          deletePending={tasks.deleteTask.isPending}
+          deleteError={
+            tasks.deleteTask.error ? message(tasks.deleteTask.error) : undefined
+          }
           task={selected}
           onClose={() => openTask(null)}
+          onDelete={() =>
+            tasks.deleteTask.mutate(selected, {
+              onSuccess: () => openTask(null),
+            })
+          }
           onUpdate={(patch, onSuccess) => {
             setMutationError(undefined);
             tasks.update.mutate(

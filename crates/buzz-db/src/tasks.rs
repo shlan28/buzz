@@ -16,6 +16,13 @@ pub enum ApplyTaskResult {
     Duplicate,
 }
 
+/// Result of atomically soft-deleting a task.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeleteTaskResult {
+    /// Current state and actor-authored history were hidden and the marker stored.
+    Deleted,
+}
+
 /// Store an actor command and replace its relay-signed state under one lock.
 pub async fn apply_task_events(
     pool: &PgPool,
@@ -36,6 +43,24 @@ pub async fn apply_task_events(
         .bind(lock_key)
         .execute(tx.as_mut())
         .await?;
+
+    // A deletion marker is a permanent ID fence even when that marker was
+    // itself hidden later. Check it before command-event dedup so replaying
+    // the exact original create is rejected rather than reported as success.
+    if expected_state_id.is_none() {
+        let deleted_marker_exists = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM events WHERE community_id = $1 AND kind = $2 \
+             AND tags @> $3)",
+        )
+        .bind(community_id.as_uuid())
+        .bind(buzz_core::kind::KIND_TASK_DELETE as i32)
+        .bind(serde_json::json!([["t", format!("task-id:{task_id}")]]))
+        .fetch_one(tx.as_mut())
+        .await?;
+        if deleted_marker_exists {
+            return Err(DbError::Conflict("task id was soft-deleted".into()));
+        }
+    }
 
     let duplicate = sqlx::query_scalar::<_, bool>(
         "SELECT EXISTS(SELECT 1 FROM events WHERE community_id = $1 AND id = $2)",
@@ -88,6 +113,59 @@ pub async fn apply_task_events(
     .await?;
     tx.commit().await?;
     Ok(ApplyTaskResult::Applied)
+}
+
+/// Soft-delete a task's current state and complete command history, retaining
+/// only the signed minimal deletion marker.
+pub async fn delete_task_events(
+    pool: &PgPool,
+    community_id: CommunityId,
+    task_id: Uuid,
+    expected_state_id: &[u8],
+    delete_marker: &Event,
+    channel_id: Option<Uuid>,
+) -> Result<DeleteTaskResult> {
+    let mut tx = pool.begin().await?;
+    let lock_key = i64::from_le_bytes(
+        task_id.as_bytes()[..8]
+            .try_into()
+            .map_err(|_| DbError::InvalidData("task UUID could not produce lock key".into()))?,
+    );
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(lock_key)
+        .execute(tx.as_mut())
+        .await?;
+
+    let current_id = sqlx::query_scalar::<_, Vec<u8>>(
+        "SELECT id FROM events WHERE community_id = $1 AND kind = $2 AND d_tag = $3 \
+         AND deleted_at IS NULL FOR UPDATE",
+    )
+    .bind(community_id.as_uuid())
+    .bind(buzz_core::kind::KIND_TASK_STATE as i32)
+    .bind(task_id.to_string())
+    .fetch_optional(tx.as_mut())
+    .await?
+    .ok_or_else(|| DbError::NotFound("task not found".into()))?;
+    if current_id.as_slice() != expected_state_id {
+        return Err(DbError::Conflict("task state changed".into()));
+    }
+
+    let task_tag = serde_json::json!([["t", format!("task-id:{task_id}")]]);
+    sqlx::query(
+        "UPDATE events SET deleted_at = NOW() WHERE community_id = $1 AND deleted_at IS NULL \
+         AND ((kind = $2 AND d_tag = $3) OR (kind IN ($4, $5) AND tags @> $6))",
+    )
+    .bind(community_id.as_uuid())
+    .bind(buzz_core::kind::KIND_TASK_STATE as i32)
+    .bind(task_id.to_string())
+    .bind(buzz_core::kind::KIND_TASK_CREATE as i32)
+    .bind(buzz_core::kind::KIND_TASK_MUTATE as i32)
+    .bind(task_tag)
+    .execute(tx.as_mut())
+    .await?;
+    insert_raw(&mut tx, community_id, delete_marker, channel_id, None).await?;
+    tx.commit().await?;
+    Ok(DeleteTaskResult::Deleted)
 }
 
 async fn insert_raw(
@@ -222,5 +300,96 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(persisted, 0, "conflicting mutation must not be stored");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires PostgreSQL with current migrations"]
+    async fn delete_hides_state_and_history_and_blocks_recreation() {
+        let (pool, community) = setup().await;
+        let actor = Keys::generate();
+        let relay = Keys::generate();
+        let task_id = Uuid::new_v4();
+        let task_tag = Tag::parse(["t", &format!("task-id:{task_id}")]).unwrap();
+        let create = EventBuilder::new(
+            Kind::Custom(buzz_core::kind::KIND_TASK_CREATE as u16),
+            "secret",
+        )
+        .tags([task_tag.clone()])
+        .sign_with_keys(&actor)
+        .unwrap();
+        let state = EventBuilder::new(
+            Kind::Custom(buzz_core::kind::KIND_TASK_STATE as u16),
+            "secret",
+        )
+        .tags([Tag::parse(["d", &task_id.to_string()]).unwrap()])
+        .sign_with_keys(&relay)
+        .unwrap();
+        apply_task_events(&pool, community, task_id, None, &create, &state, None)
+            .await
+            .unwrap();
+        let marker = EventBuilder::new(Kind::Custom(buzz_core::kind::KIND_TASK_DELETE as u16), "")
+            .tags([
+                task_tag.clone(),
+                Tag::parse(["previous", &state.id.to_hex()]).unwrap(),
+            ])
+            .sign_with_keys(&actor)
+            .unwrap();
+        assert_eq!(
+            delete_task_events(
+                &pool,
+                community,
+                task_id,
+                state.id.as_bytes().as_slice(),
+                &marker,
+                None,
+            )
+            .await
+            .unwrap(),
+            DeleteTaskResult::Deleted
+        );
+        let visible_task_rows: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM events WHERE community_id = $1 AND deleted_at IS NULL \
+             AND (id = $2 OR id = $3)",
+        )
+        .bind(community.as_uuid())
+        .bind(create.id.as_bytes().as_slice())
+        .bind(state.id.as_bytes().as_slice())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(visible_task_rows, 0);
+        let visible_marker: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM events WHERE community_id = $1 AND id = $2 AND deleted_at IS NULL",
+        )
+        .bind(community.as_uuid())
+        .bind(marker.id.as_bytes().as_slice())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(visible_marker, 1);
+
+        // The marker itself may later be hidden by a generic deletion event.
+        // Its durable row must still fence this task ID forever.
+        sqlx::query("UPDATE events SET deleted_at = NOW() WHERE community_id = $1 AND id = $2")
+            .bind(community.as_uuid())
+            .bind(marker.id.as_bytes().as_slice())
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let recreate =
+            EventBuilder::new(Kind::Custom(buzz_core::kind::KIND_TASK_CREATE as u16), "")
+                .tags([task_tag])
+                .sign_with_keys(&actor)
+                .unwrap();
+        let recreated_state =
+            EventBuilder::new(Kind::Custom(buzz_core::kind::KIND_TASK_STATE as u16), "")
+                .tags([Tag::parse(["d", &task_id.to_string()]).unwrap()])
+                .sign_with_keys(&relay)
+                .unwrap();
+        assert!(matches!(
+            apply_task_events(&pool, community, task_id, None, &recreate, &recreated_state, None).await,
+            Err(DbError::Conflict(message)) if message == "task id was soft-deleted"
+        ));
     }
 }

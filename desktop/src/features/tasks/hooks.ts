@@ -13,15 +13,18 @@ import { signRelayEvent } from "@/shared/api/tauri";
 import type { RelayEvent } from "@/shared/api/types";
 import {
   KIND_TASK_CREATE,
+  KIND_TASK_DELETE,
   KIND_TASK_MUTATE,
   KIND_TASK_STATE,
 } from "@/shared/constants/kinds";
 import {
   buildCreateTaskEvent,
+  buildDeleteTaskEvent,
   buildMutateTaskEvent,
   assertTaskAssigneeTags,
   parseTaskState,
   parseTaskHistoryEvent,
+  taskIdFromDeleteEvent,
 } from "./lib/taskEvents";
 import { buildTaskAssignees } from "./lib/taskAssignees";
 import type {
@@ -98,8 +101,16 @@ export function useTasks() {
     let dispose: (() => void) | undefined;
     void relayClient
       .subscribeLive(
-        { kinds: [KIND_TASK_STATE], limit: 0 },
+        { kinds: [KIND_TASK_STATE, KIND_TASK_DELETE], limit: 0 },
         (event: RelayEvent) => {
+          const deletedTaskId = taskIdFromDeleteEvent(event);
+          if (deletedTaskId) {
+            removeTaskFromCache(queryClient, deletedTaskId);
+            queryClient.removeQueries({
+              queryKey: ["task-history", deletedTaskId],
+            });
+            return;
+          }
           void queryClient.invalidateQueries({ queryKey: tasksQueryKey });
           const taskId = event.tags.find((tag) => tag[0] === "d")?.[1];
           if (taskId)
@@ -166,6 +177,14 @@ export function useTasks() {
       });
     },
   });
+  const deleteTask = useMutation({
+    mutationFn: (task: Task) => publishCommand(buildDeleteTaskEvent(task)),
+    onSuccess: (_data, task) => {
+      removeTaskFromCache(queryClient, task.id);
+      queryClient.removeQueries({ queryKey: ["task-history", task.id] });
+      void queryClient.invalidateQueries({ queryKey: tasksQueryKey });
+    },
+  });
 
   return {
     ...query,
@@ -174,7 +193,17 @@ export function useTasks() {
     currentPubkey: identity.data?.pubkey,
     create,
     update,
+    deleteTask,
   };
+}
+
+function removeTaskFromCache(
+  queryClient: ReturnType<typeof useQueryClient>,
+  taskId: string,
+) {
+  queryClient.setQueriesData<Task[]>({ queryKey: tasksQueryKey }, (old) =>
+    old?.filter((task) => task.id !== taskId),
+  );
 }
 
 export function useTaskHistory(taskId: string) {

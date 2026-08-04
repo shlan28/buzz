@@ -308,3 +308,46 @@ test("deep link opens details and search/show-done filters visible tasks", async
   ).toBeVisible();
   await expect(page.getByText("Publish old release notes")).toHaveCount(0);
 });
+
+test("deletes a task only after irreversible confirmation", async ({
+  page,
+}) => {
+  await installTasks(page);
+  await page.goto(`/#/tasks?task=${FIRST_TASK}`);
+  const panel = page.getByTestId("task-detail-panel");
+  await panel.getByRole("button", { name: "Delete task" }).click();
+
+  const dialog = page.getByTestId("delete-task-dialog");
+  await expect(dialog).toContainText("Audit onboarding flow");
+  await expect(dialog).toContainText("does not support restoring");
+  await dialog.getByRole("button", { name: "Delete task" }).click();
+
+  await expect(panel).toHaveCount(0);
+  await expect(page.getByTestId(`task-card-${FIRST_TASK}`)).toHaveCount(0);
+  const deletion = await page.evaluate(() =>
+    window.__BUZZ_E2E_SIGNED_EVENTS__?.findLast(
+      (event) => event.kind === 42_502,
+    ),
+  );
+  expect(deletion?.content).toBe("");
+  expect(deletion?.tags).toContainEqual(["t", `task-id:${FIRST_TASK}`]);
+  expect(deletion?.tags).toContainEqual(["previous", "21".repeat(32)]);
+});
+
+test("failed delete keeps the task and Relay reason visible", async ({
+  page,
+}) => {
+  await installTasks(page, { rejectNextPublish: "restricted: creator only" });
+  await page.goto(`/#/tasks?task=${FIRST_TASK}`);
+  const panel = page.getByTestId("task-detail-panel");
+  await panel.getByRole("button", { name: "Delete task" }).click();
+  const dialog = page.getByTestId("delete-task-dialog");
+  await dialog.getByRole("button", { name: "Delete task" }).click();
+
+  await expect(dialog.getByRole("alert")).toContainText(
+    "restricted: creator only",
+  );
+  await expect(panel).toBeVisible();
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.getByTestId(`task-card-${FIRST_TASK}`)).toBeVisible();
+});

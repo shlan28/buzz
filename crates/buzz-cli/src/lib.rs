@@ -1315,6 +1315,14 @@ pub enum TasksCmd {
         #[arg(long)]
         expected_event: String,
     },
+    /// Permanently remove a task from product views. Recovery is not supported.
+    Delete {
+        #[arg(long)]
+        id: String,
+        /// Current Task State event id; refuses to delete a newer version.
+        #[arg(long)]
+        expected_event: String,
+    },
     /// Archive without deleting task history.
     Archive {
         #[arg(long)]
@@ -2109,6 +2117,17 @@ mod tests {
         assert!(Cli::try_parse_from([
             "buzz",
             "tasks",
+            "delete",
+            "--id",
+            task_id,
+            "--expected-event",
+            &event_id,
+        ])
+        .is_ok());
+        assert!(Cli::try_parse_from(["buzz", "tasks", "delete", "--id", task_id]).is_err());
+        assert!(Cli::try_parse_from([
+            "buzz",
+            "tasks",
             "update",
             "--id",
             task_id,
@@ -2239,7 +2258,7 @@ mod tests {
         );
         assert_eq!(
             names(&cmd, "tasks"),
-            vec!["archive", "assign", "create", "get", "list", "update"]
+            vec!["archive", "assign", "create", "delete", "get", "list", "update"]
         );
         assert_eq!(names(&cmd, "reactions"), vec!["add", "get", "remove"]);
         assert_eq!(
@@ -2345,7 +2364,7 @@ mod tests {
             ("reactions", 3),
             ("repos", 5),
             ("social", 7),
-            ("tasks", 6),
+            ("tasks", 7),
             ("upload", 1),
             ("users", 5),
             ("workflows", 8),

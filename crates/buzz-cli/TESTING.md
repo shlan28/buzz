@@ -1,7 +1,7 @@
 # buzz-cli Live Testing Guide
 
-> Updated: 2026-08-03
-> Update: Added community Tasks CLI creation, read, mutation, assignment, archive, conflict, and Agent-identity checks.
+> Updated: 2026-08-04
+> Update: Added Task soft-delete, conflict, disappearance, and anti-recreation checks.
 
 Manual testing runbook for verifying every CLI command against a local relay.
 An agent or developer follows this step by step, running each command and
@@ -32,6 +32,10 @@ buzz tasks assign --id "$TASK_ID" --expected-event "$HEAD" --assignee none
 HEAD="<new-64-hex-state-event-id>"
 buzz tasks archive --id "$TASK_ID" --expected-event "$HEAD"
 buzz tasks list --include-archived
+
+HEAD="<new-64-hex-state-event-id>"
+buzz tasks delete --id "$TASK_ID" --expected-event "$HEAD"
+buzz tasks get --id "$TASK_ID" # expect not found
 ```
 
 Verify these negative and identity cases:
@@ -43,6 +47,9 @@ Verify these negative and identity cases:
 - Run the same flow with an Agent `BUZZ_PRIVATE_KEY` and `BUZZ_AUTH_TAG`; output must retain the Agent as the real actor.
 - Associate a private Channel using `--channel`; a caller or assignee without Channel access must not read or mutate the task.
 - Confirm assignment only changes responsibility and does not start an Agent turn.
+- After delete, confirm `tasks get`, `tasks list`, and task history do not expose the task.
+- Re-run `tasks create` with the deleted task UUID; expect rejection so deleted tasks cannot revive.
+- Delete with an old State ID; expect exit code 5 and confirm the task still exists.
 
 ---
 

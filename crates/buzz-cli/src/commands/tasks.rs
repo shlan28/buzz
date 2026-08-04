@@ -9,8 +9,8 @@ use crate::client::BuzzClient;
 use crate::error::CliError;
 use crate::TasksCmd;
 use buzz_sdk::{
-    build_task_create, build_task_mutate, TaskCreateInput, TaskMutateInput, TaskPriority,
-    TaskStatus,
+    build_task_create, build_task_delete, build_task_mutate, TaskCreateInput, TaskDeleteInput,
+    TaskMutateInput, TaskPriority, TaskStatus,
 };
 
 const KIND_TASK_STATE: u16 = buzz_core::kind::KIND_TASK_STATE as u16;
@@ -231,6 +231,47 @@ async fn publish_command(
         })
     );
     Ok(())
+}
+
+async fn publish_delete(
+    client: &BuzzClient,
+    task_id: &str,
+    builder: EventBuilder,
+) -> Result<(), CliError> {
+    let event = client.sign_event(builder)?;
+    let event_id = event.id.to_hex();
+    let raw = match client.submit_event(event).await {
+        Err(CliError::Relay { body, .. }) if body.contains("conflict:") => {
+            return Err(CliError::Conflict(body));
+        }
+        result => result?,
+    };
+    let response: serde_json::Value = serde_json::from_str(&raw)
+        .map_err(|error| CliError::Other(format!("relay response is not JSON: {error}")))?;
+    if !response
+        .get("accepted")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
+        return Err(CliError::Other(format!(
+            "relay rejected task delete: {}",
+            response
+                .get("message")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+        )));
+    }
+    println!("{}", delete_output(&event_id, task_id));
+    Ok(())
+}
+
+fn delete_output(event_id: &str, task_id: &str) -> serde_json::Value {
+    serde_json::json!({
+        "event_id": event_id,
+        "accepted": true,
+        "message": "deleted",
+        "task_id": task_id,
+    })
 }
 
 async fn fetch_task(client: &BuzzClient, id: &str) -> Result<Option<TaskSnapshot>, CliError> {
@@ -510,6 +551,17 @@ pub async fn dispatch(command: TasksCmd, client: &BuzzClient) -> Result<(), CliE
                 build_task_mutate(&input).map_err(|error| CliError::Usage(error.to_string()))?;
             publish_command(client, &id.to_string(), builder).await
         }
+        TasksCmd::Delete { id, expected_event } => {
+            let id = parse_task_id(&id)?;
+            validate_event_id(&expected_event, "--expected-event")?;
+            let input = TaskDeleteInput {
+                id,
+                previous_event: expected_event,
+            };
+            let builder =
+                build_task_delete(&input).map_err(|error| CliError::Usage(error.to_string()))?;
+            publish_delete(client, &id.to_string(), builder).await
+        }
     }
 }
 
@@ -543,5 +595,18 @@ mod tests {
         assert!(parse_task_id("task-1").is_err());
         assert!(validate_event_id(&"a".repeat(64), "event").is_ok());
         assert!(validate_event_id(&"z".repeat(64), "event").is_err());
+    }
+
+    #[test]
+    fn delete_output_is_stable() {
+        assert_eq!(
+            delete_output(&"a".repeat(64), "10eef02c-9be8-4055-a747-e348d5a405ad"),
+            serde_json::json!({
+                "event_id": "a".repeat(64),
+                "accepted": true,
+                "message": "deleted",
+                "task_id": "10eef02c-9be8-4055-a747-e348d5a405ad",
+            })
+        );
     }
 }

@@ -100,9 +100,16 @@ pub const KIND_TASK_STATE: u32 = 30500;
 pub const KIND_TASK_CREATE: u32 = 42500;
 /// Buzz Tasks: actor-signed mutation command.
 pub const KIND_TASK_MUTATE: u32 = 42501;
+/// Buzz Tasks: actor-signed soft-delete command.
+pub const KIND_TASK_DELETE: u32 = 42502;
 
 /// All Buzz Tasks event kinds.
-pub const TASK_KINDS: &[u32] = &[KIND_TASK_CREATE, KIND_TASK_MUTATE, KIND_TASK_STATE];
+pub const TASK_KINDS: &[u32] = &[
+    KIND_TASK_CREATE,
+    KIND_TASK_MUTATE,
+    KIND_TASK_DELETE,
+    KIND_TASK_STATE,
+];
 
 /// NIP-AE: Agent Engram (parameterized replaceable, agent-authored).
 ///
@@ -614,6 +621,7 @@ pub const ALL_KINDS: &[u32] = &[
     KIND_TASK_STATE,
     KIND_TASK_CREATE,
     KIND_TASK_MUTATE,
+    KIND_TASK_DELETE,
     KIND_AGENT_ENGRAM,
     KIND_EVENT_REMINDER,
     KIND_PERSONA,
@@ -785,6 +793,7 @@ pub const fn is_command_kind(kind: u32) -> bool {
             | KIND_APPROVAL_DENY
             | KIND_TASK_CREATE
             | KIND_TASK_MUTATE
+            | KIND_TASK_DELETE
     )
 }
 

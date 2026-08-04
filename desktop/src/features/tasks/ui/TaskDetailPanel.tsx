@@ -1,5 +1,15 @@
 import * as React from "react";
-import { Archive, X } from "lucide-react";
+import { Archive, Trash2, X } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/shared/ui/alert-dialog";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Textarea } from "@/shared/ui/textarea";
@@ -25,6 +35,9 @@ export function TaskDetailPanel({
   error,
   onClose,
   onUpdate,
+  deletePending,
+  deleteError,
+  onDelete,
 }: {
   task: Task;
   assignees: TaskAssignee[];
@@ -32,7 +45,12 @@ export function TaskDetailPanel({
   error?: string;
   onClose: () => void;
   onUpdate: (patch: TaskPatch, onSuccess?: () => void) => void;
+  deletePending: boolean;
+  deleteError?: string;
+  onDelete: () => void;
 }) {
+  const [deleteOpen, setDeleteOpen] = React.useState(false);
+  const [deleteAttempted, setDeleteAttempted] = React.useState(false);
   const [title, setTitle] = React.useState(task.title);
   const [description, setDescription] = React.useState(task.description);
   const [dueDate, setDueDate] = React.useState(() =>
@@ -179,7 +197,7 @@ export function TaskDetailPanel({
         <TaskHistory taskId={task.id} />
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
       </div>
-      <footer className="border-t border-border p-4">
+      <footer className="space-y-2 border-t border-border p-4">
         <Button
           className="w-full"
           disabled={pending}
@@ -189,6 +207,62 @@ export function TaskDetailPanel({
           <Archive className="h-4 w-4" />
           Archive task
         </Button>
+        <AlertDialog
+          open={deleteOpen}
+          onOpenChange={(open) => {
+            setDeleteOpen(open);
+            if (!open) setDeleteAttempted(false);
+          }}
+        >
+          <Button
+            className="w-full"
+            disabled={pending || deletePending}
+            onClick={() => setDeleteOpen(true)}
+            variant="destructive"
+          >
+            <Trash2 className="h-4 w-4" />
+            Delete task
+          </Button>
+          <AlertDialogContent data-testid="delete-task-dialog">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete task?</AlertDialogTitle>
+              <AlertDialogDescription>
+                “{task.title}” will disappear for everyone. Buzz does not
+                support restoring deleted tasks.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            {deleteAttempted && deleteError ? (
+              <p className="text-sm text-destructive" role="alert">
+                {deleteError}
+              </p>
+            ) : null}
+            <AlertDialogFooter>
+              <AlertDialogCancel asChild>
+                <Button
+                  disabled={deletePending}
+                  type="button"
+                  variant="outline"
+                >
+                  Cancel
+                </Button>
+              </AlertDialogCancel>
+              <AlertDialogAction asChild>
+                <Button
+                  disabled={deletePending}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    setDeleteAttempted(true);
+                    onDelete();
+                  }}
+                  type="button"
+                  variant="destructive"
+                >
+                  {deletePending ? "Deleting…" : "Delete task"}
+                </Button>
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </footer>
     </aside>
   );

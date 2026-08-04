@@ -1665,6 +1665,26 @@ impl Db {
         .await
     }
 
+    /// Soft-delete a task and retain its signed deletion marker.
+    pub async fn delete_task_events(
+        &self,
+        community_id: CommunityId,
+        task_id: Uuid,
+        expected_state_id: &[u8],
+        delete_marker: &nostr::Event,
+        channel_id: Option<Uuid>,
+    ) -> Result<tasks::DeleteTaskResult> {
+        tasks::delete_task_events(
+            &self.pool,
+            community_id,
+            task_id,
+            expected_state_id,
+            delete_marker,
+            channel_id,
+        )
+        .await
+    }
+
     /// [`Db::query_events`] with replica routing — the opt-in fast path for
     /// display reads.
     ///

@@ -3,9 +3,11 @@ import test from "node:test";
 import {
   assertTaskAssigneeTags,
   buildCreateTaskEvent,
+  buildDeleteTaskEvent,
   buildMutateTaskEvent,
   parseTaskHistoryEvent,
   parseTaskState,
+  taskIdFromDeleteEvent,
 } from "./taskEvents.ts";
 
 const relay = "a".repeat(64);
@@ -166,4 +168,31 @@ test("description edit uses explicit set semantics", () => {
     mutation.tags.find((tag) => tag[0] === "set"),
     ["set", "description"],
   );
+});
+
+test("delete carries only the task id and latest state reference", () => {
+  const task = parseTaskState(event, relay);
+  assert.ok(task);
+  const deletion = buildDeleteTaskEvent(task);
+  assert.equal(deletion.kind, 42502);
+  assert.equal(deletion.content, "");
+  assert.deepEqual(deletion.tags, [
+    ["t", "task-id:task-id"],
+    ["previous", event.id],
+    ["e", event.id, "", "previous"],
+  ]);
+});
+
+test("accepts only well-formed task delete markers", () => {
+  const task = parseTaskState(event, relay);
+  assert.ok(task);
+  const deletion = { ...buildDeleteTaskEvent(task), ...event, kind: 42502 };
+  deletion.content = "";
+  deletion.tags = buildDeleteTaskEvent(task).tags;
+  assert.equal(taskIdFromDeleteEvent(deletion), "task-id");
+  assert.equal(
+    taskIdFromDeleteEvent({ ...deletion, tags: deletion.tags.slice(0, 2) }),
+    null,
+  );
+  assert.equal(taskIdFromDeleteEvent({ ...deletion, content: "Title" }), null);
 });

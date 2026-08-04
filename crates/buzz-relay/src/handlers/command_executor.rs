@@ -46,6 +46,15 @@ fn agent_assignment_allowed(
         || (policy == "allowlist" && allowlist.iter().any(|value| value == &hex::encode(actor)))
 }
 
+fn task_delete_allowed(
+    actor: &[u8],
+    creator: &[u8],
+    creator_owner: Option<&[u8]>,
+    actor_is_admin: bool,
+) -> bool {
+    actor == creator || creator_owner == Some(actor) || actor_is_admin
+}
+
 /// Route a command-kind event to the appropriate handler.
 pub async fn handle_command(
     tenant: &TenantContext,
@@ -86,8 +95,180 @@ pub async fn handle_command(
         KIND_TASK_CREATE | KIND_TASK_MUTATE => {
             handle_task_command(tenant, state, &event, &auth).await
         }
+        KIND_TASK_DELETE => handle_task_delete(tenant, state, &event, &auth).await,
         _ => Err(IngestError::Rejected(format!(
             "unknown command kind: {kind}"
+        ))),
+    }
+}
+
+async fn handle_task_delete(
+    tenant: &TenantContext,
+    state: &Arc<AppState>,
+    command: &Event,
+    auth: &IngestAuth,
+) -> Result<IngestResult, IngestError> {
+    if !command.content.is_empty() {
+        return Err(IngestError::Rejected(
+            "invalid: task delete content must be empty".into(),
+        ));
+    }
+    let task_id = buzz_core::task::task_id(command)
+        .map_err(|error| IngestError::Rejected(format!("invalid: {error}")))?;
+    let mut task_id_tags = 0_usize;
+    let mut previous_tags = 0_usize;
+    let mut previous_event_refs = Vec::new();
+    for tag in command.tags.iter() {
+        let parts = tag.as_slice();
+        match parts.first().map(String::as_str) {
+            Some("t")
+                if parts
+                    .get(1)
+                    .is_some_and(|value| value == &format!("task-id:{task_id}")) =>
+            {
+                task_id_tags += 1;
+            }
+            Some("previous") if parts.len() == 2 => previous_tags += 1,
+            Some("e") if parts.len() == 4 && parts[3] == "previous" => {
+                previous_event_refs.push(parts[1].to_string());
+            }
+            _ => {
+                return Err(IngestError::Rejected(
+                    "invalid: task delete contains unsupported tags".into(),
+                ));
+            }
+        }
+    }
+    if task_id_tags != 1 || previous_tags != 1 {
+        return Err(IngestError::Rejected(
+            "invalid: task delete requires one task id and one previous state".into(),
+        ));
+    }
+    let previous_hex = extract_tag(command, "previous").ok_or_else(|| {
+        IngestError::Rejected("invalid: task delete missing previous state".into())
+    })?;
+    if previous_event_refs.len() > 1
+        || previous_event_refs
+            .first()
+            .is_some_and(|event_id| event_id != &previous_hex)
+    {
+        return Err(IngestError::Rejected(
+            "invalid: task delete previous references do not match".into(),
+        ));
+    }
+    let expected = hex::decode(&previous_hex)
+        .map_err(|_| IngestError::Rejected("invalid: previous must be a hex event id".into()))?;
+    if expected.len() != 32 {
+        return Err(IngestError::Rejected(
+            "invalid: previous must be a 32-byte event id".into(),
+        ));
+    }
+
+    let mut query = buzz_db::EventQuery::for_community(tenant.community());
+    query.kinds = Some(vec![KIND_TASK_STATE as i32]);
+    query.d_tag = Some(task_id.to_string());
+    query.limit = Some(1);
+    let current = state
+        .db
+        .query_events(&query)
+        .await
+        .map_err(|error| IngestError::Internal(format!("error: query task state: {error}")))?
+        .into_iter()
+        .next()
+        .ok_or_else(|| IngestError::Rejected("not found: task does not exist".into()))?;
+    if current.event.id.as_bytes().as_slice() != expected.as_slice() {
+        return Err(IngestError::Rejected("conflict: task state changed".into()));
+    }
+
+    if let Some(scoped_channels) = auth.channel_ids() {
+        match current.channel_id {
+            Some(channel_id) if scoped_channels.contains(&channel_id) => {}
+            Some(_) => {
+                return Err(IngestError::AuthFailed(
+                    "restricted: token cannot access the task channel".into(),
+                ));
+            }
+            None => {
+                return Err(IngestError::AuthFailed(
+                    "restricted: channel-scoped tokens cannot delete global tasks".into(),
+                ));
+            }
+        }
+    }
+
+    let actor = auth.pubkey().to_bytes().to_vec();
+    if let Some(channel_id) = current.channel_id {
+        let channel = state
+            .db
+            .get_channel(tenant.community(), channel_id)
+            .await
+            .map_err(|_| IngestError::AuthFailed("restricted: task channel unavailable".into()))?;
+        if channel.visibility == "private"
+            && !state
+                .db
+                .is_member(tenant.community(), channel_id, &actor)
+                .await
+                .map_err(|error| {
+                    IngestError::Internal(format!("error: check task access: {error}"))
+                })?
+        {
+            return Err(IngestError::AuthFailed(
+                "restricted: actor cannot access the task channel".into(),
+            ));
+        }
+    }
+    let creator = extract_tag(&current.event, "creator")
+        .and_then(|value| hex::decode(value).ok())
+        .ok_or_else(|| IngestError::Internal("error: task state has invalid creator".into()))?;
+    let creator_owner = state
+        .db
+        .get_agent_owner_pubkey(tenant.community(), &creator)
+        .await
+        .map_err(|error| IngestError::Internal(format!("error: read creator owner: {error}")))?;
+    let actor_role = state
+        .db
+        .get_relay_member(tenant.community(), &hex::encode(&actor))
+        .await
+        .map_err(|error| IngestError::Internal(format!("error: read community role: {error}")))?
+        .map(|member| member.role);
+    let actor_is_admin = actor_role
+        .as_deref()
+        .is_some_and(|role| matches!(role, "owner" | "admin"));
+    if !task_delete_allowed(&actor, &creator, creator_owner.as_deref(), actor_is_admin) {
+        return Err(IngestError::AuthFailed(
+            "restricted: only the task creator, creator agent owner, or community administrator may delete"
+                .into(),
+        ));
+    }
+
+    let channel_id = current.channel_id;
+    match state
+        .db
+        .delete_task_events(tenant.community(), task_id, &expected, command, channel_id)
+        .await
+    {
+        Ok(buzz_db::tasks::DeleteTaskResult::Deleted) => {
+            let topic = channel_id.map_or(EventTopic::Global, EventTopic::Channel);
+            if let Err(error) = state.pubsub.publish_event(tenant, topic, command).await {
+                warn!(task_id = %task_id, "task deleted but live marker publish failed: {error}");
+            }
+            Ok(IngestResult {
+                event_id: command.id.to_hex(),
+                accepted: true,
+                message: format!(
+                    "response:{}",
+                    serde_json::json!({"task_id": task_id, "deleted": true})
+                ),
+            })
+        }
+        Err(DbError::Conflict(message)) => {
+            Err(IngestError::Rejected(format!("conflict: {message}")))
+        }
+        Err(DbError::NotFound(_)) => Err(IngestError::Rejected(
+            "not found: task does not exist".into(),
+        )),
+        Err(error) => Err(IngestError::Internal(format!(
+            "error: delete task: {error}"
         ))),
     }
 }
@@ -1835,7 +2016,7 @@ async fn resume_workflow_after_approval(
 
 #[cfg(test)]
 mod task_permission_tests {
-    use super::agent_assignment_allowed;
+    use super::{agent_assignment_allowed, task_delete_allowed};
 
     #[test]
     fn owner_only_does_not_admit_admin_or_sibling_agent() {
@@ -1901,5 +2082,17 @@ mod task_permission_tests {
             "anyone",
             &[]
         ));
+    }
+
+    #[test]
+    fn delete_excludes_assignee_only_actor() {
+        let creator = [1_u8; 32];
+        let owner = [2_u8; 32];
+        let assignee = [3_u8; 32];
+        let admin = [4_u8; 32];
+        assert!(task_delete_allowed(&creator, &creator, None, false));
+        assert!(task_delete_allowed(&owner, &creator, Some(&owner), false));
+        assert!(task_delete_allowed(&admin, &creator, None, true));
+        assert!(!task_delete_allowed(&assignee, &creator, None, false));
     }
 }

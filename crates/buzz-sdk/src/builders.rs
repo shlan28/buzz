@@ -12,7 +12,8 @@ use buzz_core::{
         KIND_GIT_STATUS_OPEN, KIND_IA_ARCHIVE_REQUEST, KIND_IA_UNARCHIVE_REQUEST,
         KIND_MODERATION_BAN, KIND_MODERATION_RESOLVE_REPORT, KIND_MODERATION_TIMEOUT,
         KIND_MODERATION_UNBAN, KIND_MODERATION_UNTIMEOUT, KIND_PRESENCE_UPDATE, KIND_TASK_CREATE,
-        KIND_TASK_MUTATE, KIND_USER_STATUS, KIND_WORKFLOW_DEF, KIND_WORKFLOW_TRIGGER,
+        KIND_TASK_DELETE, KIND_TASK_MUTATE, KIND_USER_STATUS, KIND_WORKFLOW_DEF,
+        KIND_WORKFLOW_TRIGGER,
     },
     observer::{
         content_looks_like_nip44, OBSERVER_AGENT_TAG, OBSERVER_FRAME_CONTROL, OBSERVER_FRAME_TAG,
@@ -24,7 +25,7 @@ use uuid::Uuid;
 
 use crate::{
     CalendarEventInput, ChannelKind, CustomEmoji, DiffMeta, MemberRole, SdkError, TaskCreateInput,
-    TaskMutateInput, ThreadRef, Visibility, VoteDirection,
+    TaskDeleteInput, TaskMutateInput, ThreadRef, Visibility, VoteDirection,
 };
 
 /// NIP-52 date-based calendar event kind.
@@ -221,6 +222,17 @@ pub fn build_task_mutate(input: &TaskMutateInput) -> Result<EventBuilder, SdkErr
         ));
     }
     Ok(EventBuilder::new(Kind::Custom(KIND_TASK_MUTATE as u16), content).tags(tags))
+}
+
+/// Build an actor-signed task soft-delete command.
+pub fn build_task_delete(input: &TaskDeleteInput) -> Result<EventBuilder, SdkError> {
+    check_hex_len(&input.previous_event, 64, "previous event")?;
+    let tags = vec![
+        tag(&["t", &format!("task-id:{}", input.id)])?,
+        tag(&["previous", &input.previous_event])?,
+        tag(&["e", &input.previous_event, "", "previous"])?,
+    ];
+    Ok(EventBuilder::new(Kind::Custom(KIND_TASK_DELETE as u16), "").tags(tags))
 }
 
 fn check_calendar_id(id: &str) -> Result<(), SdkError> {
@@ -2209,6 +2221,31 @@ mod tests {
             .collect();
         assert!(tags.contains(&vec!["set".into(), "description".into()]));
         assert!(tags.contains(&vec!["previous".into(), "ab".repeat(32)]));
+    }
+
+    #[test]
+    fn task_delete_is_minimal_and_versioned() {
+        let input = TaskDeleteInput {
+            id: Uuid::nil(),
+            previous_event: "cd".repeat(32),
+        };
+        let event = sign(build_task_delete(&input).unwrap());
+        assert_eq!(event.kind.as_u16() as u32, KIND_TASK_DELETE);
+        assert!(event.content.is_empty());
+        let tags: Vec<Vec<String>> = event
+            .tags
+            .iter()
+            .map(|tag| tag.as_slice().iter().map(ToString::to_string).collect())
+            .collect();
+        assert_eq!(tags.len(), 3);
+        assert!(tags.contains(&vec!["t".into(), format!("task-id:{}", Uuid::nil())]));
+        assert!(tags.contains(&vec!["previous".into(), "cd".repeat(32)]));
+        assert!(tags.contains(&vec![
+            "e".into(),
+            "cd".repeat(32),
+            "".into(),
+            "previous".into()
+        ]));
     }
 
     fn event_id() -> EventId {

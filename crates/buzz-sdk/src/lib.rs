@@ -80,6 +80,15 @@ pub struct TaskMutateInput {
     pub archived: Option<bool>,
 }
 
+/// Minimal input for an actor-signed task soft-delete command.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaskDeleteInput {
+    /// Stable task UUID.
+    pub id: uuid::Uuid,
+    /// Current Task State event ID used for optimistic concurrency.
+    pub previous_event: String,
+}
+
 /// Thread reference for reply builders (NIP-10 markers).
 ///
 /// - Direct reply (root == parent): emits `["e", root, "", "reply"]`

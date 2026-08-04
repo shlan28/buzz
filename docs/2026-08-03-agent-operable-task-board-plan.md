@@ -1,7 +1,7 @@
 # Agent 可操作的任务看板规划
 
-> 更新日期：2026-08-03
-> 更新说明：完成看板拖拽与键盘转派、失败回滚、完整可见历史、组合筛选及 Tasks Playwright E2E，并同步最终验收状态。
+> 更新日期：2026-08-04
+> 更新说明：在已完成的任务看板上新增 Task 软删除：独立 kind `42502`、严格删除权限、`events.deleted_at` 事务标记、防同 ID 复活、Agent CLI 命令及 Desktop 二次确认。
 
 ## 1. 产品目标
 
@@ -56,14 +56,14 @@ Buzz 已有 Projects、NIP-34 Issue 和 Pull Request，它们主要服务代码�
 - Desktop 主侧栏增加 `Tasks`，路由为 `/tasks`。
 - 看板默认按负责人分列：未指派、当前用户、人类成员、Agent。
 - 可切换紧凑列表视图，方便搜索和窄窗口使用。
-- 创建、查看、编辑、归档任务。
+- 创建、查看、编辑、归档和软删除任务；删除后产品不提供恢复。
 - 单一负责人，可在人与 Agent 之间转派，也可设为未指派。
 - 状态：`Backlog`、`Todo`、`In progress`、`Blocked`、`Done`。
 - 优先级：`No priority`、`Low`、`Medium`、`High`、`Urgent`。
 - 字段：标题、描述、负责人、状态、优先级、截止时间、标签、可选 Project/Channel/消息关联。
 - 按负责人、身份类型、状态、优先级、标签和 Project 筛选；按标题搜索。
 - 任务详情显示创建人、最后编辑人、创建时间、更新时间和最近变更记录。
-- Agent 通过 `buzz tasks create|get|list|update|assign|archive` 操作任务。
+- Agent 通过 `buzz tasks create|get|list|update|assign|archive|delete` 操作任务。
 - Relay 实时事件到达后更新看板。
 - community 隔离、签名校验、成员与 Agent 身份校验、写权限校验。
 - loading、empty、error、offline、permission denied、并发覆盖提示和操作失败重试状态。
@@ -120,6 +120,7 @@ buzz tasks list --assignee me --status todo,in-progress
 buzz tasks update --id <task-id> --description "..." --expected-event <event-id>
 buzz tasks assign --id <task-id> --assignee <pubkey> --expected-event <event-id>
 buzz tasks archive --id <task-id> --expected-event <event-id>
+buzz tasks delete --id <task-id> --expected-event <event-id>
 ```
 
 Agent 创建时应传稳定 UUID `--id`，它同时是任务 ID 和幂等键，重试不会生成第二张卡片。CLI 写操作返回 Command event ID、任务 ID、当前 Task State event ID 和 Relay 接受状态。
@@ -248,15 +249,16 @@ NIP-34 是 Git repository、Issue、Patch 和 Pull Request 的协议。这个任
 NIP-34 Issue / PR ──────── 继续属于 Projects 模块，不自动等同于任务
 ```
 
-首版确定使用三个独立 kind ID。已检查当前 `crates/buzz-core/src/kind.rs` 的 `ALL_KINDS`，以下编号在本仓库中未被占用：
+当前使用四个独立 kind ID。已检查当前 `crates/buzz-core/src/kind.rs` 的 `ALL_KINDS`，以下编号在本仓库中未被占用：
 
 | Kind ID | 名称 | 产品含义 | 谁签名 |
 | --- | --- | --- | --- |
 | `42500` | `KIND_TASK_CREATE` | 创建一项新任务，包含初始字段 | 创建任务的人或 Agent |
 | `42501` | `KIND_TASK_MUTATE` | 编辑、改状态、转派、归档或恢复任务 | 实际执行操作的人或 Agent |
+| `42502` | `KIND_TASK_DELETE` | 软删除任务并留下最小防复活标记 | 任务创建者、创建者 Agent 的主人或 community 管理员 |
 | `30500` | `KIND_TASK_STATE` | 任务当前最新状态，`d=<task-id>` | 当前 community 的 Relay |
 
-`42500–42599` 在 Buzz 内预留为 Task management 区间，首版只使用前两个。`30500` 位于 NIP-33 参数化可替换区间，用于保证每个任务只有一个当前 State。编号在实现时写入 `ALL_KINDS` 后，由现有重复检测测试继续防止仓库内部碰撞。
+`42500–42599` 在 Buzz 内预留为 Task management 区间，目前使用前三个。`30500` 位于 NIP-33 参数化可替换区间，用于保证每个任务只有一个当前 State。编号写入 `ALL_KINDS`，由现有重复检测测试继续防止仓库内部碰撞。
 
 截至 2026-08-03，`30500` 未出现在 Nostr 官方 [Event Kinds 列表](https://github.com/nostr-protocol/nips#event-kinds)，但官方列表明确声明并非穷举。因此这里能保证 Buzz 仓库内不冲突，不能承诺整个 Nostr 生态永久不占用。若未来要让第三方 Relay/客户端原生支持 Buzz Tasks，应登记 kind 或形成独立 NIP，并在发布前再次检查外部 registry。
 
@@ -285,7 +287,7 @@ Command 是审计事实，State 是可查询的当前读模型。State 由 Relay
 | 乐观并发 | `previous` tag | Mutate Command 指向客户端读到的 Task State event ID |
 | 归档 | `archived` tag | 布尔值；默认查询排除 |
 
-Command 与 State 的关联规则：Create/Mutate Command 都携带 `t=task-id:<uuid>`；Task State 使用同一 UUID 作为 `d`。Mutate Command 另外用 `e` tag 指向 `previous` Task State event。这样任务历史可以通过已下推的 `#t` 查询，当前状态可以通过 NIP-33 的 `authors=[relay] + #d=[uuid]` 精确查询。
+Command 与 State 的关联规则：Create/Mutate/Delete Command 都携带 `t=task-id:<uuid>`；Task State 使用同一 UUID 作为 `d`。Mutate/Delete Command 另外用 `e` tag 指向 `previous` Task State event。删除成功后，Relay 给该任务的 State、Create 和 Mutate 事件写入 `deleted_at`，保留不含标题与描述的 Delete Command 作为防复活标记。
 
 ### 6.2 数据究竟存在哪里
 
@@ -442,6 +444,7 @@ buzz tasks list [filters] [--limit <n>] [--cursor <cursor>]
 buzz tasks update --id <task-id> --expected-event <event-id> [field patches]
 buzz tasks assign --id <task-id> --assignee <me|none|pubkey> --expected-event <event-id>
 buzz tasks archive --id <task-id> --expected-event <event-id>
+buzz tasks delete --id <task-id> --expected-event <event-id>
 ```
 
 `update` 只修改显式传入字段；清空字段使用 `--clear-description`、`--clear-due`、`--clear-project` 等明确参数。禁止把空字符串同时解释为“保持不变”和“清空”。
@@ -470,7 +473,7 @@ buzz tasks archive --id <task-id> --expected-event <event-id>
 
 ### 阶段 B：CLI 与 Agent
 
-- 实现 `buzz tasks` CRUD、转派、归档和冲突提示；
+- 实现 `buzz tasks` CRUD、转派、归档、软删除和冲突提示；
 - 将命令示例、幂等 ID、真实署名和“指派不自动执行”加入 Agent 使用说明；
 - 先用 CLI 完成端到端验证，再接 UI。
 

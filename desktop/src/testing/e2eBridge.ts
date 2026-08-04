@@ -48,6 +48,7 @@ import {
   KIND_STREAM_MESSAGE_EDIT,
   KIND_SYSTEM_MESSAGE,
   KIND_TASK_CREATE,
+  KIND_TASK_DELETE,
   KIND_TASK_MUTATE,
   KIND_TASK_STATE,
   KIND_TEXT_NOTE,
@@ -9493,6 +9494,34 @@ function sendToMockSocket(args: {
       }
       emitMockGlobalEvent(state);
       sendWsText(socket.handler, ["OK", event.id, true, "stored"]);
+      return;
+    }
+
+    if (event.kind === KIND_TASK_DELETE) {
+      const rejection = getConfig()?.mock?.taskPublishErrors?.shift();
+      if (rejection) {
+        sendWsText(socket.handler, ["OK", event.id, false, rejection]);
+        return;
+      }
+      const taskId = taskSemanticTag(event, "task-id:")?.slice(
+        "task-id:".length,
+      );
+      const currentIndex = mockTaskEvents.findIndex(
+        (task) => taskTag(task, "d") === taskId,
+      );
+      const current = mockTaskEvents[currentIndex];
+      if (!taskId || !current || taskTag(event, "previous") !== current.id) {
+        sendWsText(socket.handler, [
+          "OK",
+          event.id,
+          false,
+          "conflict: task changed or not found",
+        ]);
+        return;
+      }
+      mockTaskEvents.splice(currentIndex, 1);
+      emitMockGlobalEvent(event);
+      sendWsText(socket.handler, ["OK", event.id, true, "deleted"]);
       return;
     }
 

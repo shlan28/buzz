@@ -1,6 +1,7 @@
 import type { RelayEvent } from "@/shared/api/types";
 import {
   KIND_TASK_CREATE,
+  KIND_TASK_DELETE,
   KIND_TASK_MUTATE,
   KIND_TASK_STATE,
 } from "@/shared/constants/kinds";
@@ -181,6 +182,28 @@ export function buildMutateTaskEvent(task: Task, patch: TaskPatch) {
     content: patch.description ?? "",
     tags,
   };
+}
+
+export function buildDeleteTaskEvent(task: Task) {
+  return {
+    kind: KIND_TASK_DELETE as typeof KIND_TASK_DELETE,
+    content: "",
+    tags: [
+      ["t", `task-id:${task.id}`],
+      ["previous", task.eventId],
+      ["e", task.eventId, "", "previous"],
+    ],
+  };
+}
+
+export function taskIdFromDeleteEvent(event: RelayEvent): string | null {
+  if (event.kind !== KIND_TASK_DELETE || event.content !== "") return null;
+  const taskId = semanticTag(event, "task-id:");
+  const previous = firstTag(event, "previous");
+  const previousReference = event.tags.find(
+    (tag) => tag[0] === "e" && tag[3] === "previous",
+  )?.[1];
+  return taskId && previous && previous === previousReference ? taskId : null;
 }
 
 function taskFieldTags(draft: TaskDraft): string[][] {
