@@ -132,6 +132,24 @@ export function buildCreateTaskEvent(draft: TaskDraft) {
   };
 }
 
+export function assertTaskAssigneeTags(
+  tags: readonly (readonly string[])[],
+  assignee: string | null | undefined,
+) {
+  if (assignee === undefined) return;
+  const actual = tags.find((tag) => tag[0] === "p")?.[1] ?? null;
+  const clearsAssignee = tags.some(
+    (tag) => tag[0] === "clear" && tag[1] === "assignee",
+  );
+  if (
+    assignee === null
+      ? !clearsAssignee || actual !== null
+      : actual?.toLowerCase() !== assignee.toLowerCase()
+  ) {
+    throw new Error("Task assignee was lost before publishing.");
+  }
+}
+
 export function buildMutateTaskEvent(task: Task, patch: TaskPatch) {
   const tags: string[][] = [
     ["t", `task-id:${task.id}`],

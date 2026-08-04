@@ -1,9 +1,13 @@
-import * as React from "react";
+import { Check, ChevronDown } from "lucide-react";
 import { cn } from "@/shared/lib/cn";
+import { Button } from "@/shared/ui/button";
 import {
-  taskAssigneeFromSelectValue,
-  taskAssigneeSelectValue,
-} from "../lib/taskAssigneeSelection";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/shared/ui/dropdown-menu";
+import { resolveTaskAssigneeCandidate } from "../lib/taskAssigneeSelection";
 import type { TaskAssignee } from "../types";
 
 export function TaskAssigneeSelect({
@@ -21,66 +25,70 @@ export function TaskAssigneeSelect({
   compact?: boolean;
   onChange: (assignee: string | null) => void;
 }) {
-  const id = React.useId();
-  const [invalid, setInvalid] = React.useState(false);
-  const selectedIndex = assignees.findIndex(
+  const selected = assignees.find(
     (assignee) =>
       assignee.pubkey?.toLowerCase() === value?.toLowerCase() ||
       (assignee.pubkey === null && value === null),
   );
-  const selectValue =
-    selectedIndex >= 0 ? taskAssigneeSelectValue(selectedIndex) : "unknown";
 
   return (
-    <label
+    <div
       className={compact ? "block" : "block space-y-1.5 text-sm font-medium"}
-      htmlFor={id}
     >
       <span className={compact ? "sr-only" : undefined}>{label}</span>
-      <select
-        aria-label={compact ? label : undefined}
-        className={cn(
-          "w-full rounded-md border border-input bg-background text-sm",
-          compact ? "h-7 px-2 text-xs" : "flex h-9 px-3",
-        )}
-        disabled={pending}
-        id={id}
-        value={selectValue}
-        onChange={(event) => {
-          const assignee = taskAssigneeFromSelectValue(
-            event.target.value,
-            assignees,
-          );
-          if (assignee === undefined) {
-            setInvalid(true);
-            return;
-          }
-          setInvalid(false);
-          onChange(assignee);
-        }}
-      >
-        {selectedIndex < 0 ? (
-          <option value="unknown">Unknown current assignee</option>
-        ) : null}
-        {assignees.map((assignee, index) => (
-          <option
-            disabled={assignee.canAssign === false}
-            key={assignee.pubkey ?? "unassigned"}
-            value={taskAssigneeSelectValue(index)}
+      <DropdownMenu modal={false}>
+        <DropdownMenuTrigger asChild>
+          <Button
+            aria-label={label}
+            className={cn(
+              "w-full justify-between border-input bg-background font-normal",
+              compact ? "h-7 px-2 text-xs" : "h-9 px-3 text-sm",
+            )}
+            disabled={pending}
+            type="button"
+            variant="outline"
           >
-            {assignee.label}
-            {assignee.kind === "agent" ? " · Agent" : ""}
-            {assignee.canAssign === false
-              ? ` — ${assignee.unavailableReason ?? "Unavailable"}`
-              : ""}
-          </option>
-        ))}
-      </select>
-      {invalid ? (
-        <span className="mt-1 block text-xs text-destructive" role="alert">
-          This assignee is no longer available. Refresh and try again.
-        </span>
-      ) : null}
-    </label>
+            <span className="truncate">
+              {selected?.label ?? "Unknown current assignee"}
+              {selected?.kind === "agent" ? " · Agent" : ""}
+            </span>
+            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="start"
+          onCloseAutoFocus={(event) => event.preventDefault()}
+          style={{ minWidth: "var(--radix-dropdown-menu-trigger-width)" }}
+        >
+          {assignees.map((assignee) => (
+            <DropdownMenuItem
+              disabled={assignee.canAssign === false}
+              key={assignee.pubkey ?? "unassigned"}
+              onSelect={() => {
+                const resolved = resolveTaskAssigneeCandidate(
+                  assignee.pubkey,
+                  assignees,
+                );
+                if (resolved !== undefined) onChange(resolved);
+              }}
+            >
+              <Check
+                className={cn(
+                  "h-4 w-4",
+                  assignee === selected ? "opacity-100" : "opacity-0",
+                )}
+              />
+              <span>
+                {assignee.label}
+                {assignee.kind === "agent" ? " · Agent" : ""}
+                {assignee.canAssign === false
+                  ? ` — ${assignee.unavailableReason ?? "Unavailable"}`
+                  : ""}
+              </span>
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   );
 }

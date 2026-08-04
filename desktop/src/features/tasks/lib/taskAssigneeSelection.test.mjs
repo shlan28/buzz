@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  taskAssigneeFromSelectValue,
-  taskAssigneeSelectValue,
-} from "./taskAssigneeSelection.ts";
+import { resolveTaskAssigneeCandidate } from "./taskAssigneeSelection.ts";
 
 const assignees = [
   { pubkey: null, label: "Unassigned", kind: "unassigned" },
@@ -11,31 +8,21 @@ const assignees = [
   { pubkey: "agent-pubkey", label: "Bumble", kind: "agent" },
 ];
 
-test("resolves the current user from a stable candidate index", () => {
-  assert.equal(
-    taskAssigneeFromSelectValue(taskAssigneeSelectValue(1), assignees),
-    "b2fa",
-  );
+test("resolves the current user from the clicked candidate", () => {
+  assert.equal(resolveTaskAssigneeCandidate("B2FA", assignees), "b2fa");
 });
 
 test("resolves an Agent from the same candidate collection", () => {
   assert.equal(
-    taskAssigneeFromSelectValue(taskAssigneeSelectValue(2), assignees),
+    resolveTaskAssigneeCandidate("agent-pubkey", assignees),
     "agent-pubkey",
   );
 });
 
 test("resolves only the explicit Unassigned candidate to null", () => {
-  assert.equal(
-    taskAssigneeFromSelectValue(taskAssigneeSelectValue(0), assignees),
-    null,
-  );
+  assert.equal(resolveTaskAssigneeCandidate(null, assignees), null);
 });
 
-test("rejects stale and malformed option values", () => {
-  assert.equal(taskAssigneeFromSelectValue("", assignees), undefined);
-  assert.equal(
-    taskAssigneeFromSelectValue(taskAssigneeSelectValue(99), assignees),
-    undefined,
-  );
+test("rejects a candidate that is no longer available", () => {
+  assert.equal(resolveTaskAssigneeCandidate("stale", assignees), undefined);
 });

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  assertTaskAssigneeTags,
   buildCreateTaskEvent,
   buildMutateTaskEvent,
   parseTaskHistoryEvent,
@@ -100,6 +101,22 @@ test("rejects a mutation without any changed field", () => {
   assert.throws(
     () => buildMutateTaskEvent(task, {}),
     /does not contain any changes/,
+  );
+});
+
+test("rejects an assignee command when signing loses the selected user", () => {
+  const lu = "b2fa0399d5e1487ee90b88e0d18223fb17e382d711aaee0e7f0ad5ee7d363f4e";
+  assert.doesNotThrow(() => assertTaskAssigneeTags([["p", lu]], lu));
+  assert.doesNotThrow(() =>
+    assertTaskAssigneeTags([["clear", "assignee"]], null),
+  );
+  assert.throws(
+    () => assertTaskAssigneeTags([["action", "update"]], lu),
+    /lost before publishing/,
+  );
+  assert.throws(
+    () => assertTaskAssigneeTags([["action", "update"]], null),
+    /lost before publishing/,
   );
 });
 

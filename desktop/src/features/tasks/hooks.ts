@@ -19,6 +19,7 @@ import {
 import {
   buildCreateTaskEvent,
   buildMutateTaskEvent,
+  assertTaskAssigneeTags,
   parseTaskState,
   parseTaskHistoryEvent,
 } from "./lib/taskEvents";
@@ -56,12 +57,17 @@ async function fetchTasks(relaySelfPubkey: string): Promise<Task[]> {
   return [...byId.values()];
 }
 
-async function publishCommand(input: {
-  kind: number;
-  content: string;
-  tags: string[][];
-}) {
+async function publishCommand(
+  input: {
+    kind: number;
+    content: string;
+    tags: string[][];
+  },
+  expectedAssignee?: string | null,
+) {
+  assertTaskAssigneeTags(input.tags, expectedAssignee);
   const event = await signRelayEvent(input);
+  assertTaskAssigneeTags(event.tags, expectedAssignee);
   return relayClient.publishEvent(
     event,
     "Timed out saving task.",
@@ -131,12 +137,12 @@ export function useTasks() {
 
   const create = useMutation({
     mutationFn: (draft: TaskDraft) =>
-      publishCommand(buildCreateTaskEvent(draft)),
+      publishCommand(buildCreateTaskEvent(draft), draft.assignee ?? undefined),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: tasksQueryKey }),
   });
   const update = useMutation({
     mutationFn: ({ task, patch }: { task: Task; patch: TaskPatch }) =>
-      publishCommand(buildMutateTaskEvent(task, patch)),
+      publishCommand(buildMutateTaskEvent(task, patch), patch.assignee),
     onMutate: async ({ task, patch }) => {
       await queryClient.cancelQueries({ queryKey: tasksQueryKey });
       const snapshots = queryClient.getQueriesData<Task[]>({

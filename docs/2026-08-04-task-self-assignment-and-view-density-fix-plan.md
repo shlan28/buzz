@@ -1,7 +1,7 @@
 # Task 自我指派与信息展示优化方案
 
 > 更新日期：2026-08-04
-> 更新说明：2026-08-04 第二轮负责人修复已完成：选择值改为从当前候选对象解析，旧 Bumble 与无资料身份被过滤，空更新被阻止，并补齐现场同构测试和验收结果。
+> 更新说明：2026-08-04 第三轮修复已完成：负责人改为应用内候选菜单，发布前后增加字段一致性保护，并补齐手动创建及 `lu → Unassigned → lu` 往返测试。Agent 数量清理继续有效。
 
 ## 1. 本次要解决的问题
 
@@ -200,3 +200,79 @@
 - Desktop TypeScript 类型检查：通过。
 - Desktop Biome、文件大小、字号和 pubkey 展示检查：通过；Biome 仅报告两条本次改动之外的既有提示。
 - Tasks E2E：8 项全部通过；详情面板与卡片快速指派均验证 `lu` 的 `p` tag，Relay 回写后负责人保持为 `lu`。
+
+## 13. 第三轮现场核查（2026-08-04）
+
+### 13.1 用户补充的完整故障路径
+
+- 手动创建任务时选择 `lu`，最终任务仍是未指派；
+- Agent 创建任务并指派给 `lu` 时正常；
+- 随后在 Desktop 手动改为 `Unassigned` 可以成功；
+- 再从 Desktop 手动改回 `lu` 时失败。
+
+这说明 `lu` 本身有任务访问权，Relay 也允许任务指派给 `lu`；故障只存在于 Desktop 的手动选择路径。
+
+### 13.2 现场事件证据
+
+完整重启 Desktop 后再次操作，数据库仍收到两条有效签名的空 Task Mutate 事件：
+
+- 事件作者是 `lu（b2fa0399…3f4e）`；
+- 事件中有任务 ID 和上一版本；
+- 没有负责人 `p` tag，也没有清空负责人标记；
+- 事件签名和事件 ID 校验均通过。
+
+因此 Relay 没有删除负责人；Desktop 在签名前就丢失了手动选择结果。Agent 创建正常，是因为 Agent CLI 不经过 Desktop 的原生下拉框。
+
+### 13.3 为什么现有测试没有发现
+
+当前 Tasks E2E 使用浏览器模拟桥接层，模拟签名会原样保留测试传入的 tags。它能验证任务业务逻辑，却没有覆盖 macOS WebView 原生 `<select>` 控件的真实选择行为，因此出现自动化测试通过、真实 Desktop 失败。
+
+## 14. 第三轮修复方案
+
+### 14.1 用应用内负责人菜单替换原生下拉框
+
+负责人入口改为应用内按钮与弹出菜单。每个菜单项直接持有对应候选对象：
+
+- 点击 `lu`，直接提交 `b2fa0399…3f4e`；
+- 点击 Agent，直接提交该 Agent pubkey；
+- 点击 `Unassigned`，明确提交 `null`；
+- 不再把候选位置或 pubkey 先写入原生 `<select>`，再从 DOM 字符串反向解析。
+
+创建窗口、任务详情和卡片快捷指派继续共用同一个负责人组件，保证三个入口行为一致。
+
+### 14.2 发布前增加负责人一致性检查
+
+Desktop 在签名前后检查本次负责人操作：
+
+- 选择具体负责人时，待发布事件必须包含完全相同的 `p` tag；
+- 选择 `Unassigned` 时，更新事件必须包含明确的清空标记；
+- 字段不一致时停止发布，并在界面显示错误，不能再把空事件保存为一次成功更新。
+
+这层检查既用于修复，也作为以后修改签名或选择组件时的安全网。
+
+## 15. 第三轮 Todo List
+
+- [x] `desktop/src/features/tasks/ui/TaskAssigneeSelect.tsx`：把原生负责人下拉框改为直接绑定候选对象的应用内菜单。
+- [x] `desktop/src/features/tasks/lib/taskAssigneeSelection.ts`：删除基于 DOM 候选位置的解析，改为校验明确的候选 pubkey/null。
+- [x] `desktop/src/features/tasks/lib/taskAssigneeSelection.test.mjs`：覆盖 `lu`、Agent、Unassigned 和已失效候选。
+- [x] `desktop/src/features/tasks/hooks.ts`：发布前后核对负责人操作与签名事件 tags，不一致时停止发布并显示错误。
+- [x] `desktop/src/features/tasks/lib/taskEvents.test.mjs`：补充负责人发布一致性与空更新拒绝测试。
+- [x] `desktop/tests/e2e/tasks.spec.ts`：改为点击负责人菜单项，覆盖手动创建指派给 `lu`，以及 `lu → Unassigned → lu` 的完整往返。
+- [x] `docs/2026-08-04-task-self-assignment-and-view-density-fix-plan.md`：完成后更新第三轮 Todo 与真实 Desktop 验收结果。
+
+## 16. 第三轮验收标准
+
+1. 手动创建任务时选择 `lu`，创建完成后仍显示 `lu`。
+2. Agent 创建并指派给 `lu` 的任务，可以从 Desktop 改为 `Unassigned`，再改回 `lu`。
+3. 详情面板和卡片快捷指派结果一致。
+4. Desktop 不再发布缺少负责人操作字段的空 Task 事件。
+5. 当前 Bumble、其他可用 Agent 和真实成员仍可正常指派，旧 Bumble 与无资料身份不会重新出现。
+
+## 17. 第三轮自动化验证结果
+
+- Desktop 单元测试：3824 项全部通过。
+- Desktop TypeScript 类型检查：通过。
+- Desktop Biome、文件大小、字号和 pubkey 展示检查：通过；Biome 仅报告两条本次改动之外的既有提示。
+- Desktop E2E 构建：通过。
+- Tasks E2E：8 项全部通过；覆盖手动创建并指派给 `lu`、详情负责人 `lu → Unassigned → lu`、卡片快捷指派、其他成员和 Agent 候选。
+- 真实 Desktop 验收：代码提交并完整重启客户端后，由现场操作确认。

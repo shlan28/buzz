@@ -98,6 +98,8 @@ test("creates a task and shows its Relay-confirmed state", async ({ page }) => {
   await dialog
     .getByLabel("Description")
     .fill("Confirm owner-only assignment behavior.");
+  await dialog.getByLabel("Assignee").click();
+  await page.getByRole("menuitem", { name: "lu", exact: true }).click();
   await dialog.getByLabel("Priority").selectOption("urgent");
   await dialog.getByLabel("Due date").fill("2026-08-20");
   await dialog.getByRole("button", { name: "Create task" }).click();
@@ -108,11 +110,17 @@ test("creates a task and shows its Relay-confirmed state", async ({ page }) => {
   ).toBeVisible();
   await expect(page.getByText("urgent", { exact: true })).toBeVisible();
   await page
-    .getByRole("button", { name: "Review Agent task permissions" })
+    .getByRole("button", {
+      name: "Review Agent task permissions",
+      exact: true,
+    })
     .click();
   await expect(
     page.getByTestId("task-detail-panel").getByLabel("Due date"),
   ).toHaveValue("2026-08-20");
+  await expect(
+    page.getByTestId("task-detail-panel").getByLabel("Assignee"),
+  ).toContainText("lu");
 });
 
 test("keyboard opens a task, edits text, and transfers its owner", async ({
@@ -123,6 +131,7 @@ test("keyboard opens a task, edits text, and transfers its owner", async ({
   const card = page.getByTestId(`task-card-${FIRST_TASK}`);
   const openTask = card.getByRole("button", {
     name: "Audit onboarding flow",
+    exact: true,
   });
   await openTask.focus();
   await openTask.press("Enter");
@@ -139,10 +148,9 @@ test("keyboard opens a task, edits text, and transfers its owner", async ({
     panel.getByRole("heading", { name: "Audit onboarding and recovery" }),
   ).toBeVisible();
 
-  await panel.getByLabel("Assignee").selectOption({ label: "bob" });
-  await expect(
-    panel.getByLabel("Assignee").locator("option:checked"),
-  ).toHaveText("bob");
+  await panel.getByLabel("Assignee").click();
+  await page.getByRole("menuitem", { name: "bob", exact: true }).click();
+  await expect(panel.getByLabel("Assignee")).toContainText("bob");
 
   await panel.getByLabel("Due date").fill("2026-08-31");
   await panel.getByRole("button", { name: "Save due date" }).click();
@@ -165,9 +173,11 @@ test("assigning a task to the current user survives Relay confirmation", async (
   await installTasks(page);
   await page.goto(`/#/tasks?task=${FIRST_TASK}`);
 
-  const assignee = page.getByTestId("task-detail-panel").getByLabel("Assignee");
-  await assignee.selectOption({ label: "lu" });
-  await expect(assignee.locator("option:checked")).toHaveText("lu");
+  const panel = page.getByTestId("task-detail-panel");
+  const assignee = panel.getByLabel("Assignee");
+  await assignee.click();
+  await page.getByRole("menuitem", { name: "lu", exact: true }).click();
+  await expect(assignee).toContainText("lu");
 
   const mutation = await page.evaluate(() =>
     window.__BUZZ_E2E_SIGNED_EVENTS__?.findLast(
@@ -176,6 +186,17 @@ test("assigning a task to the current user survives Relay confirmation", async (
   );
   expect(mutation?.tags).toContainEqual(["p", MOCK_VIEWER]);
   expect(mutation?.tags).not.toContainEqual(["clear", "assignee"]);
+
+  await expect(panel.getByLabel("Assignee")).toBeEnabled();
+  await page.waitForTimeout(500);
+  await panel.getByLabel("Assignee").click();
+  await page.getByRole("menuitem", { name: "Unassigned", exact: true }).click();
+  await expect(panel.getByLabel("Assignee")).toContainText("Unassigned");
+  await expect(panel.getByLabel("Assignee")).toBeEnabled();
+  await page.waitForTimeout(500);
+  await panel.getByLabel("Assignee").click();
+  await page.getByRole("menuitem", { name: "lu", exact: true }).click();
+  await expect(panel.getByLabel("Assignee")).toContainText("lu");
 });
 
 test("board cards and list rows show task planning details", async ({
@@ -188,9 +209,8 @@ test("board cards and list rows show task planning details", async ({
   await expect(card).toContainText("Check the first-run experience.");
   await expect(card).toContainText("2026-08-20");
 
-  await card.getByLabel("Move Audit onboarding flow to").selectOption({
-    label: "lu",
-  });
+  await card.getByLabel("Move Audit onboarding flow to").click();
+  await page.getByRole("menuitem", { name: "lu", exact: true }).click();
   await expect(
     page
       .getByTestId(`task-column-${MOCK_VIEWER}`)
@@ -218,12 +238,12 @@ test("assignee options exclude Agent profiles outside current members", async ({
   await page.goto(`/#/tasks?task=${FIRST_TASK}`);
 
   const assignee = page.getByTestId("task-detail-panel").getByLabel("Assignee");
-  await expect(assignee.locator("option")).toContainText([
-    "Unassigned",
-    "alice · Agent",
-    "bob",
-  ]);
-  await expect(assignee.locator("option")).not.toContainText(["charlie"]);
+  await assignee.click();
+  const menu = page.getByRole("menu");
+  await expect(menu).toContainText("Unassigned");
+  await expect(menu).toContainText("alice · Agent");
+  await expect(menu).toContainText("bob");
+  await expect(menu).not.toContainText("charlie");
 });
 
 test("dragging a card to another owner transfers the task", async ({

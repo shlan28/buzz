@@ -1,17 +1,13 @@
 import type { TaskAssignee } from "../types";
 
-const OPTION_PREFIX = "task-assignee:";
-
-export function taskAssigneeSelectValue(index: number): string {
-  return `${OPTION_PREFIX}${index}`;
-}
-
-export function taskAssigneeFromSelectValue(
-  value: string,
+export function resolveTaskAssigneeCandidate(
+  pubkey: string | null,
   assignees: readonly TaskAssignee[],
 ): string | null | undefined {
-  if (!value.startsWith(OPTION_PREFIX)) return undefined;
-  const rawIndex = value.slice(OPTION_PREFIX.length);
-  if (!/^\d+$/.test(rawIndex)) return undefined;
-  return assignees[Number(rawIndex)]?.pubkey;
+  const candidate = assignees.find((assignee) =>
+    pubkey === null
+      ? assignee.pubkey === null
+      : assignee.pubkey?.toLowerCase() === pubkey.toLowerCase(),
+  );
+  return candidate?.pubkey;
 }
