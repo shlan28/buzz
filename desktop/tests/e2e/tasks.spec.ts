@@ -51,7 +51,11 @@ function taskState(input: {
 
 async function installTasks(
   page: Parameters<typeof installMockBridge>[0],
-  options?: { rejectNextPublish?: string; agentOffline?: boolean },
+  options?: {
+    rejectNextPublish?: string;
+    agentOffline?: boolean;
+    executionResult?: "finished" | "failed";
+  },
 ) {
   await installMockBridge(page, {
     relaySelf: RELAY_SELF,
@@ -139,11 +143,74 @@ async function installTasks(
         status: "blocked",
       }),
     ],
+    taskExecutionEvents: options?.executionResult
+      ? [
+          {
+            id: "31".repeat(32),
+            pubkey: RELAY_SELF,
+            created_at: 1_785_548_100,
+            kind: 30_501,
+            tags: [
+              ["d", "90f25ab8-b83a-40fb-8948-6f747780af2a"],
+              ["t", `task-id:${AGENT_TASK}`],
+              ["p", BUMBLE, "", "agent"],
+              ["owner", MOCK_VIEWER],
+              ["status", options.executionResult],
+              ["requester", MOCK_VIEWER],
+            ],
+            content:
+              options.executionResult === "finished"
+                ? "Prepared the prioritized outreach list and daily pitch plan."
+                : "The Agent could not access the investor source.",
+            sig: "mocksig".repeat(20).slice(0, 128),
+          },
+        ]
+      : undefined,
     taskPublishErrors: options?.rejectNextPublish
       ? [options.rejectNextPublish]
       : undefined,
   });
 }
+
+test("completed Agent task appears in Inbox with task context", async ({
+  page,
+}) => {
+  await installTasks(page, { executionResult: "finished" });
+  await page.goto("/#/");
+
+  const row = page.getByTestId(`home-inbox-item-${"31".repeat(32)}`);
+  await expect(row).toContainText("Task completed");
+  await expect(row).toContainText("Run Agent task");
+  await row
+    .getByRole("button", { name: "Open inbox item from bumble" })
+    .click();
+
+  const detail = page.getByTestId("task-execution-inbox-detail");
+  await expect(detail).toContainText("Run Agent task");
+  await expect(detail).toContainText(
+    "Prepared the prioritized outreach list and daily pitch plan.",
+  );
+  await detail.getByRole("button", { name: "Open task" }).click();
+  await expect(page.getByTestId("task-detail-panel")).toContainText(
+    "Run Agent task",
+  );
+});
+
+test("failed Agent task appears in Inbox with its failure reason", async ({
+  page,
+}) => {
+  await installTasks(page, { executionResult: "failed" });
+  await page.goto("/#/");
+
+  const row = page.getByTestId(`home-inbox-item-${"31".repeat(32)}`);
+  await expect(row).toContainText("Task failed");
+  await row
+    .getByRole("button", { name: "Open inbox item from bumble" })
+    .click();
+  await expect(page.getByTestId("task-execution-inbox-detail")).toContainText(
+    "The Agent could not access the investor source.",
+  );
+});
 
 test("Agent owner executes an online Agent task", async ({ page }) => {
   await installTasks(page);

@@ -189,6 +189,10 @@ function feedHeadline(item: FeedItem, groupItems: readonly FeedItem[] = []) {
       return "Forum reply";
     case 46010:
       return "Approval requested";
+    case 30501:
+      return tagValue(item, "status") === "failed"
+        ? "Task failed"
+        : "Task completed";
     default:
       if (item.category === "mention") {
         return "Mention";
@@ -204,6 +208,11 @@ function feedHeadline(item: FeedItem, groupItems: readonly FeedItem[] = []) {
 
 function feedPreview(item: FeedItem) {
   const content = item.content.trim();
+  if (item.kind === 30501) {
+    const title = tagValue(item, "task-title");
+    if (title && content) return `**${title}**\n\n${content}`;
+    if (title) return title;
+  }
   if (content.length > 0) {
     return content;
   }

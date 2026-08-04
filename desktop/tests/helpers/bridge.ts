@@ -242,6 +242,7 @@ type MockBridgeOptions = {
   calendarEvents?: RelayEvent[];
   /** Relay-signed current Task State events returned by mock REQs. */
   taskEvents?: RelayEvent[];
+  taskExecutionEvents?: RelayEvent[];
   /** Sequenced Task Command failures; null accepts that publish. */
   taskPublishErrors?: (string | null)[];
   agentListDelayMs?: number;

@@ -48,6 +48,7 @@ export type TaskExecution = {
   eventId: string;
   taskId: string;
   assignee: string;
+  owner: string | null;
   requester: string;
   status: TaskExecutionStatus;
   message: string;

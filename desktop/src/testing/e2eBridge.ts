@@ -256,6 +256,8 @@ type E2eConfig = {
     calendarEvents?: RelayEvent[];
     /** Relay-signed current Task State events returned by mock REQs. */
     taskEvents?: RelayEvent[];
+    /** Relay-signed current Task Execution State events returned by mock REQs. */
+    taskExecutionEvents?: RelayEvent[];
     /** Sequenced Task Command failures; null accepts that publish. */
     taskPublishErrors?: (string | null)[];
     agentListDelayMs?: number;
@@ -2888,6 +2890,12 @@ function resetMockTaskEvents(config: E2eConfig | undefined) {
   mockTaskExecutionEvents.length = 0;
   for (const event of config?.mock?.taskEvents ?? []) {
     mockTaskEvents.push({
+      ...event,
+      tags: event.tags.map((tag) => [...tag]),
+    });
+  }
+  for (const event of config?.mock?.taskExecutionEvents ?? []) {
+    mockTaskExecutionEvents.push({
       ...event,
       tags: event.tags.map((tag) => [...tag]),
     });

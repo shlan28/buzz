@@ -183,6 +183,43 @@ async fn task_execution_prompt(
     Some((channel_id, task_id, execution_id, prompt))
 }
 
+const TASK_EXECUTION_RESULT_MAX_CHARS: usize = 20_000;
+
+fn task_execution_result_message(value: &str) -> String {
+    let value = value.trim();
+    if value.chars().count() <= TASK_EXECUTION_RESULT_MAX_CHARS {
+        return value.to_owned();
+    }
+
+    let mut truncated = value
+        .chars()
+        .take(TASK_EXECUTION_RESULT_MAX_CHARS)
+        .collect::<String>();
+    truncated.push_str("\n\n[Result truncated by Buzz]");
+    truncated
+}
+
+#[cfg(test)]
+mod task_execution_result_tests {
+    use super::*;
+
+    #[test]
+    fn trims_visible_result_text() {
+        assert_eq!(
+            task_execution_result_message("  finished work  "),
+            "finished work"
+        );
+    }
+
+    #[test]
+    fn truncates_oversized_result_on_character_boundary() {
+        let result =
+            task_execution_result_message(&"完".repeat(TASK_EXECUTION_RESULT_MAX_CHARS + 1));
+        assert!(result.starts_with(&"完".repeat(TASK_EXECUTION_RESULT_MAX_CHARS)));
+        assert!(result.ends_with("[Result truncated by Buzz]"));
+    }
+}
+
 fn emit_runtime_lifecycle(
     observer: Option<&observer::ObserverHandle>,
     start_nonce: &str,
@@ -2547,9 +2584,12 @@ async fn tokio_main() -> Result<()> {
                     typing_channels.remove(ch);
                     if let Some((task_id, execution_id)) = task_executions.remove(ch) {
                         let (status, message) = match &result.outcome {
-                            PromptOutcome::Ok(_) => {
-                                (buzz_sdk::TaskExecutionStatus::Finished, String::new())
-                            }
+                            PromptOutcome::Ok(_) => (
+                                buzz_sdk::TaskExecutionStatus::Finished,
+                                task_execution_result_message(
+                                    &result.agent.acp.prompt_delivery().visible_text,
+                                ),
+                            ),
                             outcome => (
                                 buzz_sdk::TaskExecutionStatus::Failed,
                                 match outcome {

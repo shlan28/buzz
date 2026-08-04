@@ -239,6 +239,7 @@ async fn handle_task_execution(
         vec!["d".into(), execution_id.to_string()],
         vec!["t".into(), format!("task-id:{task_id}")],
         vec!["p".into(), assignee_hex.clone(), "".into(), "agent".into()],
+        vec!["owner".into(), hex::encode(&owner)],
         vec!["status".into(), status.clone()],
         vec!["requester".into(), requester_hex],
         vec!["source_event".into(), command.id.to_hex()],

@@ -163,6 +163,7 @@ export function parseTaskExecutionState(
     eventId: event.id,
     taskId,
     assignee,
+    owner: firstTag(event, "owner") ?? null,
     requester,
     status,
     message: event.content,
