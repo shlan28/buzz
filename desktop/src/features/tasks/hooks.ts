@@ -101,6 +101,18 @@ async function publishCommand(
   );
 }
 
+function taskExecutionError(error: unknown): Error {
+  const message = error instanceof Error ? error.message : String(error);
+  if (
+    /timed? out|connection (?:closed|errored|lost)|websocket/i.test(message)
+  ) {
+    return new Error(
+      "Relay connection was interrupted. Reconnect and try Execute again.",
+    );
+  }
+  return error instanceof Error ? error : new Error(message);
+}
+
 export function useTasks() {
   const queryClient = useQueryClient();
   const identity = useIdentityQuery();
@@ -230,7 +242,13 @@ export function useTasks() {
     },
   });
   const execute = useMutation({
-    mutationFn: (task: Task) => publishCommand(buildExecuteTaskEvent(task)),
+    mutationFn: async (task: Task) => {
+      try {
+        return await publishCommand(buildExecuteTaskEvent(task));
+      } catch (error) {
+        throw taskExecutionError(error);
+      }
+    },
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ["task-executions"] }),
   });

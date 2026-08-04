@@ -23,7 +23,7 @@ use std::time::Duration;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use buzz_sdk::{
-    build_task_create, build_task_delete, TaskCreateInput, TaskDeleteInput, TaskPriority,
+    build_task_create, build_task_delete, nip_oa, TaskCreateInput, TaskDeleteInput, TaskPriority,
     TaskStatus,
 };
 use buzz_test_client::{BuzzTestClient, RelayMessage, TestClientError};
@@ -321,6 +321,50 @@ async fn test_connect_and_authenticate() {
         .expect("should connect and authenticate");
 
     client.disconnect().await.expect("clean disconnect");
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_direct_member_nip_oa_auth_materializes_agent_owner() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let url = relay_url();
+    let owner = Keys::generate();
+    let agent = Keys::generate();
+    let host = url
+        .strip_prefix("ws://")
+        .or_else(|| url.strip_prefix("wss://"))
+        .and_then(|authority| authority.split('/').next())
+        .expect("RELAY_URL must contain a host");
+    seed_relay_member(host, &agent, "member").await;
+
+    let auth_tag_json =
+        nip_oa::compute_auth_tag(&owner, &agent.public_key(), "").expect("compute NIP-OA auth tag");
+    let auth_tag = nip_oa::parse_auth_tag(&auth_tag_json).expect("parse NIP-OA auth tag");
+    let mut client = BuzzTestClient::connect_unauthenticated(&url)
+        .await
+        .expect("connect direct member Agent");
+    client
+        .authenticate_with_nip_oa(&agent, &auth_tag)
+        .await
+        .expect("authenticate direct member Agent with NIP-OA");
+
+    let pool = e2e_db_pool().await;
+    let community_id = ensure_test_community(host).await;
+    let stored_owner = sqlx::query_scalar::<_, Option<Vec<u8>>>(
+        "SELECT agent_owner_pubkey FROM users WHERE community_id = $1 AND pubkey = $2",
+    )
+    .bind(community_id)
+    .bind(agent.public_key().as_bytes())
+    .fetch_one(&pool)
+    .await
+    .expect("read materialized Agent owner");
+    assert_eq!(
+        stored_owner.as_deref(),
+        Some(owner.public_key().as_bytes().as_slice()),
+        "a direct relay member must still materialize its verified Agent owner"
+    );
+
+    client.disconnect().await.expect("disconnect Agent");
 }
 
 #[tokio::test]

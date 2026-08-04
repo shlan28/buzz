@@ -9495,6 +9495,11 @@ function sendToMockSocket(args: {
     const event = rest[0] as RelayEvent;
 
     if (event.kind === KIND_TASK_EXECUTION_REQUEST) {
+      const rejection = getConfig()?.mock?.taskPublishErrors?.shift();
+      if (rejection) {
+        sendWsText(socket.handler, ["OK", event.id, false, rejection]);
+        return;
+      }
       const taskId = taskSemanticTag(event, "task-id:")?.slice(
         "task-id:".length,
       );

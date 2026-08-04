@@ -172,6 +172,21 @@ test("offline Agent must be started before task execution", async ({
   );
 });
 
+test("task execution timeout explains that Relay reconnect is required", async ({
+  page,
+}) => {
+  await installTasks(page, { rejectNextPublish: "Timed out saving task." });
+  await page.goto(`/#/tasks?task=${AGENT_TASK}`);
+  const execution = page.getByTestId("task-execution-control");
+  await execution.getByRole("button", { name: "Execute" }).click();
+  await expect(execution).toContainText(
+    "Relay connection was interrupted. Reconnect and try Execute again.",
+  );
+  await expect(
+    execution.getByRole("button", { name: "Execute" }),
+  ).toBeEnabled();
+});
+
 test("creates a task and shows its Relay-confirmed state", async ({ page }) => {
   await installTasks(page);
   await page.goto("/#/tasks");

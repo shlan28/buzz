@@ -198,19 +198,64 @@ pub mod relay_members {
             }
         }
 
+        let agent_hex = agent.to_hex();
+        let owner_hex = owner.to_hex();
         let materialized = match state
             .db
             .set_agent_owner(tenant.community(), agent.as_bytes(), owner.as_bytes())
             .await
         {
-            Ok(true) => true,
-            Ok(false) => state
+            Ok(true) => {
+                tracing::info!(
+                    community = %tenant.community(),
+                    agent = %agent_hex,
+                    owner = %owner_hex,
+                    "NIP-OA agent owner materialized"
+                );
+                true
+            }
+            Ok(false) => match state
                 .db
                 .is_agent_owner(tenant.community(), agent.as_bytes(), owner.as_bytes())
                 .await
-                .unwrap_or(false),
+            {
+                Ok(true) => {
+                    tracing::debug!(
+                        community = %tenant.community(),
+                        agent = %agent_hex,
+                        owner = %owner_hex,
+                        "NIP-OA agent owner already materialized"
+                    );
+                    true
+                }
+                Ok(false) => {
+                    tracing::warn!(
+                        community = %tenant.community(),
+                        agent = %agent_hex,
+                        owner = %owner_hex,
+                        "NIP-OA agent already belongs to another owner"
+                    );
+                    false
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        community = %tenant.community(),
+                        agent = %agent_hex,
+                        owner = %owner_hex,
+                        error = %e,
+                        "failed to verify existing NIP-OA agent owner"
+                    );
+                    false
+                }
+            },
             Err(e) => {
-                tracing::warn!(error = %e, "failed to backfill agent_owner_pubkey");
+                tracing::warn!(
+                    community = %tenant.community(),
+                    agent = %agent_hex,
+                    owner = %owner_hex,
+                    error = %e,
+                    "failed to materialize NIP-OA agent owner"
+                );
                 false
             }
         };
