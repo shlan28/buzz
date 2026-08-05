@@ -18,7 +18,11 @@ struct RelayInformationDocument {
 
 #[tauri::command]
 pub async fn relay_requires_membership(state: State<'_, AppState>) -> Result<bool, String> {
-    let url = format!("{}/info", relay_api_base_url_with_override(&state));
+    relay_requires_membership_for_state(&state).await
+}
+
+async fn relay_requires_membership_for_state(state: &AppState) -> Result<bool, String> {
+    let url = format!("{}/info", relay_api_base_url_with_override(state));
     let response = state
         .http_client
         .get(url)
@@ -33,6 +37,63 @@ pub async fn relay_requires_membership(state: State<'_, AppState>) -> Result<boo
 
     let info = parse_json_response::<RelayInformationDocument>(response).await?;
     Ok(info.supported_nips.contains(&43))
+}
+
+pub(crate) fn managed_agent_membership_add_needed(
+    membership_required: bool,
+    members: &serde_json::Value,
+    target_pubkey: &str,
+) -> bool {
+    if !membership_required {
+        return false;
+    }
+
+    let normalized_target = target_pubkey.trim().to_ascii_lowercase();
+    !members
+        .get("members")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|entries| {
+            entries.iter().any(|entry| {
+                entry
+                    .get("pubkey")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|pubkey| pubkey.trim().eq_ignore_ascii_case(&normalized_target))
+            })
+        })
+}
+
+/// Ensure a managed Agent is an explicit member of the active community before
+/// its runtime starts. Open relays require no write; an existing member keeps
+/// its current role.
+pub(crate) async fn ensure_managed_agent_relay_membership(
+    state: &AppState,
+    target_pubkey: &str,
+) -> Result<bool, String> {
+    let membership_required = relay_requires_membership_for_state(state).await?;
+    if !membership_required {
+        return Ok(false);
+    }
+
+    let events = query_relay(
+        state,
+        &[serde_json::json!({
+            "kinds": [13534],
+            "limit": 1
+        })],
+    )
+    .await?;
+    let members = events
+        .first()
+        .map(nostr_convert::relay_members_from_event)
+        .unwrap_or_else(|| serde_json::json!({ "members": [] }));
+
+    if !managed_agent_membership_add_needed(true, &members, target_pubkey) {
+        return Ok(false);
+    }
+
+    let builder = events::build_relay_admin_add(target_pubkey, "member")?;
+    submit_event(builder, state).await?;
+    Ok(true)
 }
 
 #[tauri::command]
