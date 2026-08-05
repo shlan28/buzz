@@ -1,7 +1,7 @@
 # Agent 本地 Markdown 文件预览方案
 
 > 更新日期：2026-08-05
-> 更新说明：完成 Inbox 中 Agent 本地 Markdown 路径预览接入，并补充 Agent 与普通成员的 E2E 回归测试。
+> 更新说明：完成 Agent 相对路径和 `~` 路径的本地查找，包括唯一匹配、多匹配选择、搜索上限、错误恢复与回归测试。
 
 ## 1. 结论摘要
 
@@ -25,7 +25,7 @@ Buzz Desktop 可以把 Agent 回复中的本地 `.md` 文件路径显示为可�
 
 ### 2.2 支持范围
 
-- 支持扩展名为 `.md` 的绝对本地路径，扩展名大小写不敏感。
+- 支持扩展名为 `.md` 的绝对路径、`~` 路径和可在 Agent workspace 内解析的相对路径，扩展名大小写不敏感。
 - 支持 macOS/Linux 绝对路径，例如 `/Users/lu/buzz/README.md`。
 - 支持 Windows 盘符绝对路径，例如 `C:\\work\\buzz\\README.md`。
 - 支持 Agent 把路径写成普通文本或行内代码。
@@ -34,11 +34,25 @@ Buzz Desktop 可以把 Agent 回复中的本地 `.md` 文件路径显示为可�
 ### 2.3 不支持范围
 
 - 不支持 `.markdown`、`.mdx`、`.txt` 或其他格式。
-- 不支持相对路径，因为消息没有稳定、可信的工作目录语义。
+- 不支持包含 `..` 的路径、`~other-user` 或 workspace/repo 有界搜索之外的相对路径。
 - 不支持目录、设备文件、socket 等非普通文件。
 - 不提供编辑、保存、在外部编辑器打开或文件树浏览。
 - 不在 Mobile 或 Web 客户端启用；这些客户端通常无法访问 Agent 所在机器的文件系统。
 - 不在用户消息、普通成员消息或其他通用 Markdown 页面中自动激活本地路径。
+
+### 2.4 相对路径查找
+
+Agent 回复 `README.md`、`docs/plan.md`、`./docs/plan.md` 或 `~/notes.md` 时，Buzz 也将其渲染为可点击路径，但仍然只在已知 Agent 作者的消息中启用。
+
+点击后按以下顺序解析：
+
+1. 绝对路径继续直接校验和读取，不执行搜索。
+2. `~/...` 仅将开头的 `~` 展开为当前用户目录，不支持 `~other-user`。
+3. 带目录的相对路径先相对 Agent 默认 workspace（当前为 `~/.buzz`）查找，再相对 `~/.buzz/REPOS` 下的各个仓库根目录查找。
+4. 只有文件名时，在上述 workspace 与 repos 范围内执行有界的文件名搜索。
+5. 只有一个合法匹配时直接预览；有多个匹配时弹出完整路径列表，由用户选择；无匹配时给出可恢复提示。
+
+不默认扫描整个用户目录或整块磁盘。Buzz 已经把 managed Agent 进程的默认工作目录设为 `~/.buzz`，并通过其 `REPOS` 目录暴露仓库；因此这两个边界比扫描 `/Users/lu` 更符合 Agent 真实运行上下文。
 
 ## 3. 状态与反馈
 
@@ -70,6 +84,8 @@ Buzz Desktop 可以把 Agent 回复中的本地 `.md` 文件路径显示为可�
 5. 末尾的句号、逗号、括号等句子标点不计入路径。
 
 识别只负责判断“看起来像路径”，不在渲染阶段查询文件是否存在。这样不会因消息列表渲染而批量探测本地文件系统，也不会拖慢时间线。
+
+相对路径同样必须以 `.md` 结尾，并在用户点击后才搜索。拒绝包含 `..` 的路径、空路径、非 `.md` 文件和带空格但未用行内代码包裹的候选，避免路径逃逸和误分词。
 
 ## 5. 安全与隐私边界
 
@@ -123,6 +139,18 @@ LocalMarkdownPreview {
 
 命令注册到现有 `commands/mod.rs` 导出列表和 `lib.rs` invoke handler。实现使用异步文件 API，先 metadata 与大小检查，再读取文本；不新增第三方依赖。
 
+### 6.4 相对路径解析边界
+
+扩展现有 `read_local_markdown_preview` 命令，让它先把候选路径解析为零个、一个或多个规范化的 `.md` 文件，再返回预览或候选列表。搜索必须在 blocking task 中执行，不阻塞 Tokio executor，并使用固定上限：
+
+- 最多访问 10,000 个目录项；
+- 最多返回 20 个匹配；
+- 最大搜索深度为 8；
+- 跳过 `.git`、`node_modules`、`target`、`dist`、`build` 等大型生成目录；
+- 不跟随搜索过程中的目录符号链接，但 `REPOS` 作为 Buzz 已验证的入口可解析到配置的仓库根目录。
+
+每个最终候选在返回前仍必须通过现有的 canonical path、普通文件、`.md`、2 MiB 上限和 UTF-8 检查。多匹配时先只返回路径，用户选择后才读取文件内容。
+
 ## 7. 测试与验收
 
 ### 7.1 自动化测试
@@ -131,18 +159,23 @@ LocalMarkdownPreview {
 - Markdown cache 单测覆盖相同 content 在开关开启/关闭时不会串用缓存。
 - Rust 单测使用临时目录覆盖成功读取、空文件、文件不存在、相对路径、错误扩展名、目录、超限文件和非法 UTF-8。
 - Desktop E2E 使用 mock Tauri bridge 注入 Agent 消息，验证点击路径、加载、成功弹窗、空文件和错误 Toast；截图前使用共享 animation wait helper。
+- 相对路径单测覆盖 workspace 直接命中、repo 中命中、文件名搜索、`~` 展开、零匹配、多匹配、`..` 拒绝、目录与匹配数上限。
+- Desktop E2E 额外验证相对路径唯一匹配直接预览、多匹配选择完整路径、无匹配 Toast，以及普通成员相对路径不可点击。
 
 ### 7.2 手工验收
 
 1. Agent 回复一个真实、无空格的绝对 `.md` 路径，点击后正确预览。
 2. Agent 以行内代码回复一个包含空格的绝对 `.md` 路径，点击后正确预览。
 3. 相同路径出现在普通用户消息中时保持普通文本。
-4. `.txt`、相对路径和 fenced code block 中的 `.md` 路径不变成按钮。
+4. `.txt`、包含 `..` 的路径和 fenced code block 中的 `.md` 路径不变成按钮。
 5. 删除文件后点击，出现错误 Toast，Buzz 不崩溃。
 6. 超过 2 MiB 的 `.md` 文件被拒绝，时间线保持流畅。
 7. 预览中的标题、列表、表格、代码块、亮色/暗色主题和 Cmd +/- 缩放表现正常。
 8. 同一条 Agent 消息从 Home Inbox 详情打开时，`.md` 路径也可点击并打开相同的只读预览。
 9. Home Inbox 中的普通用户消息仍保持纯文本，不会获得本地文件读取入口。
+10. Agent 回复 `docs/plan.md` 且只有一个合法文件时，点击后直接打开完整路径对应的预览。
+11. Agent 回复 `README.md` 且有多个同名文件时，先显示完整路径选择列表，不自动猜测。
+12. 搜索超过边界或无匹配时，提示用户要求 Agent 返回完整绝对路径，时间线不卡顿。
 
 实施后应运行：
 
@@ -176,6 +209,13 @@ just ci
 - [x] `desktop/playwright.config.ts`：将新预览 spec 纳入 smoke 项目。
 - [x] `desktop/src/features/home/ui/InboxMessageRow.tsx`：为 Inbox 中已知 Agent 作者的消息开启本地 Markdown 路径预览。
 - [x] `desktop/tests/e2e/local-markdown-preview.spec.ts`：增加 Inbox Agent 路径可预览与普通用户路径隔离的回归测试。
+- [x] `desktop/src/features/messages/lib/remarkLocalMarkdownPaths.ts`：识别 Agent 消息中的相对 `.md`、`./...` 和 `~/...` 候选路径。
+- [x] `desktop/src/features/messages/lib/remarkLocalMarkdownPaths.test.mjs`：增加相对路径、`~`、空格、`..` 与普通文本边界测试。
+- [x] `desktop/src/shared/ui/markdown/LocalMarkdownPath.tsx`：处理零/一/多匹配，并提供完整路径选择弹窗。
+- [x] `desktop/src-tauri/src/commands/local_markdown.rs`：实现 `~` 展开、workspace/repo 相对解析、有界文件名搜索与 Rust 单测。
+- [x] `desktop/src/testing/e2eBridge.ts`：为预览 mock 增加唯一匹配、多匹配和无匹配响应。
+- [x] `desktop/tests/helpers/bridge.ts`：补充相对路径解析的 E2E mock 类型。
+- [x] `desktop/tests/e2e/local-markdown-preview.spec.ts`：验证相对路径直接预览、多匹配选择、无匹配和普通成员隔离。
 
 ## 9. 实施约束
 

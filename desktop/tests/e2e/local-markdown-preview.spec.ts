@@ -202,3 +202,137 @@ test("Inbox ordinary member paths stay plain text", async ({ page }) => {
     }),
   ).toHaveCount(0);
 });
+
+test("relative Agent Markdown paths resolve directly", async ({ page }) => {
+  await installMockBridge(page, {
+    localMarkdownPreview: {
+      content: "# Relative preview",
+      filename: "plan.md",
+      path: "/Users/lu/.buzz/REPOS/buzz/docs/plan.md",
+    },
+    managedAgents: [
+      {
+        channelIds: [GENERAL_CHANNEL_ID],
+        channelNames: ["general"],
+        name: "Tyler Agent",
+        pubkey: AGENT_PUBKEY,
+        status: "running",
+      },
+    ],
+  });
+  await page.goto("/");
+  await invokeMock(page, "send_managed_agent_channel_message", {
+    agentPubkey: AGENT_PUBKEY,
+    channelId: GENERAL_CHANNEL_ID,
+    content: "Review `docs/plan.md`.",
+  });
+  await page.getByTestId("channel-general").click();
+
+  await page
+    .getByRole("button", { name: "Preview Markdown file docs/plan.md" })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Relative preview" }),
+  ).toBeVisible();
+});
+
+test("multiple relative matches require a full-path choice", async ({
+  page,
+}) => {
+  await installMockBridge(page, {
+    localMarkdownMatches: [
+      { filename: "README.md", path: "/Users/lu/.buzz/README.md" },
+      {
+        filename: "README.md",
+        path: "/Users/lu/.buzz/REPOS/buzz/README.md",
+      },
+    ],
+    localMarkdownPreview: {
+      content: "# Chosen repository",
+      filename: "README.md",
+      path: "/Users/lu/.buzz/REPOS/buzz/README.md",
+    },
+    managedAgents: [
+      {
+        channelIds: [GENERAL_CHANNEL_ID],
+        channelNames: ["general"],
+        name: "Tyler Agent",
+        pubkey: AGENT_PUBKEY,
+        status: "running",
+      },
+    ],
+  });
+  await page.goto("/");
+  await invokeMock(page, "send_managed_agent_channel_message", {
+    agentPubkey: AGENT_PUBKEY,
+    channelId: GENERAL_CHANNEL_ID,
+    content: "Review README.md.",
+  });
+  await page.getByTestId("channel-general").click();
+
+  await page
+    .getByRole("button", { name: "Preview Markdown file README.md" })
+    .click();
+  const chooser = page.getByRole("dialog", { name: "Choose Markdown file" });
+  await expect(chooser).toBeVisible();
+  await chooser
+    .getByRole("button", {
+      name: "README.md /Users/lu/.buzz/REPOS/buzz/README.md",
+    })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Chosen repository" }),
+  ).toBeVisible();
+});
+
+test("ordinary member relative paths stay plain text", async ({ page }) => {
+  await installMockBridge(page);
+  await page.goto("/");
+  await invokeMock(page, "send_channel_message", {
+    channelId: GENERAL_CHANNEL_ID,
+    content: "README.md",
+    tags: [],
+  });
+  await page.getByTestId("channel-general").click();
+
+  await expect(page.getByText("README.md", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("button", {
+      name: "Preview Markdown file README.md",
+    }),
+  ).toHaveCount(0);
+});
+
+test("missing relative Markdown paths show a recoverable error", async ({
+  page,
+}) => {
+  await installMockBridge(page, {
+    localMarkdownPreviewError:
+      "No matching Markdown file was found in the Agent workspace",
+    managedAgents: [
+      {
+        channelIds: [GENERAL_CHANNEL_ID],
+        channelNames: ["general"],
+        name: "Tyler Agent",
+        pubkey: AGENT_PUBKEY,
+        status: "running",
+      },
+    ],
+  });
+  await page.goto("/");
+  await invokeMock(page, "send_managed_agent_channel_message", {
+    agentPubkey: AGENT_PUBKEY,
+    channelId: GENERAL_CHANNEL_ID,
+    content: "Review missing.md.",
+  });
+  await page.getByTestId("channel-general").click();
+
+  await page
+    .getByRole("button", { name: "Preview Markdown file missing.md" })
+    .click();
+  await expect(
+    page.getByText(
+      "No matching Markdown file was found in the Agent workspace",
+    ),
+  ).toBeVisible();
+});

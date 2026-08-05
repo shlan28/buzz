@@ -137,6 +137,7 @@ type MockBridgeOptions = {
     filename: string;
     path: string;
   };
+  localMarkdownMatches?: Array<{ filename: string; path: string }>;
   localMarkdownPreviewError?: string;
   /** Advertised HEAD for the first mock project without adding that branch. */
   projectHeadBranch?: string;

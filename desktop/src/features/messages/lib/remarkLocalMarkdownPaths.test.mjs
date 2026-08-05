@@ -34,14 +34,14 @@ test("recognizes Unix and Windows absolute Markdown paths", () => {
   );
 });
 
-test("ignores relative paths, other extensions, links, and code", () => {
+test("ignores other extensions, links, and code", () => {
   const tree = {
     type: "root",
     children: [
       {
         type: "paragraph",
         children: [
-          { type: "text", value: "docs/plan.md /tmp/notes.txt" },
+          { type: "text", value: "/tmp/notes.txt" },
           {
             type: "link",
             url: "/tmp/link.md",
@@ -60,6 +60,27 @@ test("ignores relative paths, other extensions, links, and code", () => {
 test("whole-value classifier allows spaces for inline code", () => {
   assert.equal(isLocalMarkdownPath("/Users/lu/My Docs/plan.md"), true);
   assert.equal(isLocalMarkdownPath("C:\\My Docs\\plan.MD"), true);
-  assert.equal(isLocalMarkdownPath("docs/plan.md"), false);
+  assert.equal(isLocalMarkdownPath("docs/plan.md"), true);
+  assert.equal(isLocalMarkdownPath("README.md"), true);
+  assert.equal(isLocalMarkdownPath("~/notes/plan.md"), true);
+  assert.equal(isLocalMarkdownPath("../secret.md"), false);
   assert.equal(isLocalMarkdownPath("/tmp/plan.mdx"), false);
+});
+
+test("detects relative and home Markdown candidates in prose", () => {
+  assert.deepEqual(
+    localPaths(
+      parse(
+        "Review README.md, docs/plan.md, ./notes/todo.md and ~/work/result.md.",
+      ),
+    ),
+    ["README.md", "docs/plan.md", "./notes/todo.md", "~/work/result.md"],
+  );
+});
+
+test("does not detect parent traversal or URL Markdown paths", () => {
+  assert.deepEqual(
+    localPaths(parse("Skip ../secret.md and https://example.com/readme.md.")),
+    [],
+  );
 });

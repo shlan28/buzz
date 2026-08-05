@@ -160,6 +160,7 @@ type E2eConfig = {
       filename: string;
       path: string;
     };
+    localMarkdownMatches?: Array<{ filename: string; path: string }>;
     localMarkdownPreviewError?: string;
     /** Advertised HEAD for the first mock project without adding that branch. */
     projectHeadBranch?: string;
@@ -11592,13 +11593,18 @@ export function maybeInstallE2eTauriMocks() {
         const error = activeConfig?.mock?.localMarkdownPreviewError;
         if (error) throw new Error(error);
         const requestedPath = (payload as { path: string }).path;
-        return (
-          activeConfig?.mock?.localMarkdownPreview ?? {
+        const matches = activeConfig?.mock?.localMarkdownMatches;
+        if (matches && !requestedPath.startsWith("/")) {
+          return { matches, status: "choices" };
+        }
+        return {
+          preview: activeConfig?.mock?.localMarkdownPreview ?? {
             content: "# Local preview\n\nRendered from the E2E bridge.",
             filename: requestedPath.split(/[\\/]/).pop() ?? "preview.md",
             path: requestedPath,
-          }
-        );
+          },
+          status: "preview",
+        };
       }
       case "pick_and_upload_media":
         return await resolveMockUploadDescriptors(activeConfig);

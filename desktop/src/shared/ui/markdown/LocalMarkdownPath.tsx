@@ -19,6 +19,15 @@ type LocalMarkdownPreview = {
   path: string;
 };
 
+type LocalMarkdownCandidate = {
+  filename: string;
+  path: string;
+};
+
+type LocalMarkdownLookup =
+  | { preview: LocalMarkdownPreview; status: "preview" }
+  | { matches: LocalMarkdownCandidate[]; status: "choices" };
+
 export function LocalMarkdownPath({
   inlineCode = false,
   path,
@@ -30,26 +39,35 @@ export function LocalMarkdownPath({
   const [preview, setPreview] = React.useState<LocalMarkdownPreview | null>(
     null,
   );
+  const [choices, setChoices] = React.useState<LocalMarkdownCandidate[]>([]);
 
-  const openPreview = React.useCallback(async () => {
-    if (loading) return;
-    setLoading(true);
-    try {
-      setPreview(
-        await invokeTauri<LocalMarkdownPreview>("read_local_markdown_preview", {
-          path,
-        }),
-      );
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Failed to preview Markdown file",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [loading, path]);
+  const openPreview = React.useCallback(
+    async (candidatePath: string) => {
+      if (loading) return;
+      setLoading(true);
+      try {
+        const result = await invokeTauri<LocalMarkdownLookup>(
+          "read_local_markdown_preview",
+          { path: candidatePath },
+        );
+        if (result.status === "preview") {
+          setChoices([]);
+          setPreview(result.preview);
+        } else {
+          setChoices(result.matches);
+        }
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Failed to preview Markdown file",
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [loading],
+  );
 
   return (
     <>
@@ -65,7 +83,7 @@ export function LocalMarkdownPath({
         disabled={loading}
         title="Preview Markdown file"
         type="button"
-        onClick={() => void openPreview()}
+        onClick={() => void openPreview(path)}
       >
         {loading ? (
           <LoaderCircle
@@ -101,6 +119,35 @@ export function LocalMarkdownPath({
                 This Markdown file is empty.
               </p>
             )}
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={choices.length > 0}
+        onOpenChange={(open) => !open && setChoices([])}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Choose Markdown file</DialogTitle>
+            <DialogDescription>
+              More than one local file matches {path}. Choose the full path to
+              preview.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[60vh] space-y-2 overflow-y-auto">
+            {choices.map((choice) => (
+              <button
+                className="flex w-full flex-col rounded-lg border px-3 py-2 text-left transition-colors hover:bg-muted focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring/70"
+                key={choice.path}
+                type="button"
+                onClick={() => void openPreview(choice.path)}
+              >
+                <span className="text-sm font-medium">{choice.filename}</span>
+                <span className="wrap-anywhere font-mono text-xs text-muted-foreground">
+                  {choice.path}
+                </span>
+              </button>
+            ))}
           </div>
         </DialogContent>
       </Dialog>
