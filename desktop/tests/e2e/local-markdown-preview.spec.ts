@@ -126,6 +126,43 @@ test("agent Markdown paths open a local read-only preview", async ({
   await expect(page.getByRole("dialog")).toContainText("first");
 });
 
+test("agent Markdown paths inherit the global accent under Buzz", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("buzz-theme", "buzz");
+    window.localStorage.setItem("buzz-accent-color", "#a855f7");
+  });
+  await installMockBridge(page, {
+    managedAgents: [
+      {
+        channelIds: [GENERAL_CHANNEL_ID],
+        channelNames: ["general"],
+        name: "Tyler Agent",
+        pubkey: AGENT_PUBKEY,
+        status: "running",
+      },
+    ],
+  });
+  await page.goto("/");
+  await invokeMock(page, "send_managed_agent_channel_message", {
+    agentPubkey: AGENT_PUBKEY,
+    channelId: GENERAL_CHANNEL_ID,
+    content: "Review `PLANS/accent-preview.md`.",
+  });
+  await page.getByTestId("channel-general").click();
+
+  const pathButton = page.getByRole("button", {
+    name: "Preview Markdown file PLANS/accent-preview.md",
+  });
+  await expect(pathButton).toBeVisible();
+  await expect
+    .poll(() =>
+      pathButton.evaluate((element) => getComputedStyle(element).color),
+    )
+    .toBe("rgb(168, 85, 247)");
+});
+
 test("ordinary member paths stay plain text", async ({ page }) => {
   await installMockBridge(page);
   await page.goto("/");

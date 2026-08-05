@@ -45,7 +45,11 @@ export const ACCENT_COLORS = [
   { name: "Indigo", value: "#6366f1" },
 ] as const;
 
-const DEFAULT_ACCENT = "#3b82f6";
+export const DEFAULT_ACCENT = NEUTRAL_ACCENT;
+
+export function resolveStoredAccent(storedAccent: string | null): string {
+  return storedAccent ?? DEFAULT_ACCENT;
+}
 
 type ThemeContextValue = {
   themeName: string;
@@ -211,26 +215,9 @@ function applyAccentColor(value: string) {
   root.style.setProperty("--sidebar-active-foreground", fgHsl);
 }
 
-/**
- * The Buzz themes ship with a fixed neutral accent (the GitHub black/white
- * foreground) rather than a user-selectable accent color. When a Buzz theme is
- * active we force `NEUTRAL_ACCENT` regardless of the stored preference, and the
- * appearance panel hides the accent picker. The user's chosen accent is left
- * untouched in storage so it returns when they switch back to another theme.
- */
+/** Identify the Buzz themes for their branded sidebar and vibrancy behavior. */
 export function isBuzzTheme(themeName: string): boolean {
   return themeName === "buzz" || themeName === "buzz-dark";
-}
-
-/**
- * Resolve the accent to actually apply for a theme: Buzz themes are pinned to
- * the neutral accent; every other theme uses the stored/selected accent.
- */
-function resolveEffectiveAccent(
-  themeName: string,
-  accentColor: string,
-): string {
-  return isBuzzTheme(themeName) ? NEUTRAL_ACCENT : accentColor;
 }
 
 /**
@@ -409,12 +396,10 @@ function applyCachedVars(): string | null {
     root.classList.add(isDark ? "dark" : "light");
     applyBuzzSidebar(themeName);
 
-    const accent =
-      window.localStorage.getItem(ACCENT_STORAGE_KEY) ?? DEFAULT_ACCENT;
-    // Pin Buzz themes to the neutral accent here too, matching applyTheme.
-    // Otherwise a cached Buzz theme + non-neutral stored accent flashes the
-    // old accent on reload until the async applyTheme effect runs.
-    applyAccentColor(resolveEffectiveAccent(themeName, accent));
+    const accent = resolveStoredAccent(
+      window.localStorage.getItem(ACCENT_STORAGE_KEY),
+    );
+    applyAccentColor(accent);
 
     return themeName;
   } catch {
@@ -458,13 +443,9 @@ async function applyTheme(
   // Apply the accent synchronously in the same batch as the theme vars so the
   // browser paints the new theme + accent together. Doing this in a later
   // microtask (e.g. the caller's `.then`) let the previous accent flash on the
-  // new theme for a frame — the flicker seen when switching to Buzz. Buzz
-  // themes resolve to the neutral accent regardless of the stored value.
+  // new theme for a frame — the flicker seen when switching themes.
   applyAccentColor(
-    resolveEffectiveAccent(
-      name,
-      window.localStorage.getItem(ACCENT_STORAGE_KEY) ?? DEFAULT_ACCENT,
-    ),
+    resolveStoredAccent(window.localStorage.getItem(ACCENT_STORAGE_KEY)),
   );
 
   // Cache for FOUC prevention
@@ -495,7 +476,7 @@ export function ThemeProvider({
   const [isLoading, setIsLoading] = useState(true);
   const loadingRef = useRef<string | null>(null);
   const [accentColor, setAccentColorState] = useState<string>(() => {
-    return window.localStorage.getItem(ACCENT_STORAGE_KEY) ?? DEFAULT_ACCENT;
+    return resolveStoredAccent(window.localStorage.getItem(ACCENT_STORAGE_KEY));
   });
   const [followSystem, setFollowSystemState] = useState<boolean>(() => {
     const stored = window.localStorage.getItem(FOLLOW_SYSTEM_KEY);
@@ -587,13 +568,11 @@ export function ThemeProvider({
     };
   }, [followSystem]);
 
-  // Re-apply the accent when the user picks a new swatch or the effective theme
-  // changes. applyTheme already applies the (Buzz-neutral-aware) accent in the
-  // same synchronous batch as the theme vars — the flicker fix — so this effect
-  // is idempotent on theme changes and simply covers accent-only changes.
+  // Apply accent-only changes from the picker. Theme changes already apply the
+  // current accent synchronously inside applyTheme.
   useEffect(() => {
-    applyAccentColor(resolveEffectiveAccent(effectiveTheme, accentColor));
-  }, [accentColor, effectiveTheme]);
+    applyAccentColor(accentColor);
+  }, [accentColor]);
 
   const setTheme = useCallback((name: string) => {
     if (!isValidThemeName(name)) return;
