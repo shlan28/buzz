@@ -8,6 +8,7 @@ const MAX_SEARCH_ENTRIES: usize = 10_000;
 const MAX_SEARCH_MATCHES: usize = 20;
 const MAX_SEARCH_DEPTH: usize = 8;
 const SKIPPED_SEARCH_DIRS: &[&str] = &[".git", "node_modules", "target", "dist", "build"];
+const DOCUMENT_SEARCH_DIRS: &[&str] = &["GUIDES", "OUTBOX", "PLANS", "RESEARCH", "WORK_LOGS"];
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -78,6 +79,16 @@ fn repository_roots(workspace: &Path) -> Vec<PathBuf> {
         .filter_map(|entry| {
             let file_type = entry.file_type().ok()?;
             file_type.is_dir().then_some(entry.path())
+        })
+        .collect()
+}
+
+fn document_roots(workspace: &Path) -> Vec<PathBuf> {
+    DOCUMENT_SEARCH_DIRS
+        .iter()
+        .filter_map(|directory| {
+            let path = workspace.join(directory);
+            path.is_dir().then_some(path)
         })
         .collect()
 }
@@ -154,29 +165,37 @@ fn resolve_candidate_paths(
 
     validate_relative_candidate(candidate_path)?;
     let normalized = candidate_path.strip_prefix(".").unwrap_or(candidate_path);
-    let mut roots = vec![workspace.to_path_buf()];
-    roots.extend(repository_roots(workspace));
-    let mut matches = Vec::new();
-    let mut seen = HashSet::new();
+    let document_roots = document_roots(workspace);
+    let repository_roots = repository_roots(workspace);
 
-    if normalized.components().count() > 1 {
-        for root in roots {
-            if let Some(path) = checked_candidate(&root.join(normalized)) {
-                push_unique_match(path, &mut matches, &mut seen);
+    let search_roots = |roots: &[PathBuf]| {
+        let mut matches = Vec::new();
+        let mut seen = HashSet::new();
+        if normalized.components().count() > 1 {
+            for root in roots {
+                if let Some(path) = checked_candidate(&root.join(normalized)) {
+                    push_unique_match(path, &mut matches, &mut seen);
+                }
+            }
+        } else {
+            let filename = normalized
+                .file_name()
+                .and_then(|name| name.to_str())
+                .ok_or_else(|| "Markdown file name is not valid UTF-8".to_string())?;
+            let mut visited = 0usize;
+            for root in roots {
+                search_filename(root, filename, &mut matches, &mut seen, &mut visited);
+                if visited >= MAX_SEARCH_ENTRIES || matches.len() >= MAX_SEARCH_MATCHES {
+                    break;
+                }
             }
         }
-    } else {
-        let filename = normalized
-            .file_name()
-            .and_then(|name| name.to_str())
-            .ok_or_else(|| "Markdown file name is not valid UTF-8".to_string())?;
-        let mut visited = 0usize;
-        for root in roots {
-            search_filename(&root, filename, &mut matches, &mut seen, &mut visited);
-            if visited >= MAX_SEARCH_ENTRIES || matches.len() >= MAX_SEARCH_MATCHES {
-                break;
-            }
-        }
+        Ok::<Vec<PathBuf>, String>(matches)
+    };
+
+    let mut matches = search_roots(&document_roots)?;
+    if matches.is_empty() {
+        matches = search_roots(&repository_roots)?;
     }
     matches.sort();
     if matches.is_empty() {
@@ -275,30 +294,29 @@ mod tests {
     }
 
     #[test]
-    fn resolves_workspace_repo_home_and_multiple_matches() {
+    fn resolves_document_roots_before_repositories_and_home_paths() {
         let workspace = tempfile::tempdir().expect("workspace");
         let home = tempfile::tempdir().expect("home");
-        std::fs::create_dir_all(workspace.path().join("docs")).expect("workspace docs");
-        std::fs::write(workspace.path().join("docs/plan.md"), "workspace").expect("workspace file");
+        std::fs::create_dir_all(workspace.path().join("PLANS/docs")).expect("plans docs");
+        std::fs::write(workspace.path().join("PLANS/docs/plan.md"), "plans").expect("plans file");
+        std::fs::create_dir_all(workspace.path().join("OUTBOX")).expect("outbox");
+        std::fs::write(workspace.path().join("OUTBOX/README.md"), "outbox").expect("outbox readme");
         std::fs::create_dir_all(workspace.path().join("REPOS/one/docs")).expect("repo one");
         std::fs::create_dir_all(workspace.path().join("REPOS/two")).expect("repo two");
         std::fs::write(workspace.path().join("REPOS/one/docs/plan.md"), "repo").expect("repo file");
         std::fs::write(workspace.path().join("REPOS/two/README.md"), "two").expect("readme two");
-        std::fs::write(workspace.path().join("README.md"), "workspace").expect("readme workspace");
         std::fs::write(home.path().join("notes.md"), "home").expect("home file");
 
-        assert_eq!(
-            resolve_candidate_paths("docs/plan.md", workspace.path(), home.path())
-                .expect("relative")
-                .len(),
-            2
-        );
-        assert_eq!(
-            resolve_candidate_paths("README.md", workspace.path(), home.path())
-                .expect("filename")
-                .len(),
-            2
-        );
+        let relative = resolve_candidate_paths("docs/plan.md", workspace.path(), home.path())
+            .expect("relative");
+        assert_eq!(relative.len(), 1);
+        assert!(relative[0].ends_with("PLANS/docs/plan.md"));
+
+        let filename =
+            resolve_candidate_paths("README.md", workspace.path(), home.path()).expect("filename");
+        assert_eq!(filename.len(), 1);
+        assert!(filename[0].ends_with("OUTBOX/README.md"));
+
         assert_eq!(
             resolve_candidate_paths("~/notes.md", workspace.path(), home.path())
                 .expect("home")
@@ -319,8 +337,9 @@ mod tests {
     fn caps_ambiguous_filename_matches() {
         let workspace = tempfile::tempdir().expect("workspace");
         let home = tempfile::tempdir().expect("home");
+        std::fs::create_dir(workspace.path().join("RESEARCH")).expect("research directory");
         for index in 0..(MAX_SEARCH_MATCHES + 5) {
-            let directory = workspace.path().join(format!("folder-{index}"));
+            let directory = workspace.path().join(format!("RESEARCH/folder-{index}"));
             std::fs::create_dir(&directory).expect("fixture directory");
             std::fs::write(directory.join("result.md"), index.to_string()).expect("fixture file");
         }
@@ -328,6 +347,21 @@ mod tests {
         let matches =
             resolve_candidate_paths("result.md", workspace.path(), home.path()).expect("matches");
         assert_eq!(matches.len(), MAX_SEARCH_MATCHES);
+    }
+
+    #[test]
+    fn falls_back_to_repository_roots_when_document_roots_do_not_match() {
+        let workspace = tempfile::tempdir().expect("workspace");
+        let home = tempfile::tempdir().expect("home");
+        std::fs::create_dir(workspace.path().join("PLANS")).expect("plans");
+        std::fs::create_dir_all(workspace.path().join("REPOS/buzz/docs")).expect("repo docs");
+        std::fs::write(workspace.path().join("REPOS/buzz/docs/plan.md"), "repo")
+            .expect("repo file");
+
+        let matches = resolve_candidate_paths("docs/plan.md", workspace.path(), home.path())
+            .expect("repository fallback");
+        assert_eq!(matches.len(), 1);
+        assert!(matches[0].ends_with("REPOS/buzz/docs/plan.md"));
     }
 
     #[tokio::test]

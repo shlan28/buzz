@@ -1,7 +1,7 @@
 # Agent 本地 Markdown 文件预览方案
 
 > 更新日期：2026-08-05
-> 更新说明：完成 Agent 相对路径和 `~` 路径的本地查找，包括唯一匹配、多匹配选择、搜索上限、错误恢复与回归测试。
+> 更新说明：将相对路径检索范围明确扩展到当前 Buzz 共享 Agent workspace 的 `GUIDES`、`OUTBOX`、`PLANS`、`RESEARCH`、`WORK_LOGS` 与 `REPOS`；不调整 Agent 架构或工作目录。
 
 ## 1. 结论摘要
 
@@ -48,11 +48,26 @@ Agent 回复 `README.md`、`docs/plan.md`、`./docs/plan.md` 或 `~/notes.md` �
 
 1. 绝对路径继续直接校验和读取，不执行搜索。
 2. `~/...` 仅将开头的 `~` 展开为当前用户目录，不支持 `~other-user`。
-3. 带目录的相对路径先相对 Agent 默认 workspace（当前为 `~/.buzz`）查找，再相对 `~/.buzz/REPOS` 下的各个仓库根目录查找。
-4. 只有文件名时，在上述 workspace 与 repos 范围内执行有界的文件名搜索。
-5. 只有一个合法匹配时直接预览；有多个匹配时弹出完整路径列表，由用户选择；无匹配时给出可恢复提示。
+3. 带目录的相对路径依次相对当前 Buzz 共享 Agent workspace 的 `GUIDES`、`OUTBOX`、`PLANS`、`RESEARCH`、`WORK_LOGS` 查找。
+4. 上述文档目录没有匹配时，再到 `REPOS` 下的各个仓库根目录查找。
+5. 只有文件名时，在上述六个范围内执行有界的文件名搜索。
+6. 只有一个合法匹配时直接预览；有多个匹配时弹出完整路径列表，由用户选择；无匹配时给出可恢复提示。
 
-不默认扫描整个用户目录或整块磁盘。Buzz 已经把 managed Agent 进程的默认工作目录设为 `~/.buzz`，并通过其 `REPOS` 目录暴露仓库；因此这两个边界比扫描 `/Users/lu` 更符合 Agent 真实运行上下文。
+不默认扫描整个用户目录或整块磁盘。Buzz managed Agent 的共享 workspace 在开发环境为 `~/.buzz-dev`，生产环境为 `~/.buzz`。预览器从当前运行环境动态取得这个根目录，不能把 `~/.buzz-dev` 硬编码到产品构建中。
+
+开发环境的检索入口为：
+
+```text
+~/.buzz-dev/
+├── GUIDES/
+├── OUTBOX/
+├── PLANS/
+├── RESEARCH/
+├── WORK_LOGS/
+└── REPOS/
+```
+
+本次只扩大预览器的已知搜索入口。某个目录不存在时直接跳过，不创建目录，也不修改 Agent 的启动参数、默认工作目录或写文件方式。
 
 ## 3. 状态与反馈
 
@@ -151,6 +166,18 @@ LocalMarkdownPreview {
 
 每个最终候选在返回前仍必须通过现有的 canonical path、普通文件、`.md`、2 MiB 上限和 UTF-8 检查。多匹配时先只返回路径，用户选择后才读取文件内容。
 
+### 6.5 共享 workspace 搜索边界
+
+Tauri 后端从现有 managed Agent nest 配置取得当前 workspace 根目录，只在其 `GUIDES`、`OUTBOX`、`PLANS`、`RESEARCH`、`WORK_LOGS` 与 `REPOS` 六个入口下搜索。前端仍然只传消息里的候选路径，不能指定或扩大搜索根目录。
+
+文档产物目录优先于 `REPOS`。如果在前五个目录中已经找到合法匹配，就不再混入仓库中的同名文件；前五个目录内有多个匹配时仍由用户查看完整路径后选择。只有文档产物目录完全无匹配时，才回退到 `REPOS`。
+
+### 6.6 Inbox 与 Tasks 的数据边界
+
+Inbox 不是独立的本地文件目录或单独的权威数据表。它是 Desktop 从 Relay 查询消息、提醒、活动和 Task execution 等 Nostr events 后组合出的产品视图。Desktop 的 `localStorage` / `sessionStorage` 仅保存有限的已见条目、选择状态和面板宽度等界面状态，不是 Inbox 内容的权威存储。
+
+Tasks 同样由 Relay 上的 Nostr events 表达，并持久化在 Relay 的 PostgreSQL `events` 表中。当前任务状态使用 kind `30500`，任务执行状态使用 kind `30501`；创建、修改、删除与执行命令/更新使用 kind `42500` 至 `42504`。Agent 的 `OUTBOX`、`PLANS`、`RESEARCH`、`WORK_LOGS` 是本地文档产物，与 Inbox / Tasks 的 Relay 数据相互独立。
+
 ## 7. 测试与验收
 
 ### 7.1 自动化测试
@@ -216,6 +243,9 @@ just ci
 - [x] `desktop/src/testing/e2eBridge.ts`：为预览 mock 增加唯一匹配、多匹配和无匹配响应。
 - [x] `desktop/tests/helpers/bridge.ts`：补充相对路径解析的 E2E mock 类型。
 - [x] `desktop/tests/e2e/local-markdown-preview.spec.ts`：验证相对路径直接预览、多匹配选择、无匹配和普通成员隔离。
+- [x] `desktop/src-tauri/src/commands/local_markdown.rs`：将有界搜索入口明确扩展为共享 workspace 的五类文档目录与 `REPOS`，实现文档目录优先、仓库回退，并补充 Rust 单测。
+- [x] `desktop/src/testing/e2eBridge.ts`：确认现有相对路径唯一命中、多匹配和错误 mock 协议可直接覆盖新后端搜索顺序，无需修改 IPC 结构。
+- [x] `desktop/tests/e2e/local-markdown-preview.spec.ts`：确认现有频道/DM 与 Inbox 相对路径交互测试继续覆盖搜索结果的预览和多匹配选择；目录优先级由 Rust 单测验证。
 
 ## 9. 实施约束
 
@@ -223,4 +253,4 @@ just ci
 - 改代码时从最新本地 `dev` 创建 `codex/` 修复分支，并保留工作区中无关改动。
 - 不引入 arbitrary px/rem 文本字号；使用现有 rem-based Tailwind token。
 - 不新增 module-level community-scoped cache；如实现中确有新增，必须提供 reset 并接入 `resetCommunityState()`。
-- 完成后运行相关测试与 `just ci`，制作有作用域的 Desktop 截图，并使用 signed-off commit 提交，再按项目流程合并回 `dev`。
+- 完成后运行相关测试与 `just ci`，制作有作用域的 Desktop 截图，并使用 signed-off commit 提交；在鹿鹿子大王完成测试并明确要求前，不合并回 `dev`。
