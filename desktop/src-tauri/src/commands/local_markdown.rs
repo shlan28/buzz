@@ -165,6 +165,9 @@ fn resolve_candidate_paths(
 
     validate_relative_candidate(candidate_path)?;
     let normalized = candidate_path.strip_prefix(".").unwrap_or(candidate_path);
+    if let Some(path) = checked_candidate(&workspace.join(normalized)) {
+        return Ok(vec![path]);
+    }
     let document_roots = document_roots(workspace);
     let repository_roots = repository_roots(workspace);
 
@@ -307,8 +310,14 @@ mod tests {
         std::fs::write(workspace.path().join("REPOS/two/README.md"), "two").expect("readme two");
         std::fs::write(home.path().join("notes.md"), "home").expect("home file");
 
+        let explicit_workspace_relative =
+            resolve_candidate_paths("PLANS/docs/plan.md", workspace.path(), home.path())
+                .expect("explicit workspace relative");
+        assert_eq!(explicit_workspace_relative.len(), 1);
+        assert!(explicit_workspace_relative[0].ends_with("PLANS/docs/plan.md"));
+
         let relative = resolve_candidate_paths("docs/plan.md", workspace.path(), home.path())
-            .expect("relative");
+            .expect("document-root relative");
         assert_eq!(relative.len(), 1);
         assert!(relative[0].ends_with("PLANS/docs/plan.md"));
 
@@ -322,6 +331,27 @@ mod tests {
                 .expect("home")
                 .len(),
             1
+        );
+    }
+
+    #[test]
+    fn resolves_workspace_root_file_before_document_search() {
+        let workspace = tempfile::tempdir().expect("workspace");
+        let home = tempfile::tempdir().expect("home");
+        std::fs::write(workspace.path().join("README.md"), "workspace").expect("workspace file");
+        std::fs::create_dir(workspace.path().join("OUTBOX")).expect("outbox");
+        std::fs::write(workspace.path().join("OUTBOX/README.md"), "outbox").expect("outbox file");
+
+        let matches =
+            resolve_candidate_paths("README.md", workspace.path(), home.path()).expect("root file");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(
+            matches[0],
+            workspace
+                .path()
+                .join("README.md")
+                .canonicalize()
+                .expect("canonical")
         );
     }
 

@@ -1,7 +1,7 @@
 # Agent 本地 Markdown 文件预览方案
 
 > 更新日期：2026-08-05
-> 更新说明：将相对路径检索范围明确扩展到当前 Buzz 共享 Agent workspace 的 `GUIDES`、`OUTBOX`、`PLANS`、`RESEARCH`、`WORK_LOGS` 与 `REPOS`；不调整 Agent 架构或工作目录。
+> 更新说明：修正共享 workspace 相对路径回归；优先按消息原文相对 workspace 根目录解析，再搜索五类文档目录，最后回退 `REPOS`。
 
 ## 1. 结论摘要
 
@@ -48,10 +48,11 @@ Agent 回复 `README.md`、`docs/plan.md`、`./docs/plan.md` 或 `~/notes.md` �
 
 1. 绝对路径继续直接校验和读取，不执行搜索。
 2. `~/...` 仅将开头的 `~` 展开为当前用户目录，不支持 `~other-user`。
-3. 带目录的相对路径依次相对当前 Buzz 共享 Agent workspace 的 `GUIDES`、`OUTBOX`、`PLANS`、`RESEARCH`、`WORK_LOGS` 查找。
-4. 上述文档目录没有匹配时，再到 `REPOS` 下的各个仓库根目录查找。
-5. 只有文件名时，在上述六个范围内执行有界的文件名搜索。
-6. 只有一个合法匹配时直接预览；有多个匹配时弹出完整路径列表，由用户选择；无匹配时给出可恢复提示。
+3. 相对路径先按消息原文相对共享 workspace 根目录直接解析，例如 `PLANS/foo.md` 对应 `~/.buzz-dev/PLANS/foo.md`。
+4. 直接解析没有命中时，依次相对 `GUIDES`、`OUTBOX`、`PLANS`、`RESEARCH`、`WORK_LOGS` 查找。
+5. 上述文档目录没有匹配时，再到 `REPOS` 下的各个仓库根目录查找。
+6. 只有文件名时，在 workspace 根目录尝试直接命中，再在五类文档目录与 repos 范围内执行有界的文件名搜索。
+7. 只有一个合法匹配时直接预览；有多个匹配时弹出完整路径列表，由用户选择；无匹配时给出可恢复提示。
 
 不默认扫描整个用户目录或整块磁盘。Buzz managed Agent 的共享 workspace 在开发环境为 `~/.buzz-dev`，生产环境为 `~/.buzz`。预览器从当前运行环境动态取得这个根目录，不能把 `~/.buzz-dev` 硬编码到产品构建中。
 
@@ -168,7 +169,7 @@ LocalMarkdownPreview {
 
 ### 6.5 共享 workspace 搜索边界
 
-Tauri 后端从现有 managed Agent nest 配置取得当前 workspace 根目录，只在其 `GUIDES`、`OUTBOX`、`PLANS`、`RESEARCH`、`WORK_LOGS` 与 `REPOS` 六个入口下搜索。前端仍然只传消息里的候选路径，不能指定或扩大搜索根目录。
+Tauri 后端从现有 managed Agent nest 配置取得当前 workspace 根目录。先把候选路径原样拼到 workspace 根目录并校验；这样 Agent 返回 `PLANS/foo.md` 时不会被重复拼成 `PLANS/PLANS/foo.md`。直接解析失败后，才进入 `GUIDES`、`OUTBOX`、`PLANS`、`RESEARCH`、`WORK_LOGS` 与 `REPOS` 的有界搜索。前端仍然只传消息里的候选路径，不能指定或扩大搜索根目录。
 
 文档产物目录优先于 `REPOS`。如果在前五个目录中已经找到合法匹配，就不再混入仓库中的同名文件；前五个目录内有多个匹配时仍由用户查看完整路径后选择。只有文档产物目录完全无匹配时，才回退到 `REPOS`。
 
@@ -246,6 +247,7 @@ just ci
 - [x] `desktop/src-tauri/src/commands/local_markdown.rs`：将有界搜索入口明确扩展为共享 workspace 的五类文档目录与 `REPOS`，实现文档目录优先、仓库回退，并补充 Rust 单测。
 - [x] `desktop/src/testing/e2eBridge.ts`：确认现有相对路径唯一命中、多匹配和错误 mock 协议可直接覆盖新后端搜索顺序，无需修改 IPC 结构。
 - [x] `desktop/tests/e2e/local-markdown-preview.spec.ts`：确认现有频道/DM 与 Inbox 相对路径交互测试继续覆盖搜索结果的预览和多匹配选择；目录优先级由 Rust 单测验证。
+- [x] `desktop/src-tauri/src/commands/local_markdown.rs`：恢复 workspace 原样相对路径优先解析，并增加 `PLANS/foo.md`、workspace 根文件和分阶段回退的回归测试。
 
 ## 9. 实施约束
 
