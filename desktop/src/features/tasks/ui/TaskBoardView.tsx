@@ -31,7 +31,7 @@ export function TaskBoardView({
   return (
     <div className="flex min-h-0 flex-1 gap-4 overflow-x-auto p-5">
       {columns.map((column) => (
-        // biome-ignore lint/a11y/noStaticElementInteractions: Native drop target; each card also has a keyboard-operable assignee select.
+        // biome-ignore lint/a11y/noStaticElementInteractions: Native drag-and-drop is an enhancement; assignment remains keyboard-accessible in Task details.
         <section
           className="flex w-72 shrink-0 flex-col rounded-xl bg-muted/40 ring-primary/0 transition-shadow data-[drag-over=true]:ring-2"
           data-testid={`task-column-${column.id}`}
@@ -90,7 +90,7 @@ export function TaskBoardView({
           </header>
           <div className="space-y-2 overflow-y-auto px-2 pb-3">
             {column.tasks.map((task) => (
-              // biome-ignore lint/a11y/noStaticElementInteractions: Drag is an enhancement; the nested select provides the keyboard equivalent.
+              // biome-ignore lint/a11y/noStaticElementInteractions: Drag is an enhancement; Task details provide the keyboard-accessible edit path.
               <div
                 draggable={!pending}
                 key={task.id}
@@ -99,11 +99,12 @@ export function TaskBoardView({
                 }
               >
                 <TaskCard
-                  assignees={assignees}
+                  assignee={assignees.find(
+                    (assignee) => assignee.pubkey === task.assignee,
+                  )}
                   execution={executions.get(task.id)}
                   task={task}
                   onOpen={() => onOpen(task.id)}
-                  onReassign={(assignee) => onReassign(task, assignee)}
                 />
               </div>
             ))}

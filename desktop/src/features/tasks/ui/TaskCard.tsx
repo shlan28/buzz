@@ -1,24 +1,22 @@
-import { CalendarDays, CircleAlert } from "lucide-react";
+import { Bot, CalendarDays, CircleAlert, UserRound } from "lucide-react";
 import { cn } from "@/shared/lib/cn";
+import { truncatePubkey } from "@/shared/lib/pubkey";
 import type { Task, TaskAssignee, TaskExecution } from "../types";
 import {
   dueTimestampToLocalDate,
   isDueTimestampOverdue,
 } from "../lib/taskDates";
-import { TaskAssigneeSelect } from "./TaskAssigneeSelect";
 import { TaskStatusBadge } from "./TaskStatusBadge";
 
 export function TaskCard({
   task,
-  assignees,
+  assignee,
   onOpen,
-  onReassign,
   execution,
 }: {
   task: Task;
-  assignees?: TaskAssignee[];
+  assignee?: TaskAssignee;
   onOpen: () => void;
-  onReassign?: (assignee: string | null) => void;
   execution?: TaskExecution;
 }) {
   const overdue = task.status !== "done" && isDueTimestampOverdue(task.dueDate);
@@ -87,17 +85,21 @@ export function TaskCard({
           </span>
         ) : null}
       </span>
-      {assignees && onReassign ? (
-        <div className="mt-2 text-xs text-muted-foreground">
-          <TaskAssigneeSelect
-            assignees={assignees}
-            compact
-            label={`Move ${task.title} to`}
-            value={task.assignee}
-            onChange={onReassign}
-          />
-        </div>
-      ) : null}
+      <div
+        className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground"
+        data-testid="task-card-assignee"
+      >
+        {assignee?.kind === "agent" ? (
+          <Bot className="h-3.5 w-3.5" />
+        ) : (
+          <UserRound className="h-3.5 w-3.5" />
+        )}
+        <span className="truncate">
+          {assignee?.label ??
+            (task.assignee ? truncatePubkey(task.assignee) : "Unassigned")}
+        </span>
+        {assignee?.kind === "agent" ? <span>· Agent</span> : null}
+      </div>
     </article>
   );
 }

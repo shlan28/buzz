@@ -446,6 +446,147 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires PostgreSQL with current migrations"]
+    async fn completed_execution_allows_a_new_execution_but_active_execution_blocks_another() {
+        let (pool, community) = setup().await;
+        let actor = Keys::generate();
+        let relay = Keys::generate();
+        let task_id = Uuid::new_v4();
+        let first_id = Uuid::new_v4();
+        let second_id = Uuid::new_v4();
+        let third_id = Uuid::new_v4();
+
+        let execution_event = |keys: &Keys, execution_id: Uuid, status: &str| {
+            EventBuilder::new(
+                Kind::Custom(buzz_core::kind::KIND_TASK_EXECUTION_STATE as u16),
+                "",
+            )
+            .tags([
+                Tag::parse(["d", &execution_id.to_string()]).unwrap(),
+                Tag::parse(["t", &format!("task-id:{task_id}")]).unwrap(),
+                Tag::parse(["status", status]).unwrap(),
+            ])
+            .sign_with_keys(keys)
+            .unwrap()
+        };
+        let command_event = |execution_id: Uuid, status: &str, request: bool| {
+            EventBuilder::new(
+                Kind::Custom(
+                    (if request {
+                        buzz_core::kind::KIND_TASK_EXECUTION_REQUEST
+                    } else {
+                        buzz_core::kind::KIND_TASK_EXECUTION_UPDATE
+                    }) as u16,
+                ),
+                "",
+            )
+            .tags([
+                Tag::parse(["d", &execution_id.to_string()]).unwrap(),
+                Tag::parse(["t", &format!("task-id:{task_id}")]).unwrap(),
+                Tag::parse(["status", status]).unwrap(),
+            ])
+            .sign_with_keys(&actor)
+            .unwrap()
+        };
+
+        let first_request = command_event(first_id, "queued", true);
+        let first_queued = execution_event(&relay, first_id, "queued");
+        assert_eq!(
+            apply_task_execution_events(
+                &pool,
+                community,
+                task_id,
+                first_id,
+                &first_request,
+                &first_queued,
+                None,
+                true,
+            )
+            .await
+            .unwrap(),
+            ApplyTaskResult::Applied
+        );
+
+        let first_running_command = command_event(first_id, "running", false);
+        let first_running = execution_event(&relay, first_id, "running");
+        apply_task_execution_events(
+            &pool,
+            community,
+            task_id,
+            first_id,
+            &first_running_command,
+            &first_running,
+            None,
+            false,
+        )
+        .await
+        .unwrap();
+        let first_finished_command = command_event(first_id, "finished", false);
+        let first_finished = execution_event(&relay, first_id, "finished");
+        apply_task_execution_events(
+            &pool,
+            community,
+            task_id,
+            first_id,
+            &first_finished_command,
+            &first_finished,
+            None,
+            false,
+        )
+        .await
+        .unwrap();
+
+        let second_request = command_event(second_id, "queued", true);
+        let second_queued = execution_event(&relay, second_id, "queued");
+        assert_eq!(
+            apply_task_execution_events(
+                &pool,
+                community,
+                task_id,
+                second_id,
+                &second_request,
+                &second_queued,
+                None,
+                true,
+            )
+            .await
+            .unwrap(),
+            ApplyTaskResult::Applied
+        );
+
+        let third_request = command_event(third_id, "queued", true);
+        let third_queued = execution_event(&relay, third_id, "queued");
+        assert!(matches!(
+            apply_task_execution_events(
+                &pool,
+                community,
+                task_id,
+                third_id,
+                &third_request,
+                &third_queued,
+                None,
+                true,
+            )
+            .await,
+            Err(DbError::Conflict(message)) if message == "task already has an active execution"
+        ));
+
+        let visible_execution_ids: Vec<String> = sqlx::query_scalar(
+            "SELECT d_tag FROM events WHERE community_id = $1 AND kind = $2 \
+             AND deleted_at IS NULL AND tags @> $3 ORDER BY d_tag",
+        )
+        .bind(community.as_uuid())
+        .bind(buzz_core::kind::KIND_TASK_EXECUTION_STATE as i32)
+        .bind(serde_json::json!([["t", format!("task-id:{task_id}")]]))
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        let mut expected = vec![first_id.to_string(), second_id.to_string()];
+        expected.sort();
+        assert_eq!(visible_execution_ids, expected);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires PostgreSQL with current migrations"]
     async fn delete_hides_state_and_history_and_blocks_recreation() {
         let (pool, community) = setup().await;
         let actor = Keys::generate();

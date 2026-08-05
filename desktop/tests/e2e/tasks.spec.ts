@@ -266,6 +266,38 @@ test("Agent owner executes an online Agent task", async ({ page }) => {
   ).toBeDisabled();
 });
 
+test("a finished Agent task can start a new execution", async ({ page }) => {
+  await installTasks(page, { executionResult: "finished" });
+  await page.goto(`/#/tasks?task=${AGENT_TASK}`);
+  const execution = page.getByTestId("task-execution-control");
+
+  await expect(execution).toContainText("Execution finished");
+  await expect(
+    execution.getByRole("button", { name: "View result in Inbox" }),
+  ).toBeVisible();
+  await expect(
+    execution.getByRole("button", { name: "Execute again" }),
+  ).toBeEnabled();
+
+  await execution.getByRole("button", { name: "Execute again" }).click();
+  await expect(
+    execution.getByRole("button", { name: "Queued" }),
+  ).toBeDisabled();
+});
+
+test("Board cards show a read-only assignee without an assignee menu", async ({
+  page,
+}) => {
+  await installTasks(page);
+  await page.goto("/#/tasks?group=status");
+
+  const card = page.getByTestId(`task-card-${AGENT_TASK}`);
+  await expect(card.getByTestId("task-card-assignee")).not.toContainText(
+    "Unassigned",
+  );
+  await expect(card.getByLabel(/Move .* to/)).toHaveCount(0);
+});
+
 test("offline Agent must be started before task execution", async ({
   page,
 }) => {
@@ -415,8 +447,14 @@ test("board cards and list rows show task planning details", async ({
   await expect(card).toContainText("Check the first-run experience.");
   await expect(card).toContainText("2026-08-20");
 
-  await card.getByLabel("Move Audit onboarding flow to").click();
+  await card
+    .getByRole("button", { name: "Audit onboarding flow", exact: true })
+    .click();
+  const panel = page.getByTestId("task-detail-panel");
+  await panel.getByLabel("Assignee").click();
   await page.getByRole("menuitem", { name: "lu", exact: true }).click();
+  await expect(panel.getByLabel("Assignee")).toContainText("lu");
+  await panel.getByRole("button", { name: "Close task details" }).click();
   await expect(
     page
       .getByTestId(`task-column-${MOCK_VIEWER}`)

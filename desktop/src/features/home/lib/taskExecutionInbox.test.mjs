@@ -117,3 +117,30 @@ test("hides results whose task state is no longer available", () => {
   });
   assert.deepEqual(items, []);
 });
+
+test("keeps separate Inbox results for multiple executions of one task", () => {
+  const items = buildTaskExecutionInboxItems({
+    currentPubkey: OWNER,
+    executions: [
+      execution(),
+      execution({
+        id: "33333333-3333-4333-8333-333333333333",
+        eventId: "f".repeat(64),
+        message: "Completed a second pass with updated priorities.",
+        updatedAt: 1_786_000_100,
+      }),
+    ],
+    ownedAgentPubkeys: new Set([AGENT]),
+    tasks: [task()],
+  });
+
+  assert.equal(items.length, 2);
+  assert.deepEqual(
+    items.map((item) => item.tags.find((tag) => tag[0] === "d")?.[1]),
+    [
+      "22222222-2222-4222-8222-222222222222",
+      "33333333-3333-4333-8333-333333333333",
+    ],
+  );
+  assert.notEqual(items[0].id, items[1].id);
+});

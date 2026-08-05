@@ -52,7 +52,7 @@ export function TaskExecutionControl({
           </Button>
         </div>
       ) : null}
-      {canStart && execution?.status !== "finished" ? (
+      {canStart ? (
         <Button
           className="w-full"
           disabled={!online || pending || active}
@@ -70,12 +70,12 @@ export function TaskExecutionControl({
               ? "Queued"
               : execution?.status === "running"
                 ? "Running"
-                : retry
-                  ? "Retry"
+                : terminal
+                  ? "Execute again"
                   : "Execute"}
         </Button>
       ) : null}
-      {!online && canStart && execution?.status !== "finished" ? (
+      {!online && canStart ? (
         <p className="text-xs text-amber-700 dark:text-amber-300" role="status">
           {agentName} is offline. Start the Agent before executing this task.
         </p>

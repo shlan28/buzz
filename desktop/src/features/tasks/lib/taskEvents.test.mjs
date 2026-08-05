@@ -58,6 +58,20 @@ test("builds a version-bound Agent execution request", () => {
   );
 });
 
+test("builds a new execution id for every execution request", () => {
+  const task = parseTaskState(
+    { ...event, tags: [...event.tags, ["p", "d".repeat(64)]] },
+    relay,
+  );
+  assert.ok(task);
+  const first = buildExecuteTaskEvent(task);
+  const second = buildExecuteTaskEvent(task);
+  assert.notEqual(
+    first.tags.find((tag) => tag[0] === "d")?.[1],
+    second.tags.find((tag) => tag[0] === "d")?.[1],
+  );
+});
+
 test("parses only Relay-signed execution state", () => {
   const execution = {
     ...event,
