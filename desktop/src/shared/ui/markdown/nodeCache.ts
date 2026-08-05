@@ -4,6 +4,7 @@ import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 
 import remarkMessageLinks from "@/features/messages/lib/remarkMessageLinks";
+import remarkLocalMarkdownPaths from "@/features/messages/lib/remarkLocalMarkdownPaths";
 import rehypeImageGallery from "@/shared/lib/rehypeImageGallery";
 import rehypeSearchHighlight from "@/shared/lib/rehypeSearchHighlight";
 import remarkChannelLinks from "@/shared/lib/remarkChannelLinks";
@@ -65,6 +66,7 @@ export type MarkdownParseInputs = {
   components: Components;
   content: string;
   customEmoji?: CustomEmoji[];
+  enableLocalMarkdownPaths?: boolean;
   mentionNames?: string[];
   searchQuery?: string;
   variant: string;
@@ -91,14 +93,21 @@ function buildMarkdownElement(input: MarkdownParseInputs): React.ReactElement {
   // react-markdown's `Markdown` is synchronous and hook-free (the hook
   // variant is `MarkdownHooks`), so this returns the parsed element tree
   // directly, which is what lets it live in a module-level cache.
+  const remarkPlugins = [
+    remarkGfm,
+    remarkBreaks,
+    remarkSpoilers,
+    remarkMessageLinks,
+  ];
+  if (input.enableLocalMarkdownPaths) {
+    remarkPlugins.push(remarkLocalMarkdownPaths);
+  }
+
   return ReactMarkdown({
     children: input.content,
     components: input.components,
     remarkPlugins: [
-      remarkGfm,
-      remarkBreaks,
-      remarkSpoilers,
-      remarkMessageLinks,
+      ...remarkPlugins,
       [remarkMentions, { mentionNames: input.mentionNames }],
       [remarkChannelLinks, { channelNames: input.channelNames }],
       [remarkCustomEmoji, { customEmoji: input.customEmoji }],
@@ -131,6 +140,7 @@ export function renderCachedMarkdown(
   // before it is self-delimiting.
   const key =
     segment(input.variant) +
+    segment(input.enableLocalMarkdownPaths ? "local-md" : "") +
     listSegment(input.mentionNames) +
     listSegment(input.channelNames) +
     listSegment(

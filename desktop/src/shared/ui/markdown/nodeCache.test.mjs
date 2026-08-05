@@ -81,6 +81,20 @@ test("render variants do not collide", () => {
   assert.notEqual(interactive, nonInteractive);
 });
 
+test("local Markdown path parsing does not collide with ordinary prose", () => {
+  clearMarkdownNodeCache();
+  const plain = renderCachedMarkdown({
+    ...BASE,
+    content: "/tmp/plan.md",
+  });
+  const agent = renderCachedMarkdown({
+    ...BASE,
+    content: "/tmp/plan.md",
+    enableLocalMarkdownPaths: true,
+  });
+  assert.notEqual(plain, agent);
+});
+
 test("crafted values cannot forge key-segment boundaries", () => {
   clearMarkdownNodeCache();
   // Length-prefixed segments: a single name containing arbitrary bytes must

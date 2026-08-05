@@ -155,6 +155,12 @@ type MockSearchProfileSeed = {
 type E2eConfig = {
   mode?: "mock" | "relay";
   mock?: {
+    localMarkdownPreview?: {
+      content: string;
+      filename: string;
+      path: string;
+    };
+    localMarkdownPreviewError?: string;
     /** Advertised HEAD for the first mock project without adding that branch. */
     projectHeadBranch?: string;
     /** Builderlab account returned by hosted-community onboarding. Null/omitted = signed out. */
@@ -11582,6 +11588,18 @@ export function maybeInstallE2eTauriMocks() {
         );
       case "get_media_proxy_port":
         return MOCK_MEDIA_PROXY_PORT;
+      case "read_local_markdown_preview": {
+        const error = activeConfig?.mock?.localMarkdownPreviewError;
+        if (error) throw new Error(error);
+        const requestedPath = (payload as { path: string }).path;
+        return (
+          activeConfig?.mock?.localMarkdownPreview ?? {
+            content: "# Local preview\n\nRendered from the E2E bridge.",
+            filename: requestedPath.split(/[\\/]/).pop() ?? "preview.md",
+            path: requestedPath,
+          }
+        );
+      }
       case "pick_and_upload_media":
         return await resolveMockUploadDescriptors(activeConfig);
       case "pick_and_upload_image":

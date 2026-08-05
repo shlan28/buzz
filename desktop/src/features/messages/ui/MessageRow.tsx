@@ -367,6 +367,10 @@ export const MessageRow = React.memo(
               )}
               content={message.body}
               customEmoji={customEmoji}
+              enableLocalMarkdownPaths={
+                message.role === "bot" ||
+                Boolean(message.pubkey && isKnownAgentPubkey(message.pubkey))
+              }
               imetaByUrl={imetaByUrl}
               agentMentionPubkeysByName={agentMentionPubkeysByName}
               mentionNames={mentionNames}
