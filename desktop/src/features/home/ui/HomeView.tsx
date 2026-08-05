@@ -242,12 +242,27 @@ export function HomeView({
     markMessageRead,
     markThreadRead,
     readStateVersion,
+    taskExecutionInboxItems,
   } = useAppShell();
   const { doneSet, markDone, markUnread, undoDone, undoUnread, unreadSet } =
     feedItemState;
+  const inboxFeed = React.useMemo<HomeFeedResponse | undefined>(() => {
+    if (!feed || taskExecutionInboxItems.length === 0) return feed;
+    return {
+      ...feed,
+      feed: {
+        ...feed.feed,
+        agentActivity: [...taskExecutionInboxItems, ...feed.feed.agentActivity],
+      },
+      meta: {
+        ...feed.meta,
+        total: feed.meta.total + taskExecutionInboxItems.length,
+      },
+    };
+  }, [feed, taskExecutionInboxItems]);
   const { feedItems, activeLatchedItem, coldResolutionPending } =
     useInboxSelectionAnchor({
-      feed,
+      feed: inboxFeed,
       selectedEventId,
       availableChannelIds,
     });
@@ -357,7 +372,7 @@ export function HomeView({
     const items = buildInboxItems({
       channels,
       currentPubkey,
-      feed,
+      feed: inboxFeed,
       getChannelReadAt,
       getMessageReadAt,
       getThreadReadAt,
@@ -367,7 +382,7 @@ export function HomeView({
   }, [
     channels,
     currentPubkey,
-    feed,
+    inboxFeed,
     feedProfiles,
     getChannelReadAt,
     getMessageReadAt,

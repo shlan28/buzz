@@ -1188,6 +1188,73 @@ async fn handle_agent_profile(
         .set_channel_add_policy(tenant.community(), &pubkey_bytes, policy)
         .await?;
 
+    let task_policy = content
+        .get("task_assignment_policy")
+        .and_then(|value| value.as_str())
+        .unwrap_or("owner_only");
+    let mut task_allowlist = content
+        .get("task_assignment_allowlist")
+        .and_then(|value| value.as_array())
+        .into_iter()
+        .flatten()
+        .map(|value| {
+            value
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("task assignment allowlist entries must be strings"))
+                .and_then(|value| {
+                    let bytes = hex::decode(value).map_err(|_| {
+                        anyhow::anyhow!("task assignment allowlist contains invalid pubkey")
+                    })?;
+                    if bytes.len() != 32 {
+                        return Err(anyhow::anyhow!(
+                            "task assignment allowlist contains invalid pubkey"
+                        ));
+                    }
+                    Ok(value.to_ascii_lowercase())
+                })
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    task_allowlist.sort_unstable();
+    task_allowlist.dedup();
+    for allowed_pubkey in &task_allowlist {
+        if state
+            .db
+            .is_archived(tenant.community(), allowed_pubkey)
+            .await?
+        {
+            return Err(anyhow::anyhow!(
+                "task assignment allowlist contains archived identity"
+            ));
+        }
+        let bytes = hex::decode(allowed_pubkey)?;
+        let user = state
+            .db
+            .get_task_assignment_policy(tenant.community(), &bytes)
+            .await?;
+        let relay_member = state
+            .db
+            .get_relay_member(tenant.community(), allowed_pubkey)
+            .await?;
+        let recognized = relay_member.is_some()
+            || user.as_ref().is_some_and(|(_, owner, _)| {
+                owner.is_some() || !state.config.require_relay_membership
+            });
+        if !recognized {
+            return Err(anyhow::anyhow!(
+                "task assignment allowlist contains identity outside this community"
+            ));
+        }
+    }
+    state
+        .db
+        .set_task_assignment_policy(
+            tenant.community(),
+            &pubkey_bytes,
+            task_policy,
+            &task_allowlist,
+        )
+        .await?;
+
     info!(pubkey = %hex::encode(&pubkey_bytes), policy, "kind:10100 channel_add_policy updated");
     Ok(())
 }

@@ -1,5 +1,8 @@
 # Agent Configuration — Contributor Rules
 
+> Updated: 2026-08-03
+> Update: Documented the single persisted source and Relay-confirmed save rule for Agent task-assignment access.
+
 Scope: `desktop/src/features/agents/` (config surfaces, shared config renderer,
 and the agent config core). Read this before changing how harness / provider /
 model / effort configuration is modeled, rendered, persisted, or applied.
@@ -114,6 +117,17 @@ with a TypeScript lookup table or an id comparison in a component.
     published or removed. A queued update must stay visibly queued, and the
     catalog itself must render only relay-confirmed publications — never an
     optimistic local persona.
+11. **Task-assignment access is independent Relay-confirmed policy.** “Who can
+    talk to this agent” and “Who can assign tasks to this agent” are separate
+    controls and must never derive from or overwrite each other. The single
+    durable source is the Agent Profile event (kind `10100`) for the active
+    community: `task_assignment_policy` plus
+    `task_assignment_allowlist`. Missing fields mean `owner_only`. The
+    frontend may hold form draft state, but it must not maintain a second
+    durable copy or claim success optimistically. A save is complete only
+    after the Relay accepts the profile and its policy projection is available
+    to Task Command authorization. Relay enforcement is authoritative for
+    Desktop, CLI, Agents, and manually constructed events.
 
 ## The tests that enforce this
 
@@ -134,6 +148,10 @@ with a TypeScript lookup table or an id comparison in a component.
 - Rust: `runtime_metadata_env_vars` tests pin spawn-time key application.
 - Rust: persona sharing/retention tests pin relay+owner scoping, durable
   enqueue errors, relay rejection/unavailability, and accepted publication.
+- Required Agent edit-dialog coverage for this policy: independent
+  conversation/task-assignment fields, `owner_only` fallback, allowlist
+  normalization, and Relay rejection without optimistic success. Do not ship
+  changes to this policy without those gates.
 
 ## Keep this file true
 

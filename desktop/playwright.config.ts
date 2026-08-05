@@ -84,6 +84,7 @@ export default defineConfig({
         "**/animated-avatar.spec.ts",
         "**/reminders.spec.ts",
         "**/calendar.spec.ts",
+        "**/tasks.spec.ts",
         "**/reminder-click-repro.spec.ts",
         "**/virtualization.spec.ts",
         "**/scroll-history.spec.ts",

@@ -22,6 +22,10 @@ use std::time::Duration;
 
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
+use buzz_sdk::{
+    build_task_create, build_task_delete, nip_oa, TaskCreateInput, TaskDeleteInput, TaskPriority,
+    TaskStatus,
+};
 use buzz_test_client::{BuzzTestClient, RelayMessage, TestClientError};
 use nostr::{Alphabet, EventBuilder, Filter, Keys, Kind, SingleLetterTag, Tag};
 use sha2::{Digest, Sha256};
@@ -120,7 +124,13 @@ async fn seed_relay_member(host: &str, keys: &Keys, role: &str) {
 }
 
 async fn seed_relay_owner(keys: &Keys) {
-    seed_relay_member("localhost:3000", keys, "owner").await;
+    let url = relay_url();
+    let host = url
+        .strip_prefix("ws://")
+        .or_else(|| url.strip_prefix("wss://"))
+        .and_then(|authority| authority.split('/').next())
+        .expect("RELAY_URL must contain a host");
+    seed_relay_member(host, keys, "owner").await;
 }
 
 fn http_origin_for_host(host: &str) -> String {
@@ -201,6 +211,105 @@ async fn create_test_channel(keys: &Keys) -> String {
     channel_uuid.to_string()
 }
 
+async fn query_task_state(
+    client: &mut BuzzTestClient,
+    task_id: Uuid,
+    name: &str,
+) -> Vec<nostr::Event> {
+    let sid = sub_id(name);
+    let task_id = task_id.to_string();
+    let filter = Filter::new()
+        .kind(Kind::Custom(buzz_core::kind::KIND_TASK_STATE as u16))
+        .custom_tags(SingleLetterTag::lowercase(Alphabet::D), [task_id.as_str()]);
+    client
+        .subscribe(&sid, vec![filter])
+        .await
+        .expect("subscribe to task state");
+    let events = client
+        .collect_until_eose(&sid, Duration::from_secs(5))
+        .await
+        .expect("collect task state");
+    client
+        .close_subscription(&sid)
+        .await
+        .expect("close task state subscription");
+    events
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_task_creator_delete_hides_state_and_blocks_same_id_recreation() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let keys = test_owner_keys();
+    seed_relay_owner(&keys).await;
+    let mut client = BuzzTestClient::connect(&relay_url(), &keys)
+        .await
+        .expect("creator connects");
+    let task_id = Uuid::new_v4();
+    let create_input = TaskCreateInput {
+        id: task_id,
+        title: format!("delete-e2e-{task_id}"),
+        description: "must disappear after soft delete".into(),
+        assignee: None,
+        status: TaskStatus::Todo,
+        priority: TaskPriority::None,
+        due: None,
+        labels: vec!["delete-e2e".into()],
+        project: None,
+        channel: None,
+        source_event: None,
+    };
+    let create = build_task_create(&create_input)
+        .expect("build task create")
+        .sign_with_keys(&keys)
+        .expect("sign task create");
+    let create_ok = client
+        .send_event(create.clone())
+        .await
+        .expect("submit task create");
+    assert!(
+        create_ok.accepted,
+        "creator task create rejected: {}",
+        create_ok.message
+    );
+
+    let states = query_task_state(&mut client, task_id, "task-before-delete").await;
+    assert_eq!(states.len(), 1, "created task must have one current state");
+    let state_id = states[0].id.to_hex();
+    let delete = build_task_delete(&TaskDeleteInput {
+        id: task_id,
+        previous_event: state_id,
+    })
+    .expect("build task delete")
+    .sign_with_keys(&keys)
+    .expect("sign task delete");
+    let delete_ok = client.send_event(delete).await.expect("submit task delete");
+    assert!(
+        delete_ok.accepted,
+        "creator task delete rejected: {}",
+        delete_ok.message
+    );
+
+    let states = query_task_state(&mut client, task_id, "task-after-delete").await;
+    assert!(
+        states.is_empty(),
+        "deleted task state must not be queryable"
+    );
+
+    let recreate_ok = client
+        .send_event(create)
+        .await
+        .expect("replay original same-id create");
+    assert!(!recreate_ok.accepted, "same task ID must never be replayed");
+    assert!(
+        recreate_ok.message.contains("soft-deleted"),
+        "recreation should report the tombstone conflict: {}",
+        recreate_ok.message
+    );
+
+    client.disconnect().await.expect("disconnect creator");
+}
+
 #[tokio::test]
 #[ignore]
 async fn test_connect_and_authenticate() {
@@ -212,6 +321,50 @@ async fn test_connect_and_authenticate() {
         .expect("should connect and authenticate");
 
     client.disconnect().await.expect("clean disconnect");
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_direct_member_nip_oa_auth_materializes_agent_owner() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let url = relay_url();
+    let owner = Keys::generate();
+    let agent = Keys::generate();
+    let host = url
+        .strip_prefix("ws://")
+        .or_else(|| url.strip_prefix("wss://"))
+        .and_then(|authority| authority.split('/').next())
+        .expect("RELAY_URL must contain a host");
+    seed_relay_member(host, &agent, "member").await;
+
+    let auth_tag_json =
+        nip_oa::compute_auth_tag(&owner, &agent.public_key(), "").expect("compute NIP-OA auth tag");
+    let auth_tag = nip_oa::parse_auth_tag(&auth_tag_json).expect("parse NIP-OA auth tag");
+    let mut client = BuzzTestClient::connect_unauthenticated(&url)
+        .await
+        .expect("connect direct member Agent");
+    client
+        .authenticate_with_nip_oa(&agent, &auth_tag)
+        .await
+        .expect("authenticate direct member Agent with NIP-OA");
+
+    let pool = e2e_db_pool().await;
+    let community_id = ensure_test_community(host).await;
+    let stored_owner = sqlx::query_scalar::<_, Option<Vec<u8>>>(
+        "SELECT agent_owner_pubkey FROM users WHERE community_id = $1 AND pubkey = $2",
+    )
+    .bind(community_id)
+    .bind(agent.public_key().as_bytes())
+    .fetch_one(&pool)
+    .await
+    .expect("read materialized Agent owner");
+    assert_eq!(
+        stored_owner.as_deref(),
+        Some(owner.public_key().as_bytes().as_slice()),
+        "a direct relay member must still materialize its verified Agent owner"
+    );
+
+    client.disconnect().await.expect("disconnect Agent");
 }
 
 #[tokio::test]

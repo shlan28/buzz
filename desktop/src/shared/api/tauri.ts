@@ -113,6 +113,8 @@ type RawRelayAgent = {
   status: RelayAgent["status"];
   respond_to?: RelayAgent["respondTo"];
   respond_to_allowlist?: string[];
+  task_assignment_policy?: RelayAgent["taskAssignmentPolicy"];
+  task_assignment_allowlist?: string[];
 };
 export type RawManagedAgent = {
   pubkey: string;
@@ -153,11 +155,11 @@ export type RawManagedAgent = {
   auto_restart_on_config_change?: boolean;
   backend: ManagedAgentBackend;
   backend_agent_id: string | null;
-  // Optional: pre-feature mock fixtures may omit these. Mapped to
-  // `"owner-only"` / `[]` in `fromRawManagedAgent`.
   respond_to?: ManagedAgent["respondTo"];
   respond_to_allowlist?: string[];
   respond_to_owner_messages?: boolean;
+  task_assignment_policy?: ManagedAgent["taskAssignmentPolicy"];
+  task_assignment_allowlist?: string[];
 };
 
 type RawCreateManagedAgentResponse = {
@@ -690,6 +692,8 @@ function fromRawRelayAgent(agent: RawRelayAgent): RelayAgent {
     status: agent.status,
     respondTo: agent.respond_to ?? null,
     respondToAllowlist: agent.respond_to_allowlist ?? [],
+    taskAssignmentPolicy: agent.task_assignment_policy ?? null,
+    taskAssignmentAllowlist: agent.task_assignment_allowlist ?? [],
   };
 }
 
@@ -714,7 +718,6 @@ export function fromRawManagedAgent(agent: RawManagedAgent): ManagedAgent {
     avatarUrl: agent.avatar_url ?? null,
     model: agent.model,
     modelSource: agent.model_source ?? null,
-    // Fallbacks for pre-feature mocks/fixtures. Real records always carry them.
     provider: agent.provider ?? null,
     personaOutOfDate: agent.persona_out_of_date ?? false,
     personaOrphaned: agent.persona_orphaned ?? false,
@@ -734,11 +737,11 @@ export function fromRawManagedAgent(agent: RawManagedAgent): ManagedAgent {
     autoRestartOnConfigChange: agent.auto_restart_on_config_change ?? true,
     backend: agent.backend,
     backendAgentId: agent.backend_agent_id,
-    // Fallbacks for pre-feature mocks/fixtures that don't carry these fields.
-    // Real agent records always include them (defaulted server-side).
     respondTo: agent.respond_to ?? "owner-only",
     respondToAllowlist: agent.respond_to_allowlist ?? [],
     respondToOwnerMessages: agent.respond_to_owner_messages ?? false,
+    taskAssignmentPolicy: agent.task_assignment_policy ?? "owner_only",
+    taskAssignmentAllowlist: agent.task_assignment_allowlist ?? [],
   };
 }
 
@@ -1127,8 +1130,6 @@ export async function updateManagedAgent(
   };
 }
 
-// ── Backend provider discovery ────────────────────────────────────────────────
-
 export async function discoverBackendProviders(): Promise<
   BackendProviderCandidate[]
 > {
@@ -1185,8 +1186,6 @@ export async function applyCommunity(
   });
 }
 
-// Validate a candidate repos dir without mutating the filesystem. Rejects
-// with a human-readable reason; resolves for a valid or empty path.
 export async function validateReposDir(dir: string): Promise<void> {
   await invokeTauri("validate_repos_dir", { dir });
 }

@@ -185,6 +185,9 @@ enum Cmd {
     /// Create, read, update, and delete your private calendar events
     #[command(subcommand)]
     Calendar(CalendarCmd),
+    /// Create, inspect, update, assign, and archive community tasks
+    #[command(subcommand)]
+    Tasks(TasksCmd),
     /// Get and set channel canvas documents
     #[command(subcommand)]
     Canvas(CanvasCmd),
@@ -1210,6 +1213,134 @@ pub enum CalendarCmd {
 }
 
 #[derive(Subcommand)]
+pub enum TasksCmd {
+    /// Start the assigned Agent. Only that Agent or its owner may execute.
+    Execute {
+        #[arg(long)]
+        id: String,
+        /// Current Task State event id; prevents executing stale task content.
+        #[arg(long)]
+        expected_event: String,
+    },
+    /// Create a task. Assignment records responsibility but does not start an Agent.
+    Create {
+        #[arg(long)]
+        title: String,
+        /// Stable UUID/idempotency key; generated when omitted.
+        #[arg(long)]
+        id: Option<String>,
+        #[arg(long)]
+        description: Option<String>,
+        /// `me`, `none`, or a 64-hex person/Agent pubkey.
+        #[arg(long, default_value = "me")]
+        assignee: String,
+        #[arg(long, default_value = "todo", value_parser = ["backlog", "todo", "in-progress", "blocked", "done"])]
+        status: String,
+        #[arg(long, default_value = "none", value_parser = ["none", "low", "medium", "high", "urgent"])]
+        priority: String,
+        /// Unix seconds or RFC3339.
+        #[arg(long)]
+        due: Option<String>,
+        #[arg(long = "label")]
+        labels: Vec<String>,
+        #[arg(long)]
+        project: Option<String>,
+        /// Channel id; also scopes task visibility.
+        #[arg(long)]
+        channel: Option<String>,
+        #[arg(long)]
+        source_event: Option<String>,
+    },
+    /// Get the current state of a task.
+    Get {
+        #[arg(long)]
+        id: String,
+    },
+    /// List current task states, newest first.
+    List {
+        /// `me`, `none`, or a 64-hex person/Agent pubkey.
+        #[arg(long)]
+        assignee: Option<String>,
+        #[arg(long = "status", value_delimiter = ',', value_parser = ["backlog", "todo", "in-progress", "blocked", "done"])]
+        statuses: Vec<String>,
+        #[arg(long = "priority", value_delimiter = ',', value_parser = ["none", "low", "medium", "high", "urgent"])]
+        priorities: Vec<String>,
+        #[arg(long = "label")]
+        labels: Vec<String>,
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        channel: Option<String>,
+        #[arg(long, default_value_t = false)]
+        include_archived: bool,
+        #[arg(long, default_value_t = 50, value_parser = clap::value_parser!(u32).range(1..=200))]
+        limit: u32,
+        /// Composite cursor `<unix-seconds>:<event-id>`.
+        #[arg(long)]
+        cursor: Option<String>,
+    },
+    /// Partially update explicitly supplied fields.
+    Update {
+        #[arg(long)]
+        id: String,
+        /// Current Task State event id; prevents overwriting a newer edit.
+        #[arg(long)]
+        expected_event: String,
+        #[arg(long)]
+        title: Option<String>,
+        #[arg(long)]
+        description: Option<String>,
+        #[arg(long, default_value_t = false, conflicts_with = "description")]
+        clear_description: bool,
+        #[arg(long, value_parser = ["backlog", "todo", "in-progress", "blocked", "done"])]
+        status: Option<String>,
+        #[arg(long, value_parser = ["none", "low", "medium", "high", "urgent"])]
+        priority: Option<String>,
+        #[arg(long)]
+        due: Option<String>,
+        #[arg(long, default_value_t = false, conflicts_with = "due")]
+        clear_due: bool,
+        /// Replace all labels; may be repeated.
+        #[arg(long = "label")]
+        labels: Vec<String>,
+        #[arg(long, default_value_t = false, conflicts_with = "labels")]
+        clear_labels: bool,
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long, default_value_t = false, conflicts_with = "project")]
+        clear_project: bool,
+        #[arg(long)]
+        channel: Option<String>,
+        #[arg(long, default_value_t = false, conflicts_with = "channel")]
+        clear_channel: bool,
+    },
+    /// Assign to `me`, `none`, or a person/Agent pubkey.
+    Assign {
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        assignee: String,
+        #[arg(long)]
+        expected_event: String,
+    },
+    /// Permanently remove a task from product views. Recovery is not supported.
+    Delete {
+        #[arg(long)]
+        id: String,
+        /// Current Task State event id; refuses to delete a newer version.
+        #[arg(long)]
+        expected_event: String,
+    },
+    /// Archive without deleting task history.
+    Archive {
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        expected_event: String,
+    },
+}
+
+#[derive(Subcommand)]
 pub enum ReposCmd {
     /// Announce a git repository (NIP-34)
     Create {
@@ -1909,6 +2040,7 @@ async fn run(cli: Cli) -> Result<(), CliError> {
         Cmd::Messages(sub) => commands::messages::dispatch(sub, &client, &cli.format).await,
         Cmd::Channels(sub) => commands::channels::dispatch(sub, &client, &cli.format).await,
         Cmd::Calendar(sub) => commands::calendar::dispatch(sub, &client).await,
+        Cmd::Tasks(sub) => commands::tasks::dispatch(sub, &client).await,
         Cmd::Canvas(sub) => commands::channels::dispatch_canvas(sub, &client).await,
         Cmd::Reactions(sub) => commands::reactions::dispatch(sub, &client).await,
         Cmd::Emoji(sub) => commands::emoji::dispatch(sub, &client).await,
@@ -1966,6 +2098,57 @@ mod tests {
     }
 
     #[test]
+    fn task_commands_enforce_patch_and_conflict_arguments() {
+        let task_id = "10eef02c-9be8-4055-a747-e348d5a405ad";
+        let event_id = "a".repeat(64);
+        assert!(Cli::try_parse_from(["buzz", "tasks", "create", "--title", "Ship it"]).is_ok());
+        assert!(Cli::try_parse_from([
+            "buzz",
+            "tasks",
+            "assign",
+            "--id",
+            task_id,
+            "--assignee",
+            "me"
+        ])
+        .is_err());
+        assert!(Cli::try_parse_from([
+            "buzz",
+            "tasks",
+            "archive",
+            "--id",
+            task_id,
+            "--expected-event",
+            &event_id,
+        ])
+        .is_ok());
+        assert!(Cli::try_parse_from([
+            "buzz",
+            "tasks",
+            "delete",
+            "--id",
+            task_id,
+            "--expected-event",
+            &event_id,
+        ])
+        .is_ok());
+        assert!(Cli::try_parse_from(["buzz", "tasks", "delete", "--id", task_id]).is_err());
+        assert!(Cli::try_parse_from([
+            "buzz",
+            "tasks",
+            "update",
+            "--id",
+            task_id,
+            "--expected-event",
+            &event_id,
+            "--description",
+            "text",
+            "--clear-description",
+        ])
+        .is_err());
+    }
+
+    #[test]
     fn command_inventory_is_stable() {
         let expected_groups: Vec<&str> = vec![
             "agents",
@@ -1987,6 +2170,7 @@ mod tests {
             "reactions",
             "repos",
             "social",
+            "tasks",
             "upload",
             "users",
             "workflows",
@@ -2079,6 +2263,10 @@ mod tests {
         assert_eq!(
             names(&cmd, "calendar"),
             vec!["create", "delete", "get", "list", "update"]
+        );
+        assert_eq!(
+            names(&cmd, "tasks"),
+            vec!["archive", "assign", "create", "delete", "get", "list", "update"]
         );
         assert_eq!(names(&cmd, "reactions"), vec!["add", "get", "remove"]);
         assert_eq!(
@@ -2184,6 +2372,7 @@ mod tests {
             ("reactions", 3),
             ("repos", 5),
             ("social", 7),
+            ("tasks", 7),
             ("upload", 1),
             ("users", 5),
             ("workflows", 8),

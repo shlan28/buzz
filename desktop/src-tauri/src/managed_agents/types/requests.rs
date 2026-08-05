@@ -259,6 +259,12 @@ pub struct UpdateManagedAgentRequest {
     /// Absent = don't touch. Present = enable or disable owner-message triggers.
     #[serde(default)]
     pub respond_to_owner_messages: Option<bool>,
+    /// Absent = don't touch. Present = update the Relay-enforced assignment policy.
+    #[serde(default)]
+    pub task_assignment_policy: Option<super::TaskAssignmentPolicy>,
+    /// Absent = don't touch. Present = replace the normalized assignment allowlist.
+    #[serde(default)]
+    pub task_assignment_allowlist: Option<Vec<String>>,
 }
 
 #[cfg(test)]
@@ -285,6 +291,27 @@ mod tests {
         }))
         .expect("disabled update should deserialize");
         assert_eq!(disabled.respond_to_owner_messages, Some(false));
+    }
+
+    #[test]
+    fn update_task_assignment_fields_are_typed_patches() {
+        let absent: UpdateManagedAgentRequest =
+            serde_json::from_value(serde_json::json!({ "pubkey": "agent" }))
+                .expect("minimal update should deserialize");
+        assert_eq!(absent.task_assignment_policy, None);
+        assert_eq!(absent.task_assignment_allowlist, None);
+
+        let update: UpdateManagedAgentRequest = serde_json::from_value(serde_json::json!({
+            "pubkey": "agent",
+            "taskAssignmentPolicy": "allowlist",
+            "taskAssignmentAllowlist": ["A".repeat(64)]
+        }))
+        .expect("task assignment update should deserialize");
+        assert_eq!(
+            update.task_assignment_policy,
+            Some(crate::managed_agents::TaskAssignmentPolicy::Allowlist)
+        );
+        assert_eq!(update.task_assignment_allowlist, Some(vec!["A".repeat(64)]));
     }
 
     fn record_with_quad() -> AgentDefinition {

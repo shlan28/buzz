@@ -820,7 +820,6 @@ pub async fn create_managed_agent(
         // Mint-time behavioral quad: explicit input wins, then the linked
         // definition's NIP-AP defaults, then client defaults. The ONLY parse
         // point for definition behavioral strings — fails loudly on a bad
-        // mode/range instead of minting an agent the author didn't describe.
         let minted = crate::managed_agents::resolve_mint_behavioral_defaults(
             input.respond_to,
             respond_to_allowlist.clone(),
@@ -890,6 +889,8 @@ pub async fn create_managed_agent(
             respond_to: minted.respond_to,
             respond_to_allowlist: minted.respond_to_allowlist.clone(),
             respond_to_owner_messages: input.respond_to_owner_messages,
+            task_assignment_policy: Default::default(),
+            task_assignment_allowlist: Vec::new(),
             display_name: None,
             slug: None,
             runtime: None,

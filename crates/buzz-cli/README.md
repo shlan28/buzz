@@ -64,6 +64,12 @@ buzz users set-status --clear                 # remove your status
 buzz dms open --pubkey <hex>
 buzz dms list
 
+# Tasks
+buzz tasks create --title "Audit onboarding"
+buzz tasks get --id <task-uuid>
+buzz tasks execute --id <task-uuid> --expected-event <current-state-event-id>
+buzz tasks delete --id <task-uuid> --expected-event <current-state-event-id>
+
 # Workflows
 buzz workflows list --channel <uuid>
 buzz workflows trigger --workflow <uuid>
@@ -114,6 +120,13 @@ stored rules in `validation_error` so an owner can remove and repair them.
 | | `get` | Get your event by stable id |
 | | `update` | Partially update your event |
 | | `delete` | Delete your event |
+| `tasks` | `create` | Create a community task |
+| | `get` | Get the current task state |
+| | `list` | List current task states |
+| | `update` | Update task fields with conflict protection |
+| | `assign` | Assign a task to a person or Agent |
+| | `archive` | Archive a task while retaining it in product history |
+| | `delete` | Soft-delete a task; requires its current state event ID |
 | `channels` | `list` | List channels |
 | | `get` | Get channel details |
 | | `create` | Create a channel |

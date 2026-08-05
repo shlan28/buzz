@@ -1,8 +1,65 @@
 # buzz-cli Live Testing Guide
 
+> Updated: 2026-08-04
+> Update: Added Agent Task execution, strict owner/self permission, online presence, and execution conflict checks.
+
 Manual testing runbook for verifying every CLI command against a local relay.
 An agent or developer follows this step by step, running each command and
 checking the output.
+
+## Tasks smoke flow
+
+Create with a stable UUID so a retry addresses the same task:
+
+```bash
+TASK_ID="10eef02c-9be8-4055-a747-e348d5a405ad"
+buzz tasks create --id "$TASK_ID" --title "Audit onboarding" \
+  --assignee me --status todo --priority high --label release
+buzz tasks get --id "$TASK_ID"
+buzz tasks list --assignee me --status todo,in-progress
+```
+
+For a Task assigned to an online Agent, use its current state head:
+
+```bash
+HEAD="$(buzz tasks get --id "$TASK_ID" | jq -r .state_event_id)"
+buzz tasks execute --id "$TASK_ID" --expected-event "$HEAD"
+```
+
+Verify that the Relay rejects a human who is neither the assigned Agent owner
+nor the Agent, and rejects the owner while the Agent presence is offline.
+
+Copy `state_event_id` from `tasks get` before every mutation:
+
+```bash
+HEAD="<64-hex-state-event-id>"
+buzz tasks update --id "$TASK_ID" --expected-event "$HEAD" \
+  --description "Check the first-run path" --status in-progress
+
+HEAD="<new-64-hex-state-event-id>"
+buzz tasks assign --id "$TASK_ID" --expected-event "$HEAD" --assignee none
+
+HEAD="<new-64-hex-state-event-id>"
+buzz tasks archive --id "$TASK_ID" --expected-event "$HEAD"
+buzz tasks list --include-archived
+
+HEAD="<new-64-hex-state-event-id>"
+buzz tasks delete --id "$TASK_ID" --expected-event "$HEAD"
+buzz tasks get --id "$TASK_ID" # expect not found
+```
+
+Verify these negative and identity cases:
+
+- Reuse an old `state_event_id`; expect exit code 5 and no state change.
+- Assign to a malformed or cross-community pubkey; expect rejection.
+- Assign to an Agent whose policy is `owner_only` as its owner, then as an unrelated member.
+- Re-run `tasks create` with the same task UUID; because this signs a new command event, it must conflict instead of creating a duplicate. Transport retries of one signed event are covered by client retry tests.
+- Run the same flow with an Agent `BUZZ_PRIVATE_KEY` and `BUZZ_AUTH_TAG`; output must retain the Agent as the real actor.
+- Associate a private Channel using `--channel`; a caller or assignee without Channel access must not read or mutate the task.
+- Confirm assignment only changes responsibility and does not start an Agent turn.
+- After delete, confirm `tasks get`, `tasks list`, and task history do not expose the task.
+- Re-run `tasks create` with the deleted task UUID; expect rejection so deleted tasks cannot revive.
+- Delete with an old State ID; expect exit code 5 and confirm the task still exists.
 
 ---
 

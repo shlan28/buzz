@@ -1,0 +1,76 @@
+export type TaskStatus =
+  | "backlog"
+  | "todo"
+  | "in-progress"
+  | "blocked"
+  | "done";
+
+export type TaskPriority = "none" | "low" | "medium" | "high" | "urgent";
+
+export type TaskBoardGroup = "assignee" | "status";
+
+export type Task = {
+  id: string;
+  eventId: string;
+  title: string;
+  description: string;
+  assignee: string | null;
+  status: TaskStatus;
+  priority: TaskPriority;
+  dueDate: number | null;
+  labels: string[];
+  project: string | null;
+  channelId: string | null;
+  creator: string;
+  lastEditor: string;
+  createdAt: number;
+  updatedAt: number;
+  archived: boolean;
+};
+
+export type TaskDraft = Pick<
+  Task,
+  "title" | "description" | "assignee" | "status" | "priority" | "dueDate"
+> & { id: string };
+
+export type TaskPatch = Partial<TaskDraft> & { archived?: boolean };
+
+export type TaskHistoryEntry = {
+  id: string;
+  actor: string;
+  createdAt: number;
+  action: "created" | "updated";
+  changes: string[];
+};
+
+export type TaskExecutionStatus = "queued" | "running" | "finished" | "failed";
+
+export type TaskExecution = {
+  id: string;
+  eventId: string;
+  taskId: string;
+  assignee: string;
+  owner: string | null;
+  requester: string;
+  status: TaskExecutionStatus;
+  message: string;
+  updatedAt: number;
+};
+
+export type TaskAssignee = {
+  pubkey: string | null;
+  label: string;
+  kind: "unassigned" | "person" | "agent";
+  canAssign?: boolean;
+  unavailableReason?: string;
+};
+
+export type TaskFilters = {
+  query: string;
+  statuses: ReadonlySet<TaskStatus>;
+  showDone: boolean;
+  showEmptyAssignees: boolean;
+  labels: ReadonlySet<string>;
+  projects: ReadonlySet<string>;
+  channels: ReadonlySet<string>;
+};

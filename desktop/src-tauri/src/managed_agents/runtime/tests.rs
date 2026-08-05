@@ -120,7 +120,6 @@ use super::build_respond_to_env;
 use crate::managed_agents::types::{ManagedAgentRecord, RespondTo};
 
 /// Construct a minimal record fixture for env-building tests. Only the
-/// fields read by `build_respond_to_env` matter here.
 fn fixture(
     respond_to: RespondTo,
     allowlist: Vec<String>,
@@ -167,6 +166,8 @@ fn fixture(
         respond_to,
         respond_to_allowlist: allowlist,
         respond_to_owner_messages: false,
+        task_assignment_policy: Default::default(),
+        task_assignment_allowlist: Vec::new(),
         display_name: None,
         slug: None,
         runtime: None,

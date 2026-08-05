@@ -1,6 +1,5 @@
 use std::collections::{BTreeMap, HashSet};
 
-use nostr::Keys;
 use serde::Deserialize;
 use tauri::{AppHandle, State};
 
@@ -12,6 +11,7 @@ use super::agent_models_env::env_value;
 use super::agent_models_env::{
     effective_discovery_provider, env_or_process_value, redaction_env_with_value, DiscoveryProvider,
 };
+use super::agent_task_assignment::{apply_task_assignment_patch, AgentProfileSync};
 use super::agent_update_rollback::{rollback_failed_agent_update, AgentUpdateRollback};
 
 use crate::{
@@ -19,12 +19,11 @@ use crate::{
     managed_agents::{
         build_managed_agent_summary, current_instance_id, discovery_env_with_baked_floor,
         find_managed_agent_mut, known_acp_runtime, load_global_agent_config, load_managed_agents,
-        load_personas, managed_agent_avatar_url, missing_command_message, normalize_agent_args,
-        resolve_command, save_managed_agents, sync_managed_agent_processes, try_regenerate_nest,
-        AgentModelInfo, AgentModelsResponse, UpdateManagedAgentRequest, UpdateManagedAgentResponse,
+        load_personas, missing_command_message, normalize_agent_args, resolve_command,
+        save_managed_agents, sync_managed_agent_processes, try_regenerate_nest, AgentModelInfo,
+        AgentModelsResponse, UpdateManagedAgentRequest, UpdateManagedAgentResponse,
         DEFAULT_ACP_COMMAND,
     },
-    relay::{relay_ws_url_with_override, sync_managed_agent_profile},
     util::now_iso,
 };
 
@@ -929,6 +928,12 @@ pub async fn update_managed_agent(
             record.respond_to_owner_messages = enabled;
         }
 
+        let task_policy_changed = apply_task_assignment_patch(
+            record,
+            input.task_assignment_policy,
+            input.task_assignment_allowlist.as_deref(),
+        )?;
+
         record.updated_at = now_iso();
 
         save_managed_agents(&app, &records)?;
@@ -943,27 +948,14 @@ pub async fn update_managed_agent(
         // update that touched only runtime/local fields is a no-op publish.
         super::agents::retain_managed_agent_pending(&app, &state, record);
 
-        let sync_params = if name_changed {
-            let agent_keys = Keys::parse(&record.private_key_nsec)
-                .map_err(|e| format!("failed to parse agent keys: {e}"))?;
-            // Re-publish the renamed profile to the agent's effective relay:
-            // an explicit per-agent relay wins; empty falls back to workspace.
-            let relay_url = crate::relay::effective_agent_relay_url(
-                &record.relay_url,
-                &relay_ws_url_with_override(&state),
-            );
-            let display_name = record.name.clone();
-            // Avatar fallback derives from the EFFECTIVE harness (persona-wins),
-            // not the frozen snapshot, so an inherited harness picks the right
-            // default avatar.
-            let personas = load_personas(&app).unwrap_or_default();
-            let effective_command = crate::managed_agents::record_agent_command(record, &personas);
-            let avatar_url = record
-                .avatar_url
-                .clone()
-                .or_else(|| managed_agent_avatar_url(&effective_command));
-            let auth_tag = record.auth_tag.clone();
-            Some((agent_keys, relay_url, display_name, avatar_url, auth_tag))
+        let sync_params = if name_changed || task_policy_changed {
+            Some(AgentProfileSync::from_record(
+                &app,
+                &state,
+                record,
+                name_changed,
+                task_policy_changed,
+            )?)
         } else {
             None
         };
@@ -978,7 +970,8 @@ pub async fn update_managed_agent(
                 &crate::managed_agents::load_global_agent_config(&app).unwrap_or_default(),
             )?
         };
-        let rollback = name_changed.then(|| AgentUpdateRollback::new(previous_record, record));
+        let rollback = (name_changed || task_policy_changed)
+            .then(|| AgentUpdateRollback::new(previous_record, record));
         (summary, sync_params, rollback)
     }; // lock dropped here
 
@@ -987,23 +980,14 @@ pub async fn update_managed_agent(
     // Phase 2: relay profile sync (async, outside lock). A rename is committed
     // only when this succeeds; otherwise restore the complete pre-edit record
     // so Desktop and the relay keep one authoritative name.
-    if let Some((agent_keys, relay_url, display_name, avatar_url, auth_tag)) = sync_params {
-        if let Err(sync_error) = sync_managed_agent_profile(
-            &state,
-            &relay_url,
-            &agent_keys,
-            &display_name,
-            avatar_url.as_deref(),
-            auth_tag.as_deref(),
-        )
-        .await
-        {
+    if let Some(sync) = sync_params {
+        if let Err(sync_error) = sync.run(&state).await {
             let rollback = rollback.ok_or_else(|| {
                 "missing local rollback state after relay profile sync failure".to_string()
             })?;
             rollback_failed_agent_update(&app, &state, &summary.pubkey, rollback)?;
             return Err(format!(
-                "Agent rename failed because its relay profile could not be updated. No changes were saved: {sync_error}"
+                "Agent update failed because its relay profile could not be updated. No changes were saved: {sync_error}"
             ));
         }
     }

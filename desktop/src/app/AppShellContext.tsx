@@ -46,6 +46,7 @@ type AppShellContextValue = {
   isThreadMuted: (rootId: string) => boolean;
   threadActivityItems: ThreadActivityItem[];
   threadActivityFeedItems: FeedItem[];
+  taskExecutionInboxItems: FeedItem[];
   feedItemState: FeedItemState;
   // Open the Settings panel at the given section. Available on all surfaces
   // that render under AppShell (channel, home, projects, pulse, agents).
@@ -74,6 +75,7 @@ const AppShellContext = React.createContext<AppShellContextValue>({
   isThreadMuted: () => false,
   threadActivityItems: [],
   threadActivityFeedItems: [],
+  taskExecutionInboxItems: [],
   feedItemState: {
     doneSet: EMPTY_SET,
     markDone: () => {},

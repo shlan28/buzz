@@ -15,6 +15,7 @@ import { isManagedAgentActive } from "@/features/agents/lib/managedAgentControlA
 import type {
   ManagedAgent,
   RespondToMode,
+  TaskAssignmentPolicy,
   UpdateManagedAgentInput,
 } from "@/shared/api/types";
 import type { EditAgentFocusTarget } from "@/features/agents/openEditAgentEvent";
@@ -86,6 +87,7 @@ import { AdvancedRequiredBadge } from "./AdvancedRequiredBadge";
 import { showAgentProfileSyncWarning } from "./agentProfileSyncWarning";
 import { AddCustomHarnessDialog } from "./AddCustomHarnessDialog";
 import { OwnerMessageReplyField } from "./OwnerMessageReplyField";
+import { TaskAssignmentAccessField } from "./TaskAssignmentAccessField";
 import { AgentNameField } from "./AgentNameField";
 import {
   ADD_CUSTOM_HARNESS_OPTION,
@@ -172,6 +174,11 @@ export function AgentInstanceEditDialog({
   const [respondToOwnerMessages, setRespondToOwnerMessages] = React.useState(
     agent.respondToOwnerMessages,
   );
+  const [taskAssignmentPolicy, setTaskAssignmentPolicy] =
+    React.useState<TaskAssignmentPolicy>(agent.taskAssignmentPolicy);
+  const [taskAssignmentAllowlist, setTaskAssignmentAllowlist] = React.useState(
+    agent.taskAssignmentAllowlist,
+  );
   const [showAdvancedFields, setShowAdvancedFields] = React.useState(false);
   const [avatarUrl, setAvatarUrl] = React.useState(agent.avatarUrl ?? "");
   const [isAvatarUploadPending, setIsAvatarUploadPending] =
@@ -179,14 +186,10 @@ export function AgentInstanceEditDialog({
   const [isAddHarnessOpen, setIsAddHarnessOpen] = React.useState(false);
   const shouldReduceMotion = useReducedMotion();
 
-  // Runtime selector: defaults to "custom" until the dialog opens and the
-  // catalog loads. The open-effect re-derives the correct id from the catalog.
   const [selectedRuntimeId, setSelectedRuntimeId] = React.useState("custom");
 
-  // Tracks whether the user has made an in-dialog runtime selection.
   const runtimeTouched = React.useRef(false);
 
-  // Reset form state only when the dialog opens or when switching to a different agent.
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional — including agent fields would re-fire on every 5s poll and wipe edits
   React.useEffect(() => {
     if (open) {
@@ -209,6 +212,8 @@ export function AgentInstanceEditDialog({
       setRespondTo(agent.respondTo);
       setRespondToAllowlist(agent.respondToAllowlist);
       setRespondToOwnerMessages(agent.respondToOwnerMessages);
+      setTaskAssignmentPolicy(agent.taskAssignmentPolicy);
+      setTaskAssignmentAllowlist(agent.taskAssignmentAllowlist);
       setAvatarUrl(agent.avatarUrl ?? "");
       setShowAdvancedFields(false);
       setIsAvatarUploadPending(false);
@@ -222,7 +227,6 @@ export function AgentInstanceEditDialog({
     }
   }, [open, agent.pubkey]);
 
-  // Re-derive the runtime id when the catalog loads.
   React.useEffect(() => {
     if (!open || runtimeTouched.current || runtimes.length === 0) {
       return;
@@ -235,7 +239,6 @@ export function AgentInstanceEditDialog({
     }
   }, [open, runtimes, agent.agentCommand]);
 
-  // Build the sorted runtime catalog for the dropdown.
   const sortedRuntimes = React.useMemo(
     () => sortPersonaRuntimes(runtimes),
     [runtimes],
@@ -625,6 +628,8 @@ export function AgentInstanceEditDialog({
       requiredEnvKeyMissing,
     }) &&
     providerValid &&
+    (taskAssignmentPolicy !== "allowlist" ||
+      taskAssignmentAllowlist.length > 0) &&
     !updateMutation.isPending &&
     !isAvatarUploadPending;
 
@@ -678,10 +683,6 @@ export function AgentInstanceEditDialog({
             ? acpCommand.trim()
             : undefined,
         agentCommand: agentCommandUpdate,
-        // A non-inheriting selection is a deliberate pin — signal it so the
-        // backend preserves a Custom/runtime command even when it maps to the
-        // linked persona's own runtime (otherwise it would be dropped back to
-        // inherit). Omitted (falsy) when inheriting or on a name-only edit.
         harnessOverride:
           agentCommandUpdate != null ? !inheritHarness : undefined,
         agentArgs:
@@ -692,7 +693,6 @@ export function AgentInstanceEditDialog({
           parsedParallelism > 0 && parsedParallelism !== agent.parallelism
             ? parsedParallelism
             : undefined,
-        // Linked instances defer model/provider/systemPrompt to the definition.
         systemPrompt:
           linkedPersona != null
             ? undefined
@@ -705,11 +705,6 @@ export function AgentInstanceEditDialog({
             : normalizedModel !== (agent.model ?? null)
               ? normalizedModel
               : undefined,
-        // Tri-state provider persistence keyed on providerRuntimeCapability:
-        //   "capable"  → persist: value if changed, omit if unchanged.
-        //   "locked"   → clear: send null if provider was set, else omit.
-        //   "unknown"  → omit always (never send null for a transient state).
-        // llmProviderFieldVisible is for UX visibility only; not used here.
         provider:
           linkedPersona != null
             ? undefined
@@ -726,12 +721,6 @@ export function AgentInstanceEditDialog({
           ? undefined
           : submitEnvVars,
         respondTo: respondTo !== agent.respondTo ? respondTo : undefined,
-        // The allowlist is preserved across mode toggles in local UI state
-        // (so a user can flip away from allowlist and back without losing
-        // their entries), but we only send it on the wire when (a) it
-        // actually changed, AND (b) the saved mode will need it. Sending
-        // an allowlist while switching to a non-allowlist mode would be
-        // harmless server-side, but it's noise in the persisted record.
         respondToAllowlist:
           respondTo === "allowlist" &&
           respondToAllowlist.join(",") !== agent.respondToAllowlist.join(",")
@@ -741,12 +730,20 @@ export function AgentInstanceEditDialog({
           agent.respondToOwnerMessages,
           respondToOwnerMessages,
         ),
+        taskAssignmentPolicy:
+          taskAssignmentPolicy !== agent.taskAssignmentPolicy
+            ? taskAssignmentPolicy
+            : undefined,
+        taskAssignmentAllowlist:
+          taskAssignmentPolicy === "allowlist" &&
+          taskAssignmentAllowlist.join(",") !==
+            agent.taskAssignmentAllowlist.join(",")
+            ? taskAssignmentAllowlist
+            : undefined,
       };
 
       const result = await updateMutation.mutateAsync(input);
       if (autoRestartOnConfigChange !== agent.autoRestartOnConfigChange) {
-        // Standalone setter (mirrors start-on-app-launch) — not part of
-        // UpdateManagedAgentInput, so the frozen update shape stays frozen.
         await setManagedAgentAutoRestart(
           agent.pubkey,
           autoRestartOnConfigChange,
@@ -755,10 +752,6 @@ export function AgentInstanceEditDialog({
       showAgentProfileSyncWarning(result.agent.name, result.profileSyncError);
       handleOpenChange(false);
       onUpdated?.(result.agent);
-      // The auto-restart policy deliberately never fires for a stopped or
-      // failing agent (a broken agent must not auto-loop), so an edit meant
-      // to FIX one silently waits for a manual start. Offer that start
-      // explicitly instead of relying on the user to know the policy.
       if (!isManagedAgentActive(result.agent)) {
         const startedName = result.agent.name;
         toast(`${startedName} saved while stopped.`, {
@@ -930,7 +923,6 @@ export function AgentInstanceEditDialog({
               onChange={setName}
             />
 
-            {/* Who can talk to this agent */}
             <CreateAgentRespondToField
               allowlist={respondToAllowlist}
               disabled={updateMutation.isPending}
@@ -944,6 +936,14 @@ export function AgentInstanceEditDialog({
               checked={respondToOwnerMessages}
               disabled={updateMutation.isPending}
               onCheckedChange={setRespondToOwnerMessages}
+            />
+
+            <TaskAssignmentAccessField
+              allowlist={taskAssignmentAllowlist}
+              disabled={updateMutation.isPending}
+              onAllowlistChange={setTaskAssignmentAllowlist}
+              onPolicyChange={setTaskAssignmentPolicy}
+              policy={taskAssignmentPolicy}
             />
 
             {/* Provider (runtime) */}

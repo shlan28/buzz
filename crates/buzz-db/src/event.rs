@@ -63,6 +63,9 @@ pub struct EventQuery {
     /// Restrict results to events with an `e` tag referencing any of these event IDs (hex).
     /// Uses JSONB containment (`tags @> ...`) against the `tags` column.
     pub e_tags: Option<Vec<String>>,
+    /// Restrict to events carrying any exact `t` tag value.
+    /// Uses JSONB containment and is applied before `LIMIT`.
+    pub t_tags: Option<Vec<String>>,
     /// Restrict results to events in any of these channels, while retaining
     /// channel-less global events. Applied before SQL `LIMIT` so access-filtered
     /// historical pages have exact exhaustion semantics.
@@ -118,6 +121,7 @@ impl EventQuery {
             authors: None,
             ids: None,
             e_tags: None,
+            t_tags: None,
             channel_ids: None,
             max_limit: None,
             persona_reader: None,
@@ -399,6 +403,9 @@ pub(crate) async fn query_events_on(
     if q.e_tags.as_deref().is_some_and(|e| e.is_empty()) {
         return Ok(vec![]);
     }
+    if q.t_tags.as_deref().is_some_and(|t| t.is_empty()) {
+        return Ok(vec![]);
+    }
 
     let clamp = q.max_limit.unwrap_or(1000);
     let limit_val = q.limit.unwrap_or(100).min(clamp);
@@ -516,6 +523,22 @@ pub(crate) async fn query_events_on(
                 let containment = serde_json::json!([["e", hex_id]]);
                 qb.push(format!("{col_prefix}tags @> "));
                 qb.push_bind(containment);
+            }
+            qb.push(")");
+        }
+    }
+
+    // t-tag pushdown via the same GIN-backed JSONB containment used for #e.
+    // Multiple values use NIP-01 OR semantics.
+    if let Some(ref t_tags) = q.t_tags {
+        if !t_tags.is_empty() {
+            qb.push(" AND (");
+            for (index, value) in t_tags.iter().enumerate() {
+                if index > 0 {
+                    qb.push(" OR ");
+                }
+                qb.push(format!("{col_prefix}tags @> "));
+                qb.push_bind(serde_json::json!([["t", value]]));
             }
             qb.push(")");
         }
@@ -787,6 +810,20 @@ pub(crate) async fn count_events_on(conn: &mut sqlx::PgConnection, q: &EventQuer
                 let containment = serde_json::json!([["e", hex_id]]);
                 qb.push(format!("{col_prefix}tags @> "));
                 qb.push_bind(containment);
+            }
+            qb.push(")");
+        }
+    }
+
+    if let Some(ref t_tags) = q.t_tags {
+        if !t_tags.is_empty() {
+            qb.push(" AND (");
+            for (index, value) in t_tags.iter().enumerate() {
+                if index > 0 {
+                    qb.push(" OR ");
+                }
+                qb.push(format!("{col_prefix}tags @> "));
+                qb.push_bind(serde_json::json!([["t", value]]));
             }
             qb.push(")");
         }

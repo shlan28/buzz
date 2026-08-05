@@ -114,24 +114,97 @@ pub async fn sign_event(
     let keys = state.signing_keys()?;
 
     tauri::async_runtime::spawn_blocking(move || {
-        let nostr_tags = tags
-            .into_iter()
-            .map(|tag| Tag::parse(tag).map_err(|error| format!("invalid tag: {error}")))
-            .collect::<Result<Vec<_>, _>>()?;
-
-        let mut builder = EventBuilder::new(Kind::Custom(kind), content).tags(nostr_tags);
-        if let Some(created_at) = created_at {
-            builder = builder.custom_created_at(Timestamp::from(created_at));
-        }
-
-        let event = builder
-            .sign_with_keys(&keys)
-            .map_err(|error| format!("sign failed: {error}"))?;
-
-        Ok(event.as_json())
+        sign_event_with_keys(kind, content, created_at, tags, &keys).map(|event| event.as_json())
     })
     .await
     .map_err(|e| format!("spawn_blocking failed: {e}"))?
+}
+
+fn sign_event_with_keys(
+    kind: u16,
+    content: String,
+    created_at: Option<u64>,
+    tags: Vec<Vec<String>>,
+    keys: &Keys,
+) -> Result<Event, String> {
+    let nostr_tags = tags
+        .into_iter()
+        .map(|tag| Tag::parse(tag).map_err(|error| format!("invalid tag: {error}")))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut builder = EventBuilder::new(Kind::Custom(kind), content).tags(nostr_tags);
+    if matches!(
+        u32::from(kind),
+        buzz_core_pkg::kind::KIND_TASK_STATE
+            | buzz_core_pkg::kind::KIND_TASK_CREATE
+            | buzz_core_pkg::kind::KIND_TASK_MUTATE
+    ) {
+        // Task `p` tags identify the assignee, so assigning a task to its author
+        // is meaningful. Other event kinds keep nostr-sdk's default self-tag scrub.
+        builder = builder.allow_self_tagging();
+    }
+    if let Some(created_at) = created_at {
+        builder = builder.custom_created_at(Timestamp::from(created_at));
+    }
+
+    builder
+        .sign_with_keys(keys)
+        .map_err(|error| format!("sign failed: {error}"))
+}
+
+#[cfg(test)]
+mod sign_event_tests {
+    use super::sign_event_with_keys;
+    use nostr::Keys;
+
+    fn self_assignment_tag(keys: &Keys) -> Vec<Vec<String>> {
+        vec![vec!["p".into(), keys.public_key().to_hex()]]
+    }
+
+    fn has_self_assignment(event: &nostr::Event, keys: &Keys) -> bool {
+        let public_key = keys.public_key().to_hex();
+        event.tags.iter().any(|tag| {
+            let values = tag.as_slice();
+            values.first().map(String::as_str) == Some("p")
+                && values.get(1).map(String::as_str) == Some(public_key.as_str())
+        })
+    }
+
+    #[test]
+    fn task_events_keep_author_as_assignee_after_signing() {
+        let keys = Keys::generate();
+
+        for kind in [
+            buzz_core_pkg::kind::KIND_TASK_STATE,
+            buzz_core_pkg::kind::KIND_TASK_CREATE,
+            buzz_core_pkg::kind::KIND_TASK_MUTATE,
+        ] {
+            let event = sign_event_with_keys(
+                kind as u16,
+                String::new(),
+                None,
+                self_assignment_tag(&keys),
+                &keys,
+            )
+            .unwrap();
+
+            assert!(has_self_assignment(&event, &keys), "task kind {kind}");
+            assert!(event.verify_id());
+            assert!(event.verify_signature());
+        }
+    }
+
+    #[test]
+    fn non_task_events_keep_default_self_tag_filtering() {
+        let keys = Keys::generate();
+        let event =
+            sign_event_with_keys(9, "message".into(), None, self_assignment_tag(&keys), &keys)
+                .unwrap();
+
+        assert!(!has_self_assignment(&event, &keys));
+        assert!(event.verify_id());
+        assert!(event.verify_signature());
+    }
 }
 
 #[tauri::command]

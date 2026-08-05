@@ -488,6 +488,8 @@ fn make_agent(name: &str, persona_id: Option<&str>) -> ManagedAgentRecord {
         respond_to: RespondTo::default(),
         respond_to_allowlist: vec![],
         respond_to_owner_messages: false,
+        task_assignment_policy: Default::default(),
+        task_assignment_allowlist: Vec::new(),
         env_vars: std::collections::BTreeMap::new(),
         display_name: None,
         slug: None,

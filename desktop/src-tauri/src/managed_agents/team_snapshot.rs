@@ -297,6 +297,8 @@ mod tests {
             respond_to: RespondTo::default(),
             respond_to_allowlist: vec![],
             respond_to_owner_messages: false,
+            task_assignment_policy: Default::default(),
+            task_assignment_allowlist: Vec::new(),
             slug: Some(name.to_string()),
             runtime: Some("goose".to_string()),
             name_pool: vec![],

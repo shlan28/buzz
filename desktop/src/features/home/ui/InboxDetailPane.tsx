@@ -16,6 +16,8 @@ import type {
 } from "@/features/home/lib/inbox";
 import { getProjectInboxReference } from "@/features/home/lib/projectInbox";
 import { ProjectInboxDetail } from "@/features/home/ui/ProjectInboxDetail";
+import { isTaskExecutionInboxItem } from "@/features/home/lib/taskExecutionInbox";
+import { TaskExecutionInboxDetail } from "@/features/home/ui/TaskExecutionInboxDetail";
 import { ChannelMembersBar } from "@/features/channels/ui/ChannelMembersBar";
 import { useCommunities } from "@/features/communities/useCommunities";
 import { formatInboxTypeLabel } from "@/features/home/lib/inbox";
@@ -117,6 +119,15 @@ type InboxDetailPaneProps = {
 
 /** Routes Inbox selections to their canonical message or Buzz Git detail. */
 export function InboxDetailPane(props: InboxDetailPaneProps) {
+  if (props.item && isTaskExecutionInboxItem(props.item.item)) {
+    return (
+      <TaskExecutionInboxDetail
+        isSinglePanelView={props.isSinglePanelView}
+        item={props.item}
+        onBack={props.onBack}
+      />
+    );
+  }
   if (props.item && getProjectInboxReference(props.item.item)) {
     return (
       <ProjectInboxDetail

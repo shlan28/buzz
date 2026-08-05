@@ -90,6 +90,136 @@ async fn publish_presence(
     Ok(())
 }
 
+fn execution_tag(event: &nostr::Event, name: &str) -> Option<String> {
+    event.tags.iter().find_map(|tag| {
+        let parts = tag.as_slice();
+        (parts.first().map(String::as_str) == Some(name))
+            .then(|| parts.get(1).cloned())
+            .flatten()
+    })
+}
+
+async fn publish_execution_update(
+    rest: &relay::RestClient,
+    keys: &nostr::Keys,
+    task_id: Uuid,
+    execution_id: Uuid,
+    status: buzz_sdk::TaskExecutionStatus,
+    message: &str,
+) -> bool {
+    let builder = match buzz_sdk::build_task_execution_update(&buzz_sdk::TaskExecutionUpdateInput {
+        task_id,
+        execution_id,
+        status,
+        message: message.to_string(),
+    }) {
+        Ok(builder) => builder,
+        Err(error) => {
+            tracing::warn!(%execution_id, "failed to build execution update: {error}");
+            return false;
+        }
+    };
+    let event = match builder.sign_with_keys(keys) {
+        Ok(event) => event,
+        Err(error) => {
+            tracing::warn!(%execution_id, "failed to sign execution update: {error}");
+            return false;
+        }
+    };
+    match rest.submit_event(&event).await {
+        Ok(value) => value
+            .get("accepted")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
+        Err(error) => {
+            tracing::warn!(%execution_id, "failed to publish execution update: {error}");
+            false
+        }
+    }
+}
+
+async fn task_execution_prompt(
+    rest: &relay::RestClient,
+    request: &nostr::Event,
+) -> Option<(Uuid, Uuid, Uuid, String)> {
+    use nostr::{Alphabet, SingleLetterTag};
+
+    let task_id = execution_tag(request, "t")?
+        .strip_prefix("task-id:")?
+        .parse::<Uuid>()
+        .ok()?;
+    let execution_id = execution_tag(request, "d")?.parse::<Uuid>().ok()?;
+    let filter = nostr::Filter::new()
+        .kind(nostr::Kind::Custom(buzz_core::kind::KIND_TASK_STATE as u16))
+        .custom_tag(SingleLetterTag::lowercase(Alphabet::D), task_id.to_string())
+        .limit(1);
+    let value = rest.query(&[filter]).await.ok()?;
+    let task = value.as_array()?.first()?;
+    let state_id = task.get("id")?.as_str()?;
+    if execution_tag(request, "previous").as_deref() != Some(state_id) {
+        return None;
+    }
+    let tags = task.get("tags")?.as_array()?;
+    let tag_value = |name: &str| {
+        tags.iter().find_map(|tag| {
+            let parts = tag.as_array()?;
+            (parts.first()?.as_str()? == name)
+                .then(|| parts.get(1)?.as_str().map(ToString::to_string))
+                .flatten()
+        })
+    };
+    let title = tag_value("title").unwrap_or_else(|| "Untitled task".into());
+    let description = task
+        .get("content")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    // Use the execution UUID as an isolated queue/session key. Reusing the
+    // task's real channel could merge an ordinary mention with this execution
+    // and report the wrong turn as finished.
+    let channel_id = execution_id;
+    let prompt = format!(
+        "[Buzz Task Execution]\nTask ID: {task_id}\nExecution ID: {execution_id}\nTask State ID: {state_id}\nTitle: {title}\nDescription:\n{description}\n\nRead the latest task with `buzz tasks get --id {task_id}`. Start real work now. Move the task to in-progress when work begins. Mark it done only when the work is actually complete; use blocked when external input is required."
+    );
+    Some((channel_id, task_id, execution_id, prompt))
+}
+
+const TASK_EXECUTION_RESULT_MAX_CHARS: usize = 20_000;
+
+fn task_execution_result_message(value: &str) -> String {
+    let value = value.trim();
+    if value.chars().count() <= TASK_EXECUTION_RESULT_MAX_CHARS {
+        return value.to_owned();
+    }
+
+    let mut truncated = value
+        .chars()
+        .take(TASK_EXECUTION_RESULT_MAX_CHARS)
+        .collect::<String>();
+    truncated.push_str("\n\n[Result truncated by Buzz]");
+    truncated
+}
+
+#[cfg(test)]
+mod task_execution_result_tests {
+    use super::*;
+
+    #[test]
+    fn trims_visible_result_text() {
+        assert_eq!(
+            task_execution_result_message("  finished work  "),
+            "finished work"
+        );
+    }
+
+    #[test]
+    fn truncates_oversized_result_on_character_boundary() {
+        let result =
+            task_execution_result_message(&"完".repeat(TASK_EXECUTION_RESULT_MAX_CHARS + 1));
+        assert!(result.starts_with(&"完".repeat(TASK_EXECUTION_RESULT_MAX_CHARS)));
+        assert!(result.ends_with("[Result truncated by Buzz]"));
+    }
+}
+
 fn emit_runtime_lifecycle(
     observer: Option<&observer::ObserverHandle>,
     start_nonce: &str,
@@ -1425,6 +1555,15 @@ async fn tokio_main() -> Result<()> {
             );
         }
     }
+    // Task execution is a direct Agent control plane and must work even when
+    // optional relay-observer telemetry is disabled.
+    if relay_observer_control_rx.is_none() {
+        relay
+            .subscribe_observer_controls()
+            .await
+            .map_err(|e| anyhow::anyhow!("task execution subscribe error: {e}"))?;
+        relay_observer_control_rx = relay.take_observer_control_rx();
+    }
 
     let channel_info_map = relay
         .discover_channels()
@@ -1621,6 +1760,7 @@ async fn tokio_main() -> Result<()> {
         None
     };
     let mut typing_channels: HashMap<Uuid, ThreadTags> = HashMap::new();
+    let mut task_executions: HashMap<Uuid, (Uuid, Uuid)> = HashMap::new();
     let mut presence_task: Option<tokio::task::JoinHandle<()>> = None;
 
     // Runs at the TOP of every loop iteration via Instant check — cannot be
@@ -1909,7 +2049,62 @@ async fn tokio_main() -> Result<()> {
                     let _ = result_rx;
                     match control_event {
                         Some(event) => {
-                            if let Some(ref owner_hex) = owner_cache.pubkey {
+                            if event.kind.as_u16() as u32
+                                == buzz_core::kind::KIND_TASK_EXECUTION_REQUEST
+                            {
+                                if execution_tag(&event, "p").as_deref() != Some(&pubkey_hex) {
+                                    tracing::warn!(event_id = %event.id, "task execution targeted another Agent — dropping");
+                                } else if let Some((channel_id, task_id, execution_id, prompt)) =
+                                    task_execution_prompt(&ctx.rest_client, &event).await
+                                {
+                                    let claimed = publish_execution_update(
+                                        &ctx.rest_client,
+                                        &config.keys,
+                                        task_id,
+                                        execution_id,
+                                        buzz_sdk::TaskExecutionStatus::Running,
+                                        "",
+                                    )
+                                    .await;
+                                    if claimed {
+                                        let tags = nostr::Tag::parse([
+                                            "h",
+                                            &channel_id.to_string(),
+                                        ])
+                                        .into_iter()
+                                        .collect::<Vec<_>>();
+                                        match nostr::EventBuilder::new(
+                                            nostr::Kind::Custom(KIND_STREAM_MESSAGE as u16),
+                                            prompt,
+                                        )
+                                        .tags(tags)
+                                        .sign_with_keys(&config.keys)
+                                        {
+                                            Ok(prompt_event) => {
+                                                if queue.push(QueuedEvent {
+                                                    channel_id,
+                                                    event: prompt_event,
+                                                    received_at: std::time::Instant::now(),
+                                                    prompt_tag: "task-execution".into(),
+                                                }) {
+                                                    task_executions.insert(
+                                                        channel_id,
+                                                        (task_id, execution_id),
+                                                    );
+                                                    if pool_ready {
+                                                        for (channel_id, thread_tags) in dispatch_pending(&mut pool, &mut queue, &ctx) {
+                                                            typing_channels.insert(channel_id, thread_tags);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            Err(error) => tracing::warn!(%execution_id, "failed to build task prompt: {error}"),
+                                        }
+                                    }
+                                } else {
+                                    tracing::warn!(event_id = %event.id, "task execution context was stale or unreadable");
+                                }
+                            } else if let Some(ref owner_hex) = owner_cache.pubkey {
                                 handle_relay_observer_control_event(&config.keys, event, &mut pool, observer.as_ref(), owner_hex);
                             } else {
                                 tracing::warn!("observer control frame received but no owner resolved — dropping");
@@ -2387,6 +2582,40 @@ async fn tokio_main() -> Result<()> {
                 // Stop typing indicator for the completed channel.
                 if let PromptSource::Channel(ch) = &result.source {
                     typing_channels.remove(ch);
+                    if let Some((task_id, execution_id)) = task_executions.remove(ch) {
+                        let (status, message) = match &result.outcome {
+                            PromptOutcome::Ok(_) => (
+                                buzz_sdk::TaskExecutionStatus::Finished,
+                                task_execution_result_message(
+                                    &result.agent.acp.prompt_delivery().visible_text,
+                                ),
+                            ),
+                            outcome => (
+                                buzz_sdk::TaskExecutionStatus::Failed,
+                                match outcome {
+                                    PromptOutcome::Error(error) => error.to_string(),
+                                    PromptOutcome::AgentExited => "Agent process exited".into(),
+                                    PromptOutcome::Timeout(_) => "Agent execution timed out".into(),
+                                    PromptOutcome::Cancelled => {
+                                        "Agent execution was cancelled".into()
+                                    }
+                                    PromptOutcome::CancelDrainTimeout(_) => {
+                                        "Agent cancellation timed out".into()
+                                    }
+                                    PromptOutcome::Ok(_) => String::new(),
+                                },
+                            ),
+                        };
+                        let _ = publish_execution_update(
+                            &ctx.rest_client,
+                            &config.keys,
+                            task_id,
+                            execution_id,
+                            status,
+                            &message,
+                        )
+                        .await;
+                    }
                 }
                 if handle_prompt_result(
                     &mut pool,

@@ -20,6 +20,124 @@ pub use builders::*;
 
 /// Re-export kind constants so consumers don't need buzz-core directly.
 pub use buzz_core::kind;
+pub use buzz_core::task::{TaskPriority, TaskStatus};
+
+/// Complete input for a task create command.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaskCreateInput {
+    /// Stable client-generated UUID.
+    pub id: uuid::Uuid,
+    /// Human-readable title.
+    pub title: String,
+    /// Markdown description.
+    pub description: String,
+    /// Optional assignee pubkey.
+    pub assignee: Option<String>,
+    /// Initial workflow status.
+    pub status: TaskStatus,
+    /// Initial priority.
+    pub priority: TaskPriority,
+    /// Optional Unix due time.
+    pub due: Option<i64>,
+    /// Labels without the `label:` prefix.
+    pub labels: Vec<String>,
+    /// Optional NIP-34 repository coordinate.
+    pub project: Option<String>,
+    /// Optional channel UUID.
+    pub channel: Option<uuid::Uuid>,
+    /// Optional source message event ID.
+    pub source_event: Option<String>,
+}
+
+/// Explicit changes for a task mutation command.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TaskMutateInput {
+    /// Stable task UUID.
+    pub id: uuid::Uuid,
+    /// Current Task State event ID used for optimistic concurrency.
+    pub previous_event: String,
+    /// Replacement title.
+    pub title: Option<String>,
+    /// Replacement description; `Some(None)` clears it.
+    pub description: Option<Option<String>>,
+    /// Replacement assignee; `Some(None)` clears it.
+    pub assignee: Option<Option<String>>,
+    /// Replacement status.
+    pub status: Option<TaskStatus>,
+    /// Replacement priority.
+    pub priority: Option<TaskPriority>,
+    /// Replacement due time; `Some(None)` clears it.
+    pub due: Option<Option<i64>>,
+    /// Complete replacement labels.
+    pub labels: Option<Vec<String>>,
+    /// Replacement project; `Some(None)` clears it.
+    pub project: Option<Option<String>>,
+    /// Replacement channel; `Some(None)` clears it.
+    pub channel: Option<Option<uuid::Uuid>>,
+    /// Replacement source event; `Some(None)` clears it.
+    pub source_event: Option<Option<String>>,
+    /// Archive or restore the task.
+    pub archived: Option<bool>,
+}
+
+/// Minimal input for an actor-signed task soft-delete command.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaskDeleteInput {
+    /// Stable task UUID.
+    pub id: uuid::Uuid,
+    /// Current Task State event ID used for optimistic concurrency.
+    pub previous_event: String,
+}
+
+/// Input for requesting that the assigned Agent execute a task.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaskExecutionRequestInput {
+    /// Stable task UUID.
+    pub task_id: uuid::Uuid,
+    /// Unique UUID for this execution attempt.
+    pub execution_id: uuid::Uuid,
+    /// Current Task State event ID used for optimistic concurrency.
+    pub expected_event: String,
+    /// Assigned Agent pubkey copied from the current task state.
+    pub assignee: String,
+    /// Optional task channel, used only for visibility scoping.
+    pub channel: Option<uuid::Uuid>,
+}
+
+/// Agent-reported execution lifecycle state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaskExecutionStatus {
+    /// The Agent has exclusively claimed the execution.
+    Running,
+    /// The Agent turn ended normally.
+    Finished,
+    /// The Agent could not start or continue the turn.
+    Failed,
+}
+
+impl TaskExecutionStatus {
+    /// Stable tag value.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Running => "running",
+            Self::Finished => "finished",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+/// Input for an assigned Agent execution update.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaskExecutionUpdateInput {
+    /// Stable task UUID.
+    pub task_id: uuid::Uuid,
+    /// Execution UUID returned by the request.
+    pub execution_id: uuid::Uuid,
+    /// Desired lifecycle transition.
+    pub status: TaskExecutionStatus,
+    /// Optional failure explanation; empty for non-failure updates.
+    pub message: String,
+}
 
 /// Thread reference for reply builders (NIP-10 markers).
 ///

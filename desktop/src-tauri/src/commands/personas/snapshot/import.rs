@@ -528,6 +528,8 @@ pub async fn confirm_agent_snapshot_import(
             respond_to: minted.respond_to,
             respond_to_allowlist: minted.respond_to_allowlist.clone(),
             respond_to_owner_messages: false,
+            task_assignment_policy: Default::default(),
+            task_assignment_allowlist: Vec::new(),
             is_builtin: false,
             is_active: true,
             shared: false,

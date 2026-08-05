@@ -53,6 +53,8 @@ fn make_definition(slug: &str) -> ManagedAgentRecord {
         respond_to: RespondTo::default(),
         respond_to_allowlist: vec![],
         respond_to_owner_messages: false,
+        task_assignment_policy: Default::default(),
+        task_assignment_allowlist: Vec::new(),
         runtime: None,
         name_pool: vec![],
         is_builtin: false,

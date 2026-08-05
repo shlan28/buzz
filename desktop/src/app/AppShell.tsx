@@ -29,6 +29,7 @@ import { useUnreadChannels } from "@/features/channels/useUnreadChannels";
 import { msgContextKey } from "@/features/channels/readState/readStateFormat";
 import { useMembershipNotifications } from "@/features/channels/useMembershipNotifications";
 import { useFeedItemState } from "@/features/home/useFeedItemState";
+import { useCurrentUserTaskExecutionInboxItems } from "@/features/home/lib/taskExecutionInbox";
 import { useThreadFollows } from "@/features/messages/lib/useThreadFollows";
 import {
   useHomeFeedNotifications,
@@ -123,7 +124,7 @@ export function AppShell() {
   const queryClient = useQueryClient();
   useManagedAgentRuntimeReconciliation(communitiesHook.communities); // sync storage snapshot
   // biome-ignore format: keep compact to stay within file size limit
-  const { goAgents, goCalendar, goChannel, goHome, goNewMessage, goProjects, goPulse, goSettings, goWorkflows, closeSettings, openSearchHit } = useAppNavigation();
+  const { goAgents, goCalendar, goChannel, goHome, goNewMessage, goProjects, goTasks, goPulse, goSettings, goWorkflows, closeSettings, openSearchHit } = useAppNavigation();
   const { canGoBack, canGoForward, goBack, goForward } =
     useBackForwardControls();
   const { selectedChannelId, selectedView } = React.useMemo(
@@ -394,8 +395,14 @@ export function AppShell() {
     mutedRootIds,
     channels,
   );
-
-  // Badge count consumes the shared NIP-RS read-state from useUnreadChannels.
+  const taskExecutionInboxItems = useCurrentUserTaskExecutionInboxItems(
+    identityQuery.data?.pubkey,
+    feedProfilesQuery.data?.profiles,
+  );
+  const extraInboxItems = React.useMemo(
+    () => [...threadActivityFeedItems, ...taskExecutionInboxItems],
+    [taskExecutionInboxItems, threadActivityFeedItems],
+  );
   const { homeBadgeCount, homeBadgeCountExcludingHighPriority } =
     useHomeFeedNotificationState(
       homeFeedQuery.data,
@@ -409,7 +416,7 @@ export function AppShell() {
       feedProfilesQuery.data?.profiles,
       mutedChannelIds,
       feedItemState.unreadSet,
-      threadActivityFeedItems,
+      extraInboxItems,
       getThreadReadAt,
       getMessageReadAt,
       channels,
@@ -728,6 +735,7 @@ export function AppShell() {
             isThreadMuted: (rootId) => mutedRootIds.has(rootId),
             threadActivityItems,
             threadActivityFeedItems,
+            taskExecutionInboxItems,
             feedItemState,
             onOpenSettings: handleOpenSettings,
           }}
@@ -875,6 +883,7 @@ export function AppShell() {
                           searchFocusRequest={searchFocusRequest}
                           onSelectHome={() => void goHome()}
                           onSelectProjects={() => void goProjects()}
+                          onSelectTasks={() => void goTasks()}
                           onSelectPulse={() => void goPulse()}
                           onSelectSettings={handleOpenSettings}
                           onSelectWorkflows={() => void goWorkflows()}

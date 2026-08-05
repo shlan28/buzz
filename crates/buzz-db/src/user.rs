@@ -397,8 +397,9 @@ pub async fn get_agent_owner_pubkey(
             .bind(agent_pubkey)
             .fetch_optional(pool)
             .await?;
-    row.map(|row| row.try_get("agent_owner_pubkey"))
+    row.map(|row| row.try_get::<Option<Vec<u8>>, _>("agent_owner_pubkey"))
         .transpose()
+        .map(|owner| owner.flatten())
         .map_err(Into::into)
 }
 
@@ -430,6 +431,64 @@ pub async fn set_channel_add_policy(
         ));
     }
     Ok(())
+}
+
+/// Persist the task-assignment policy projected from an Agent Profile event.
+pub async fn set_task_assignment_policy(
+    pool: &PgPool,
+    community_id: CommunityId,
+    pubkey: &[u8],
+    policy: &str,
+    allowlist: &[String],
+) -> Result<()> {
+    if !matches!(policy, "owner_only" | "allowlist" | "anyone") {
+        return Err(crate::error::DbError::InvalidData(format!(
+            "invalid task_assignment_policy: {policy}"
+        )));
+    }
+    let allowlist = serde_json::to_value(allowlist)?;
+    let result = sqlx::query(
+        "UPDATE users SET task_assignment_policy = $1, task_assignment_allowlist = $2 \
+         WHERE community_id = $3 AND pubkey = $4",
+    )
+    .bind(policy)
+    .bind(allowlist)
+    .bind(community_id.as_uuid())
+    .bind(pubkey)
+    .execute(pool)
+    .await?;
+    if result.rows_affected() == 0 {
+        return Err(crate::error::DbError::NotFound(
+            "pubkey not found in users table".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// Read an agent's task-assignment policy, owner, and allowlist.
+pub async fn get_task_assignment_policy(
+    pool: &PgPool,
+    community_id: CommunityId,
+    pubkey: &[u8],
+) -> Result<Option<(String, Option<Vec<u8>>, Vec<String>)>> {
+    let row = sqlx::query(
+        "SELECT task_assignment_policy, agent_owner_pubkey, task_assignment_allowlist \
+         FROM users WHERE community_id = $1 AND pubkey = $2",
+    )
+    .bind(community_id.as_uuid())
+    .bind(pubkey)
+    .fetch_optional(pool)
+    .await?;
+    row.map(|row| {
+        let value: serde_json::Value = row.try_get("task_assignment_allowlist")?;
+        let allowlist = serde_json::from_value(value).map_err(crate::error::DbError::Serde)?;
+        Ok((
+            row.try_get("task_assignment_policy")?,
+            row.try_get("agent_owner_pubkey")?,
+            allowlist,
+        ))
+    })
+    .transpose()
 }
 
 #[cfg(test)]
@@ -617,6 +676,47 @@ mod tests {
             .expect("get policy")
             .expect("should be Some");
         assert_eq!(owner, Some(owner1), "original owner should be preserved");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Postgres"]
+    async fn test_get_agent_owner_pubkey_returns_none_for_human() {
+        let db = setup_db().await;
+        let community = make_community(&db.pool).await;
+        let human_pk = random_pubkey();
+
+        ensure_user(&db.pool, community, &human_pk)
+            .await
+            .expect("ensure human");
+
+        let owner = get_agent_owner_pubkey(&db.pool, community, &human_pk)
+            .await
+            .expect("read nullable agent owner");
+        assert_eq!(owner, None);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Postgres"]
+    async fn test_get_agent_owner_pubkey_returns_owner_for_agent() {
+        let db = setup_db().await;
+        let community = make_community(&db.pool).await;
+        let agent_pk = random_pubkey();
+        let owner_pk = random_pubkey();
+
+        ensure_user(&db.pool, community, &agent_pk)
+            .await
+            .expect("ensure agent");
+        ensure_user(&db.pool, community, &owner_pk)
+            .await
+            .expect("ensure owner");
+        assert!(set_agent_owner(&db.pool, community, &agent_pk, &owner_pk)
+            .await
+            .expect("set agent owner"));
+
+        let owner = get_agent_owner_pubkey(&db.pool, community, &agent_pk)
+            .await
+            .expect("read agent owner");
+        assert_eq!(owner, Some(owner_pk));
     }
 
     /// set_channel_add_policy should return Err when the pubkey does not exist

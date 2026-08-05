@@ -495,7 +495,7 @@ enum RelayMessage {
 
 /// Subscription ID for the global membership notification subscription.
 const MEMBERSHIP_NOTIF_SUB_ID: &str = "membership-notif";
-/// Subscription ID for encrypted owner-to-agent observer control frames.
+/// Subscription ID for encrypted owner controls and targeted task executions.
 const OBSERVER_CONTROL_SUB_ID: &str = "agent-observer-control";
 
 /// Commands sent from `HarnessRelay` to the background WebSocket task.
@@ -3308,13 +3308,13 @@ async fn send_membership_subscribe(
     }
 }
 
-/// Send a NIP-01 REQ for owner-to-agent observer control frames.
+/// Send a NIP-01 REQ for owner controls and targeted task execution requests.
 async fn send_observer_control_subscribe(ws: &mut WsStream, agent_pubkey_hex: &str) -> bool {
     let req = json!([
         "REQ",
         OBSERVER_CONTROL_SUB_ID,
         {
-            "kinds": [KIND_AGENT_OBSERVER_FRAME],
+            "kinds": [KIND_AGENT_OBSERVER_FRAME, buzz_core::kind::KIND_TASK_EXECUTION_REQUEST],
             "#p": [agent_pubkey_hex],
             "since": std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

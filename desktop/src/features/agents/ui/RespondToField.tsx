@@ -64,6 +64,9 @@ export function CreateAgentRespondToField({
   ownerPubkey,
   disabled,
   variant,
+  label = "Who can talk to this agent",
+  helperText,
+  testId = "agent-respond-to",
 }: {
   mode: RespondToMode;
   allowlist: string[];
@@ -78,6 +81,9 @@ export function CreateAgentRespondToField({
   disabled?: boolean;
   /** When "persona", uses PersonaDropdownField styling to match the persona dialog. */
   variant?: "default" | "persona";
+  label?: string;
+  helperText?: string;
+  testId?: string;
 }) {
   const [query, setQuery] = React.useState("");
   const [isDirectEntryOpen, setIsDirectEntryOpen] = React.useState(false);
@@ -133,7 +139,7 @@ export function CreateAgentRespondToField({
   const isPersonaVariant = variant === "persona";
 
   return (
-    <div className="space-y-2" data-testid="agent-respond-to">
+    <div className="space-y-2" data-testid={testId}>
       <label
         className={
           isPersonaVariant
@@ -142,7 +148,7 @@ export function CreateAgentRespondToField({
         }
         htmlFor="agent-respond-to"
       >
-        Who can talk to this agent
+        {label}
       </label>
       {isPersonaVariant ? (
         <PersonaDropdownField
@@ -169,9 +175,14 @@ export function CreateAgentRespondToField({
       )}
       {!isPersonaVariant ? (
         <p className="text-xs text-muted-foreground">
-          Controls which Nostr authors the agent listens to (@mentions, DMs,
-          thread replies). The agent&apos;s owner can always shut it down with
-          <span className="font-mono"> !shutdown</span>.
+          {helperText ?? (
+            <>
+              Controls which Nostr authors the agent listens to (@mentions, DMs,
+              thread replies). The agent&apos;s owner can always shut it down
+              with
+              <span className="font-mono"> !shutdown</span>.
+            </>
+          )}
         </p>
       ) : null}
       {mode === "allowlist" ? (

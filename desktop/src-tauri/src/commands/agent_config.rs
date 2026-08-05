@@ -677,6 +677,8 @@ mod tests {
             respond_to: RespondTo::OwnerOnly,
             respond_to_allowlist: vec![],
             respond_to_owner_messages: false,
+            task_assignment_policy: Default::default(),
+            task_assignment_allowlist: Vec::new(),
             display_name: None,
             slug: None,
             runtime: None,
@@ -1104,7 +1106,6 @@ mod tests {
         assert!(!super::is_safe_to_reveal("SECRET"));
         assert!(!super::is_safe_to_reveal("PASSWORD"));
         assert!(!super::is_safe_to_reveal("PRIVATE_KEY"));
-        // Unknown key → masked by default.
         assert!(!super::is_safe_to_reveal("SOME_UNKNOWN_KEY"));
     }
 }
