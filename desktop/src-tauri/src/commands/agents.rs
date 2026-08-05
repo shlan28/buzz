@@ -942,36 +942,47 @@ pub async fn create_managed_agent(
 
     // ── Phase 3b: local spawn (async preflight outside store lock) ───────────
     let mut spawn_error = None;
+    if input.spawn_after_create {
+        if let Err(error) =
+            super::relay_members::ensure_managed_agent_relay_membership(&state, &pubkey).await
+        {
+            spawn_error = Some(error);
+        }
+    }
     let agent = if input.spawn_after_create && input.backend == BackendKind::Local {
-        match start_local_agent_with_preflight(&app, &state, &pubkey, &owner_hex, true).await {
-            Ok(agent) => agent,
-            Err(error) => {
-                let _store_guard = state
-                    .managed_agents_store_lock
-                    .lock()
-                    .map_err(|e| e.to_string())?;
-                let mut records = load_managed_agents(&app)?;
-                let runtimes = state
-                    .managed_agent_processes
-                    .lock()
-                    .map_err(|e| e.to_string())?;
-                let record = find_managed_agent_mut(&mut records, &pubkey)?;
-                record.updated_at = now_iso();
-                record.last_error = Some(error.clone());
-                save_managed_agents(&app, &records)?;
-                spawn_error = Some(error);
-                let record = records
-                    .iter()
-                    .find(|record| record.pubkey == pubkey)
-                    .ok_or_else(|| "created agent disappeared unexpectedly".to_string())?;
-                let personas = load_personas(&app).unwrap_or_default();
-                build_managed_agent_summary(
-                    &app,
-                    record,
-                    &runtimes,
-                    &personas,
-                    &crate::managed_agents::load_global_agent_config(&app).unwrap_or_default(),
-                )?
+        if spawn_error.is_some() {
+            agent
+        } else {
+            match start_local_agent_with_preflight(&app, &state, &pubkey, &owner_hex, true).await {
+                Ok(agent) => agent,
+                Err(error) => {
+                    let _store_guard = state
+                        .managed_agents_store_lock
+                        .lock()
+                        .map_err(|e| e.to_string())?;
+                    let mut records = load_managed_agents(&app)?;
+                    let runtimes = state
+                        .managed_agent_processes
+                        .lock()
+                        .map_err(|e| e.to_string())?;
+                    let record = find_managed_agent_mut(&mut records, &pubkey)?;
+                    record.updated_at = now_iso();
+                    record.last_error = Some(error.clone());
+                    save_managed_agents(&app, &records)?;
+                    spawn_error = Some(error);
+                    let record = records
+                        .iter()
+                        .find(|record| record.pubkey == pubkey)
+                        .ok_or_else(|| "created agent disappeared unexpectedly".to_string())?;
+                    let personas = load_personas(&app).unwrap_or_default();
+                    build_managed_agent_summary(
+                        &app,
+                        record,
+                        &runtimes,
+                        &personas,
+                        &crate::managed_agents::load_global_agent_config(&app).unwrap_or_default(),
+                    )?
+                }
             }
         }
     } else {
@@ -999,7 +1010,10 @@ pub async fn create_managed_agent(
         .err();
 
     // ── Phase 5: provider deploy (async, outside lock) ───────────────────────
-    let spawn_error = if input.spawn_after_create && input.backend != BackendKind::Local {
+    let spawn_error = if input.spawn_after_create
+        && input.backend != BackendKind::Local
+        && spawn_error.is_none()
+    {
         if let BackendKind::Provider { ref id, ref config } = input.backend {
             // Read the saved record to build the deploy payload (record has the
             // canonical field values after Phase 3 normalization).
@@ -1068,6 +1082,8 @@ pub async fn start_managed_agent(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<ManagedAgentSummary, String> {
+    super::relay_members::ensure_managed_agent_relay_membership(&state, &pubkey).await?;
+
     // Snapshot the workspace owner pubkey for the legacy auth_tag fallback.
     // Read outside the records lock to keep lock ordering simple.
     let owner_hex = workspace_owner_hex(&state)?;

@@ -52,6 +52,8 @@ mod project_repo_paths;
 mod project_terminal;
 mod qr_download;
 mod relay_members;
+#[cfg(test)]
+mod relay_members_tests;
 mod relay_reconnect;
 mod social;
 mod team_snapshot;
