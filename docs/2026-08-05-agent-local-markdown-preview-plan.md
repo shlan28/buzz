@@ -1,11 +1,13 @@
 # Agent 本地 Markdown 文件预览方案
 
 > 更新日期：2026-08-05
-> 更新说明：完成 Agent 回复中的本地 `.md` 路径识别、点击预览、安全读取边界与自动化测试实现。
+> 更新说明：完成 Inbox 中 Agent 本地 Markdown 路径预览接入，并补充 Agent 与普通成员的 E2E 回归测试。
 
 ## 1. 结论摘要
 
 Buzz Desktop 可以把 Agent 回复中的本地 `.md` 文件路径显示为可点击路径。用户点击后，Buzz 在应用内打开只读预览弹窗，展示文件名、完整路径和渲染后的 Markdown 内容；无需离开 Buzz，也不修改原文件。
+
+该能力覆盖 Agent 消息出现的两个 Desktop 消费入口：频道/DM 消息时间线与 Home Inbox 详情。两处使用相同的 Agent 身份判定和本地文件读取边界，避免用户从 Inbox 进入同一条消息时失去预览能力。
 
 该能力只对**已识别为 Agent 作者的消息**启用，只支持本机存在的普通 `.md` 文件。消息中的路径只是候选文本，真正读取必须在用户点击后由 Tauri 后端完成，并经过文件类型、大小和普通文件校验。
 
@@ -139,6 +141,8 @@ LocalMarkdownPreview {
 5. 删除文件后点击，出现错误 Toast，Buzz 不崩溃。
 6. 超过 2 MiB 的 `.md` 文件被拒绝，时间线保持流畅。
 7. 预览中的标题、列表、表格、代码块、亮色/暗色主题和 Cmd +/- 缩放表现正常。
+8. 同一条 Agent 消息从 Home Inbox 详情打开时，`.md` 路径也可点击并打开相同的只读预览。
+9. Home Inbox 中的普通用户消息仍保持纯文本，不会获得本地文件读取入口。
 
 实施后应运行：
 
@@ -170,6 +174,8 @@ just ci
 - [x] `desktop/tests/helpers/bridge.ts`：补充本地 Markdown 预览的 E2E 配置类型。
 - [x] `desktop/tests/e2e/local-markdown-preview.spec.ts`：验证 Agent 消息点击预览和普通用户消息隔离。
 - [x] `desktop/playwright.config.ts`：将新预览 spec 纳入 smoke 项目。
+- [x] `desktop/src/features/home/ui/InboxMessageRow.tsx`：为 Inbox 中已知 Agent 作者的消息开启本地 Markdown 路径预览。
+- [x] `desktop/tests/e2e/local-markdown-preview.spec.ts`：增加 Inbox Agent 路径可预览与普通用户路径隔离的回归测试。
 
 ## 9. 实施约束
 

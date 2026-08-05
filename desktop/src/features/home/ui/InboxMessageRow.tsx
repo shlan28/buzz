@@ -213,6 +213,7 @@ export function InboxMessageRow({
               )}
               content={message.content}
               customEmoji={customEmoji}
+              enableLocalMarkdownPaths={isAuthorAgent}
               mentionNames={message.mentionNames}
               mentionPubkeysByName={message.mentionPubkeysByName}
             />
