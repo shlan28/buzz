@@ -100,10 +100,13 @@ impl PromptDeliveryTracker {
         let Some(tool_id) = update.get("toolCallId").and_then(|v| v.as_str()) else {
             return;
         };
-        let Some(raw_input) = update.get("rawInput") else {
-            return;
-        };
-        if value_invokes_buzz_message_send(raw_input) {
+        let invokes_message_send = update
+            .get("rawInput")
+            .is_some_and(value_invokes_buzz_message_send)
+            || update
+                .get("content")
+                .is_some_and(tool_call_content_invokes_buzz_message_send);
+        if invokes_message_send {
             self.message_send_calls.insert(tool_id.to_owned());
         }
     }
@@ -122,6 +125,33 @@ impl PromptDeliveryTracker {
         if let Some(tool_id) = update.get("toolCallId").and_then(|v| v.as_str()) {
             self.successful_calls.insert(tool_id.to_owned());
         }
+    }
+}
+
+/// Inspect ACP tool content without treating arbitrary completion output as a
+/// command. Hermes' polished terminal tool intentionally omits `rawInput` and
+/// renders its invocation as a nested text content block instead.
+fn tool_call_content_invokes_buzz_message_send(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Array(values) => values
+            .iter()
+            .any(tool_call_content_invokes_buzz_message_send),
+        serde_json::Value::Object(values)
+            if values.get("type").and_then(|v| v.as_str()) == Some("text") =>
+        {
+            values
+                .get("text")
+                .and_then(|v| v.as_str())
+                .is_some_and(command_invokes_buzz_message_send)
+        }
+        serde_json::Value::Object(values)
+            if values.get("type").and_then(|v| v.as_str()) == Some("content") =>
+        {
+            values
+                .get("content")
+                .is_some_and(tool_call_content_invokes_buzz_message_send)
+        }
+        _ => false,
     }
 }
 
@@ -148,11 +178,14 @@ fn command_invokes_buzz_message_send(command: &str) -> bool {
     command
         .split(['\n', ';', '|', '&'])
         .filter_map(|segment| {
-            let tokens: Vec<&str> = segment
+            let mut tokens: Vec<&str> = segment
                 .split_whitespace()
                 .map(|token| token.trim_matches(|c: char| matches!(c, '\'' | '"' | '(' | ')')))
                 .filter(|token| !token.is_empty())
                 .collect();
+            if tokens.first().is_some_and(|token| *token == "$") {
+                tokens.remove(0);
+            }
             let first = tokens.first()?;
             first
                 .rsplit('/')
@@ -2399,6 +2432,73 @@ mod tests {
 
         tracker.reset();
         assert_eq!(tracker.snapshot(), PromptDelivery::default());
+    }
+
+    #[test]
+    fn delivery_tracker_recognizes_hermes_polished_terminal_send() {
+        let mut tracker = PromptDeliveryTracker::default();
+        tracker.observe_tool_call(&serde_json::json!({
+            "toolCallId": "hermes-send-1",
+            "rawInput": null,
+            "content": [{
+                "type": "content",
+                "content": {
+                    "type": "text",
+                    "text": "$ buzz messages send --channel c --content hello"
+                }
+            }]
+        }));
+        tracker.observe_tool_call_update(&serde_json::json!({
+            "toolCallId": "hermes-send-1",
+            "status": "completed",
+            "rawOutput": null
+        }));
+
+        assert!(tracker.snapshot().message_sent);
+    }
+
+    #[test]
+    fn delivery_tracker_rejects_failed_hermes_terminal_send() {
+        let mut tracker = PromptDeliveryTracker::default();
+        tracker.observe_tool_call(&serde_json::json!({
+            "toolCallId": "hermes-send-1",
+            "rawInput": null,
+            "content": [{
+                "type": "content",
+                "content": {
+                    "type": "text",
+                    "text": "$ buzz messages send --channel c --content hello"
+                }
+            }]
+        }));
+        tracker.observe_tool_call_update(&serde_json::json!({
+            "toolCallId": "hermes-send-1",
+            "status": "failed"
+        }));
+
+        assert!(!tracker.snapshot().message_sent);
+    }
+
+    #[test]
+    fn delivery_tracker_ignores_other_hermes_terminal_commands() {
+        let mut tracker = PromptDeliveryTracker::default();
+        tracker.observe_tool_call(&serde_json::json!({
+            "toolCallId": "hermes-read-1",
+            "rawInput": null,
+            "content": [{
+                "type": "content",
+                "content": {
+                    "type": "text",
+                    "text": "$ buzz messages get --channel c"
+                }
+            }]
+        }));
+        tracker.observe_tool_call_update(&serde_json::json!({
+            "toolCallId": "hermes-read-1",
+            "status": "completed"
+        }));
+
+        assert!(!tracker.snapshot().message_sent);
     }
 
     #[test]
