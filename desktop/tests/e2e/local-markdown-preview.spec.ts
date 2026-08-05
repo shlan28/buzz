@@ -82,6 +82,50 @@ async function pushInboxMessage(
   await page.getByTestId(`home-inbox-item-${id}`).click();
 }
 
+async function pushTaskResult(page: Page) {
+  const id = "task-result-local-markdown";
+  await page.waitForFunction(
+    () =>
+      typeof (window as Window & { __BUZZ_E2E_PUSH_MOCK_FEED_ITEM__?: unknown })
+        .__BUZZ_E2E_PUSH_MOCK_FEED_ITEM__ === "function",
+  );
+  await page.evaluate(
+    ({ id: itemId, pubkey }) => {
+      const pushFeedItem = (
+        window as Window & {
+          __BUZZ_E2E_PUSH_MOCK_FEED_ITEM__?: (
+            item: Record<string, unknown>,
+          ) => void;
+        }
+      ).__BUZZ_E2E_PUSH_MOCK_FEED_ITEM__;
+      if (!pushFeedItem) throw new Error("Mock feed helper is not installed.");
+
+      pushFeedItem({
+        category: "agent_activity",
+        channel_id: null,
+        channel_name: "Tasks",
+        content: "Result is in `PLANS/task-result.md`.",
+        created_at: Math.floor(Date.now() / 1000),
+        id: itemId,
+        kind: 30501,
+        pubkey,
+        tags: [
+          ["task-inbox", "result"],
+          ["d", "task-execution-local-markdown"],
+          ["t", "task-id:task-local-markdown"],
+          ["status", "finished"],
+          ["task-title", "Local Markdown preview"],
+          ["task-description", "Read `PLANS/task-description.md` first."],
+          ["task-status", "done"],
+          ["task-priority", "medium"],
+        ],
+      });
+    },
+    { id, pubkey: INBOX_AGENT_PUBKEY },
+  );
+  await page.getByTestId(`home-inbox-item-${id}`).click();
+}
+
 test("agent Markdown paths open a local read-only preview", async ({
   page,
 }) => {
@@ -238,6 +282,45 @@ test("Inbox ordinary member paths stay plain text", async ({ page }) => {
       name: "Preview Markdown file /tmp/inbox-member-plan.md",
     }),
   ).toHaveCount(0);
+});
+
+test("Inbox Task Results preview Agent Markdown paths only in the result", async ({
+  page,
+}) => {
+  await installMockBridge(page, {
+    localMarkdownPreview: {
+      content: "# Task result preview\n\nCompleted from Inbox.",
+      filename: "task-result.md",
+      path: "/Users/lu/.buzz-dev/PLANS/task-result.md",
+    },
+    managedAgents: [
+      {
+        channelIds: [GENERAL_CHANNEL_ID],
+        channelNames: ["general"],
+        name: "Alice Agent",
+        pubkey: INBOX_AGENT_PUBKEY,
+        status: "running",
+      },
+    ],
+  });
+  await page.goto("/");
+  await pushTaskResult(page);
+
+  await expect(page.getByTestId("task-execution-inbox-detail")).toBeVisible();
+  await expect(
+    page.getByRole("button", {
+      name: "Preview Markdown file PLANS/task-description.md",
+    }),
+  ).toHaveCount(0);
+
+  const resultPath = page.getByRole("button", {
+    name: "Preview Markdown file PLANS/task-result.md",
+  });
+  await expect(resultPath).toBeVisible();
+  await resultPath.click();
+  await expect(
+    page.getByRole("heading", { name: "Task result preview" }),
+  ).toBeVisible();
 });
 
 test("relative Agent Markdown paths resolve directly", async ({ page }) => {

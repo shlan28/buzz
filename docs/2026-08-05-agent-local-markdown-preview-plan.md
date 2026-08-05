@@ -1,7 +1,7 @@
 # Agent 本地 Markdown 文件预览方案
 
 > 更新日期：2026-08-05
-> 更新说明：修正共享 workspace 相对路径回归；优先按消息原文相对 workspace 根目录解析，再搜索五类文档目录，最后回退 `REPOS`。
+> 更新说明：补充 Inbox Task Results 的本地 Markdown 路径预览方案；仅为已知 Agent 的 Execution result 开启，Task Description 保持不可点击。
 
 ## 1. 结论摘要
 
@@ -179,6 +179,18 @@ Inbox 不是独立的本地文件目录或单独的权威数据表。它是 Desk
 
 Tasks 同样由 Relay 上的 Nostr events 表达，并持久化在 Relay 的 PostgreSQL `events` 表中。当前任务状态使用 kind `30500`，任务执行状态使用 kind `30501`；创建、修改、删除与执行命令/更新使用 kind `42500` 至 `42504`。Agent 的 `OUTBOX`、`PLANS`、`RESEARCH`、`WORK_LOGS` 是本地文档产物，与 Inbox / Tasks 的 Relay 数据相互独立。
 
+### 6.7 Inbox Task Results
+
+Inbox 的 Task Results 使用独立的 `TaskExecutionInboxDetail`，不会经过普通消息的 `InboxMessageRow`。因此它必须在自己的 Execution result Markdown 上显式启用本地路径能力。
+
+启用条件必须同时满足：
+
+1. 当前条目是 Task execution result；
+2. execution result 的作者 pubkey 属于当前社区已知 Agent；
+3. 路径仍由用户显式点击后才读取，并继续遵守 `.md`、大小、普通文件与有界搜索规则。
+
+Task Description 不开启本地路径预览。Description 是任务定义内容，可能由普通用户编写，也可能只是路径示例；将它变成本地文件入口会扩大误触范围。
+
 ## 7. 测试与验收
 
 ### 7.1 自动化测试
@@ -248,6 +260,9 @@ just ci
 - [x] `desktop/src/testing/e2eBridge.ts`：确认现有相对路径唯一命中、多匹配和错误 mock 协议可直接覆盖新后端搜索顺序，无需修改 IPC 结构。
 - [x] `desktop/tests/e2e/local-markdown-preview.spec.ts`：确认现有频道/DM 与 Inbox 相对路径交互测试继续覆盖搜索结果的预览和多匹配选择；目录优先级由 Rust 单测验证。
 - [x] `desktop/src-tauri/src/commands/local_markdown.rs`：恢复 workspace 原样相对路径优先解析，并增加 `PLANS/foo.md`、workspace 根文件和分阶段回退的回归测试。
+- [x] `desktop/src/features/home/ui/TaskExecutionInboxDetail.tsx`：校验 Task result 作者属于已知 Agent，并只为 Execution result Markdown 开启本地路径预览；Description 保持关闭。
+- [x] `desktop/src/features/home/ui/InboxDetailPane.tsx`：将 Inbox 已收集的 Agent 身份传给 Task result 详情，保持与普通 Inbox 消息一致的识别范围。
+- [x] `desktop/tests/e2e/local-markdown-preview.spec.ts`：增加 Inbox Task Results 的 Agent `.md` 路径可点击预览，以及 Task Description 路径不可点击的回归测试。
 
 ## 9. 实施约束
 

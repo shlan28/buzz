@@ -122,6 +122,7 @@ export function InboxDetailPane(props: InboxDetailPaneProps) {
   if (props.item && isTaskExecutionInboxItem(props.item.item)) {
     return (
       <TaskExecutionInboxDetail
+        agentPubkeys={props.agentPubkeys}
         isSinglePanelView={props.isSinglePanelView}
         item={props.item}
         onBack={props.onBack}
