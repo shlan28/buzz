@@ -55,6 +55,8 @@ export type MarkdownProps = {
   customEmoji?: CustomEmoji[];
   imetaByUrl?: ImetaLookup;
   interactive?: boolean;
+  /** Enable clickable absolute `.md` paths for trusted agent-authored prose. */
+  enableLocalMarkdownPaths?: boolean;
   agentMentionPubkeysByName?: Record<string, string>;
   mentionNames?: string[];
   mentionPubkeysByName?: Record<string, string>;

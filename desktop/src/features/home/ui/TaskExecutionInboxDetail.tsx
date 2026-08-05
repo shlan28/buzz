@@ -9,9 +9,11 @@ import {
   Flag,
 } from "lucide-react";
 
+import { useKnownAgentPubkeys } from "@/features/agents/useKnownAgentPubkeys";
 import type { InboxItem } from "@/features/home/lib/inbox";
 import { taskIdFromExecutionInboxItem } from "@/features/home/lib/taskExecutionInbox";
 import { TopChromeInsetHeader } from "@/shared/layout/TopChromeInsetHeader";
+import { normalizePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
 import { Markdown } from "@/shared/ui/markdown";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
@@ -39,15 +41,22 @@ function dueDate(value: string | null) {
 }
 
 export function TaskExecutionInboxDetail({
+  agentPubkeys,
   isSinglePanelView = false,
   item,
   onBack,
 }: {
+  agentPubkeys?: ReadonlySet<string>;
   isSinglePanelView?: boolean;
   item: InboxItem;
   onBack?: () => void;
 }) {
   const navigate = useNavigate();
+  const knownAgentPubkeys = useKnownAgentPubkeys();
+  const authorPubkey = normalizePubkey(item.item.pubkey);
+  const isAuthorAgent =
+    knownAgentPubkeys.has(authorPubkey) ||
+    agentPubkeys?.has(authorPubkey) === true;
   const taskId = taskIdFromExecutionInboxItem(item.item);
   const status = tagValue(item, "status");
   const title = tagValue(item, "task-title") ?? "Untitled task";
@@ -175,6 +184,7 @@ export function TaskExecutionInboxDetail({
             <Markdown
               className="mt-2 text-base leading-relaxed text-inherit"
               content={item.item.content}
+              enableLocalMarkdownPaths={isAuthorAgent}
             />
           </div>
         </div>
