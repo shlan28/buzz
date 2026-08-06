@@ -1,5 +1,5 @@
 > 更新日期：2026-08-06
-> 更新说明：完成独立于代码仓库 Projects 的 Tracks 协议、Relay、CLI、Desktop、Tasks 集成、E2E 与 Wiki；原 Projects 继续由既有 feature gate 控制，功能分支不合并回 dev。
+> 更新说明：补充 Track 成员、私有可见性与 Task 权限继承方案；Track 仅对 creator、owner、显式成员及代表 owner 行动的托管 Agent 可见，只有 owner 与 owner 名下 Agent 可以管理 Track，关联 Task 还必须通过 Track 可见性检查。
 
 # Buzz Tracks 工作管理方案
 
@@ -44,12 +44,14 @@ Tag 适合描述 Task 的多个横向属性，不适合作为唯一项目层级�
 ### 2.2 成功标准
 
 - 用户可以创建、查看、编辑和归档 Track；
-- Track 有名称、描述、负责人、开始日期、结束日期和生命周期状态；
+- Track 有名称、描述、负责人、成员、开始日期、结束日期和生命周期状态；
 - 一项 Task 可以选择归属一个 Track，也可以保持未归属；
 - Tasks 看板可以按 Track 分组，每项 Task 只出现一次；
 - Track 详情可以查看该 Track 下当前用户有权看到的 Tasks 和完成进度；
 - 用户可以在 Task 创建和编辑时添加多个 Tag，并在 Tasks 面板按 Tag 筛选；
-- 人和 Agent 都能通过同一 Relay 事件与 CLI 操作 Track；
+- 人和 Agent 都能通过同一 Relay 事件与 CLI 在权限范围内读取或操作 Track；
+- Track 不向全部 community 成员公开，只对 creator、owner、Track members 和 owner 名下托管 Agent 可见；
+- 关联 Track 的 Task 继承 Track 可见性：看不到 Track 的身份也看不到该 Task；
 - Track 不读取、不写入现有 NIP-34 Projects 数据；
 - 私密 Channel Task 不通过 Track 汇总泄露标题、数量或完成状态。
 
@@ -58,7 +60,7 @@ Tag 适合描述 Task 的多个横向属性，不适合作为唯一项目层级�
 - 不支持 Track 嵌套、子 Track 或无限层级；
 - 不支持一项 Task 同时归属多个 Track；
 - 不把 Track owner 自动变成所有 Task 的 assignee；
-- 不新增 Track 成员、复杂角色或独立权限矩阵；
+- 不增加成员管理员、编辑者等多级 Track 角色；显式 Track members 首版统一为只读；
 - 不自动根据日期切换 Track 状态；
 - 不把现有代码仓库 Project 转换为 Track；
 - 不修改现有 Projects 的 feature gate、侧栏逻辑、底层模块或历史数据；
@@ -74,6 +76,7 @@ Tag 适合描述 Task 的多个横向属性，不适合作为唯一项目层级�
 | `name` | Track 名称 | 必填，去除首尾空白后 1–256 UTF-8 bytes |
 | `description` | 工作目标与范围 | Markdown，可为空 |
 | `owner` | 对整段工作负责的人或 Agent | 必填，创建时默认当前用户，可重新指派 |
+| `members` | 可以发现和读取 Track 的人员或 Agent | 可为空、可多选、去重；成员首版只有读取权 |
 | `startDate` | 计划开始日期 | 必填，使用 `YYYY-MM-DD`，不携带时区 |
 | `endDate` | 目标结束日期 | 必填，必须不早于 `startDate` |
 | `status` | 工作生命周期 | `planned`、`active`、`completed`、`canceled` |
@@ -84,6 +87,8 @@ Tag 适合描述 Task 的多个横向属性，不适合作为唯一项目层级�
 | `updatedAt` | 最近更新时间 | 来自当前 Track State |
 
 日期使用 date-only 字符串，而不是本地午夜 Unix timestamp，避免不同时区打开同一 Track 时发生日期偏移。
+
+`owner agent` 在本方案中有严格定义：它是 Buzz 身份关系中 `agent_owner_pubkey == Track.owner` 的托管 Agent。它代表 owner 管理 Track，不需要重复加入 `members`；解除 Agent 与 owner 的归属关系后，继承的可见权和操作权立即失效。
 
 ### 3.2 Track、Task 与 Tag
 
@@ -100,6 +105,17 @@ Track owner 和 Task assignee 是两种不同责任：
 - Task assignee 对某一项具体工作负责；
 - 将 Agent 设为 Track owner 不会自动启动 Agent；
 - 将 Task 移入 Track 不会改变 Task assignee、状态或 Channel 可见性。
+
+Task 关联 Track 后采用权限交集，而不是权限并集：
+
+```text
+canReadTask = existingTaskAccess AND canReadTrack
+```
+
+- Track 可见性是关联 Task 的额外门槛；看不到 Track，即使原本能访问 Task 所在 Channel，也不能读取该 Task；
+- Track member 身份不会绕过 Task 自身或私密 Channel 权限；能看到 Track，不代表能看到 Track 下全部 Tasks；
+- 未关联 Track 的 Task 完全沿用现有可见性；
+- Task 清除 Track 归属后恢复为只受现有 Task/Channel 权限控制。
 
 Tag 是 Task 自身的多值属性，不属于 Track：
 
@@ -245,6 +261,7 @@ Create Track
 Name          [ Desktop foundations                  ]
 Description   [ What outcome should this track reach? ]
 Owner         [ lu ▼                                  ]
+Members       [ Alice × ] [ Design Agent × ] [ Add… ▼ ]
 Start date    [ 2026-08-01 ]
 End date      [ 2026-08-30 ]
 Status        [ Planned ▼ ]
@@ -255,6 +272,9 @@ Status        [ Planned ▼ ]
 交互规则：
 
 - owner 默认当前用户，但保存前仍可选择 Person 或 Agent；
+- members 可以选择当前 community 中的 Person 或 Agent，owner 不需要重复加入；
+- creator、owner、members 均可读取 Track，但 members 与 creator 不因此获得编辑权；
+- 只有 owner 或 owner 名下托管 Agent 显示编辑、成员管理、归档与恢复操作；
 - 开始和结束日期均为必填；
 - 结束日期早于开始日期时在字段下方就地提示，不提交事件；
 - 创建中禁用重复提交；
@@ -344,6 +364,7 @@ Track 延续 Tasks 的 Command + Relay-signed State 模型：
 | 名称 | `title=<name>` |
 | 描述 | `content` |
 | owner | 单个 `p=<pubkey>`，可带 identity type marker |
+| 成员 | 零到多个 `member=<pubkey>`，每个身份只出现一次 |
 | 开始日期 | `start_date=YYYY-MM-DD` |
 | 结束日期 | `end_date=YYYY-MM-DD` |
 | 状态 | `t=track-status:<value>` |
@@ -382,11 +403,13 @@ Task Tag 沿用已经存在的协议表达，不新增 Track 专属 Tag 机制�
 - 相同 Command event ID 重试幂等成功；
 - 重复 Track UUID create 返回明确冲突；
 - 只有事务提交成功后才 fan-out Track State；
+- Track State fan-out 必须逐连接执行 Track 可见性检查，不得广播给全部 community 连接；
 - Task 关联 Track 的修改继续通过 Task 自己的 CAS 事务完成，不与 Track State 双写。
 
 ### 5.3 引用完整性
 
 - Task 设置 `trackId` 时，Relay 必须确认该 Track 属于同一 community 且未归档；
+- Task 设置或替换 `trackId` 时，操作者必须对目标 Track 有读取权；已知 UUID 不能绕过 Track ACL；
 - 未知、跨 community 或已归档 Track 拒绝新关联；
 - Track 归档不会改写已有 Tasks，避免一次操作隐式产生大量事件；
 - 已有关联的 Task 可以继续编辑其他字段，也可以移出归档 Track；
@@ -394,27 +417,48 @@ Task Tag 沿用已经存在的协议表达，不新增 Track 专属 Tag 机制�
 - Relay 只允许 `completed` 或 `canceled` Track 从 `archived=false` 变为 `true`；
 - Restore 只把 `archived` 改回 `false`，保留归档前的 `status`；
 - 首版不永久删除 Track，避免留下无法解释的 Task 引用。
+- 读取已关联 Task 时若 Track 不存在、跨 community 或对查看者不可见，Relay 必须 fail closed，不返回 Task；
+- Track 的 owner、members 或 owner Agent 关系变化后，关联 Tasks 的有效可见范围随当前 Track ACL 变化，不依赖批量改写 Task State。
 
-### 5.4 权限
+### 5.4 可见性与操作权限
 
-- community 成员可以读取其可见的 Track；
-- Track creator、当前 Track owner 和 community 管理员可以编辑、归档或恢复 Track；
-- 指定 Agent 为 owner 时必须验证其在当前 community 中仍是有效身份；
-- Track owner 身份不会继承 Task 或私密 Channel 权限；
-- 谁可以创建 Track 可首版沿用 community 成员写权限，后续如有滥用再增加独立 policy；
-- Task 移入或移出 Track 仍遵守现有 Task 编辑权限，不因为用户是 Track owner 就自动获得所有 Task 的编辑权。
+可见性和操作权必须分开判断，不能用“能读取”推导“能修改”。
+
+Track 的有效可见身份只有：
+
+- Track `creator`；
+- 当前 Track `owner`；
+- `members` 中显式列出的 Person 或 Agent；
+- owner 名下当前有效的托管 Agent。该身份是 owner 的动态受托身份，不写入 `members`。
+
+除此之外的普通 community 成员、其他成员的 Agent 以及 community 管理员均不能发现或读取该 Track。按 ID 查询同样 fail closed，不返回可用于判断 Track 是否存在的元数据。Track Create/Mutate Command 与 Track State 都属于同一 ACL，不能通过查询历史 Command 绕过。WebSocket REQ、HTTP `/query`、`/count`、实时 fan-out 和任何搜索路径必须执行同一可见性规则，防止列表隐藏但深链、COUNT、历史或订阅仍泄露。
+
+已有 Track 的管理操作只允许：
+
+- 当前 Track `owner`；
+- owner 名下当前有效的托管 Agent。
+
+管理操作包括编辑字段、增删成员、转派 owner、改变状态、归档和恢复。Track `creator` 若不是 owner，则仅保留读取权；显式 members 只有读取权；community owner/admin 也没有越权编辑例外。转派 owner 后，旧 owner 及其 Agents 立即失去管理权，除非旧 owner 仍是 creator/member；新 owner 及其 Agents 立即获得管理权和可见性。
+
+创建 Track 仍允许当前 community 成员执行；创建时 creator 默认也是 owner。若创建者在创建时指定其他 owner，创建成功后只以 creator 身份保留读取权，不能继续修改。指定 owner 和 members 时必须验证它们是当前 community 的有效 Person 或 Agent 身份。
+
+Track owner 身份不会继承 Task 或私密 Channel 权限。Task 移入或移出 Track 仍遵守现有 Task 编辑权限；同时，操作者必须对目标 Track 有读取权，不能通过已知 UUID 把 Task 关联到不可见 Track。
+
+关联 Task 的读取使用交集授权：先通过现有 Task、Channel、作者等访问检查，再根据当前 Task State 的 `track-id` 查询当前 Track State 并执行 Track ACL。任一检查失败都不返回 Task。该规则必须覆盖 Task State、Task Command、Execution 等可反查 Task 的事件，以及 WS REQ、HTTP query/count、搜索结果、实时 fan-out、Task get/list 和任何聚合路径；不能通过读取历史 Task Command 绕过当前 Track ACL。
 
 ### 5.5 隐私与进度
 
-Track 本身是 community-global 元数据。Task 仍可通过 `h` tag 归属于私密 Channel。
+Track State 虽然不使用 Channel `h` tag，但属于 Track ACL 保护的私有 community 元数据，不是 community-global 可读数据。Task 仍可通过 `h` tag 归属于私密 Channel。
 
-因此首版进度必须从“当前查看者查询得到的 Tasks”派生：
+因此首版进度必须从“同时通过 Task/Channel 与 Track ACL 的 Tasks”派生：
 
 ```text
 visible progress = visible done tasks / all visible tasks
 ```
 
-Relay 和客户端不得向无权读取私密 Task 的用户返回全量 Task 数、隐藏标题或隐藏完成数。UI 在可能存在权限裁剪时使用“Visible tasks”语义，不能暗示这是所有成员都一致的绝对总数。
+Relay 和客户端不得向未通过任一权限层的用户返回 Task 本体、全量 Task 数、隐藏标题或隐藏完成数。COUNT、分页 cursor、搜索命中数和分组数量也不得泄露被 Track ACL 隐藏的 Task。UI 使用“Visible tasks”语义，不能暗示这是所有成员都一致的绝对总数。
+
+客户端只能用 Relay 已授权返回的 Track 集合渲染 Track 名称、选择器、筛选器和分组。由于关联 Task 必须继承 Track 可见性，不允许再向无权读取 Track 的身份返回 Task 后用 `Restricted track` 占位；Task 本身必须从查询、搜索、计数、分组和实时更新中消失。
 
 ## 6. CLI 与 Agent 契约
 
@@ -422,10 +466,12 @@ Agent-facing 操作加入 `buzz-cli`：
 
 ```text
 buzz tracks create --name <text> --owner <me|pubkey> \
-  --start-date <YYYY-MM-DD> --end-date <YYYY-MM-DD> [--description <text>]
+  --start-date <YYYY-MM-DD> --end-date <YYYY-MM-DD> \
+  [--description <text>] [--member <pubkey>]...
 buzz tracks list [--scope <current|completed|archived>] [--status <value>] [--owner <pubkey>]
 buzz tracks get --id <uuid>
-buzz tracks update --id <uuid> --expected-event <event-id> [field patches]
+buzz tracks update --id <uuid> --expected-event <event-id> \
+  [field patches] [--member <pubkey>]... [--clear-members]
 buzz tracks archive --id <uuid> --expected-event <event-id>
 buzz tracks restore --id <uuid> --expected-event <event-id>
 
@@ -434,7 +480,7 @@ buzz tasks update ... [--track <uuid> | --clear-track]
 buzz tasks list ... [--track <uuid>]
 ```
 
-所有写操作返回现有统一结构并增加实体 ID / State ID。Agent 不需要自行聚合 Track Command 历史即可读取当前状态。
+`--member` 在 create 中追加初始成员，在 update 中与现有 labels patch 风格一致，代表完整替换成员集合；`--clear-members` 明确清空成员。所有写操作返回现有统一结构并增加实体 ID / State ID。Agent 不需要自行聚合 Track Command 历史即可读取当前状态。owner 名下 Agent 使用自己的签名和 pubkey 操作，Relay 动态验证 owner 关系，不冒充 owner。
 
 ## 7. 兼容性与迁移
 
@@ -453,19 +499,27 @@ buzz tasks list ... [--track <uuid>]
 - Track create、mutate、archive 和 restore，且 Restore 保留原状态；
 - owner、日期范围、状态和 UUID 非法输入；
 - 重复 create、幂等重试和旧 head 冲突；
-- creator、owner、管理员与普通成员权限；
+- creator、owner、owner 名下 Agent、显式 member、管理员与无关成员的读写权限矩阵；
+- WS REQ、HTTP query/count、搜索、深链和实时 fan-out 使用相同 Track 可见性规则；
+- 关联 Task 在 WS、HTTP、COUNT、搜索、深链和实时 fan-out 中同时通过 Task/Channel 与 Track ACL；
+- owner 与 Agent 归属关系解除后权限立即失效，转派 owner 后新旧 owner 权限立即切换；
+- member 完整替换、清空、去重及无效 community 身份拒绝；
 - Person / Agent owner 有效性；
 - community 隔离以及相同 UUID 跨 community；
 - Task 设置、替换和清除 Track；
 - 未知、跨 community、归档 Track 拒绝关联；
 - Track 归档不改写或删除已有 Tasks；
+- 看不到 Track 的身份无法通过 Task get/list、Channel 查询、搜索、COUNT 或实时订阅发现关联 Task；
+- Track member 仍不能读取其无权访问的私密 Channel Task，验证权限交集而非权限并集；
+- 未关联 Track 与清除 Track 后的 Task 保持现有可见性；
 - fan-out 只发生在事务提交后。
 
 ### 8.2 Desktop
 
 - Tracks 侧栏入口、Current / Completed / Archived、各范围空状态、错误重试和深链；
 - 创建和编辑表单校验；
-- Track owner、日期、状态和进度展示；
+- Track owner、members、日期、状态和进度展示；
+- creator/member 只读，owner 与 owner 名下 Agent 可编辑；无权身份看不到 Track 及其关联 Tasks 的列表、深链、数量和实时更新；
 - Track 详情 Board / List 只显示该 Track 的可见 Tasks；
 - Task 创建与详情可以选择、替换和清除 Track；
 - Task 创建与详情可以添加、移除和保存多个 Tag；
@@ -481,25 +535,27 @@ buzz tasks list ... [--track <uuid>]
 
 ### 8.3 成功验收场景
 
-1. 用户创建 `Desktop foundations`，指定 owner、8 月 1 日开始、8 月 30 日结束；
+1. 用户创建 `Desktop foundations`，指定 owner、Track members、8 月 1 日开始、8 月 30 日结束；
 2. 用户创建或编辑 Task，将其归入该 Track；
 3. Tracks 列表即时更新可见 Task 进度；
 4. 用户进入 Track 详情，按状态查看和拖动 Tasks；
 5. 用户回到 Tasks 页面，按 Track 分组时该 Task 只出现一次；
-6. Agent 通过 CLI 读取 Track，并在权限允许时更新日期或状态；
-7. 无私密 Channel 权限的成员不会从 Track 进度推断隐藏 Tasks。
-8. 用户完成 Track 后将其归档，随后可通过 Undo 或 Archived → Restore 恢复，原 `completed` 状态不变。
+6. creator、owner、members 能读取 Track，无关 community 成员在列表、深链、COUNT 和订阅中均无法发现它；
+7. owner 名下 Agent 通过 CLI 更新 Track，普通 member、creator 和管理员的相同写操作被拒绝；
+8. Agent 与 owner 解绑后立即失去 Track、关联 Tasks 的访问权及 Track 操作权；
+9. 能访问 Task 所在 Channel 但看不到 Track 的成员，无法通过 Task 列表、搜索、COUNT 或订阅发现该 Task；
+10. Track member 若无 Task 所在私密 Channel 权限，同样看不到该 Task；
+11. 用户完成 Track 后将其归档，随后可通过 Undo 或 Archived → Restore 恢复，原 `completed` 状态不变。
 
 ## 9. 实施顺序
 
-1. 先落地 Track 领域类型、kind、SDK builder 与验证测试；
-2. 增加 Relay Command → State 原子事务和权限校验；
-3. 扩展 Task 协议支持单一 `trackId`，保持旧客户端 patch 兼容；
-4. 增加 `buzz tracks` 和 Tasks `--track` CLI；
-5. 增加 Desktop Tracks 列表、详情、创建编辑和路由；
-6. 扩展 Tasks 的 Track 选择、筛选、分组与拖拽；
-7. 完成 unit、integration、E2E、截图与 wiki 更新；
-8. 运行 `just ci`，提交 signed-off commit，并按鹿鹿子大王要求保留在功能分支，不合并回 `dev`。
+1. 扩展 Track 领域与 SDK，加入 members 的完整替换语义；
+2. 先实现并测试 Relay 统一 Track ACL 与关联 Task 权限交集，再接入 WS、HTTP、COUNT、搜索和 fan-out；
+3. 收紧 Track mutation 和 Task 关联权限，动态验证 owner Agent 关系；
+4. 扩展 `buzz tracks`、Agent 提示词与 live-testing runbook；
+5. 增加 Desktop members 编辑、只读权限态与 Restricted track 降级显示；
+6. 完成 unit、integration、E2E 与 wiki 更新；
+7. 运行 `just ci`，提交 signed-off commit，并按鹿鹿子大王要求保留在功能分支，不合并回 `dev`。
 
 ## 10. Todolist
 
@@ -584,6 +640,37 @@ buzz tasks list ... [--track <uuid>]
 - [x] `docs/assets/tracks-ui-concept-2026-08-06.png`：保存与 Buzz 整体 UI 一致的 Tracks 示意图。
 - [x] `docs/2026-08-06-tracks-work-management-plan.md`：记录本方案、UI、协议、测试和实施清单。
 
+### Track 成员与权限补充（待实现）
+
+- [ ] `crates/buzz-core/src/track.rs`：增加 Track member 集合校验、去重和直接可见身份判断。
+- [ ] `crates/buzz-core/src/filter.rs`：把 Track Command/State 与可反查关联 Task 的事件纳入 fail-closed 受限事件识别，防止通用查询旁路。
+- [ ] `crates/buzz-sdk/src/lib.rs`：为 Track create/mutate input 增加 members 与 clear-members patch 语义。
+- [ ] `crates/buzz-sdk/src/builders.rs`：构建、替换和清空 Track member tags，并补充 builder 测试。
+- [ ] `crates/buzz-relay/src/handlers/command_executor.rs`：限制 mutation 为 owner/owner Agent，校验成员身份，并要求 Task 操作者可读目标 Track。
+- [ ] `crates/buzz-relay/src/handlers/req.rs`：在 WebSocket 历史查询与搜索中应用 Track ACL，并按交集过滤关联 Task。
+- [ ] `crates/buzz-relay/src/handlers/count.rs`：确保 Track 与关联 Task COUNT 采用相同授权结果且不泄露存在性。
+- [ ] `crates/buzz-relay/src/handlers/event.rs`：按连接过滤 Track State 和关联 Task 的实时 fan-out，禁止 community 全广播。
+- [ ] `crates/buzz-relay/src/api/bridge.rs`：为 HTTP query/count/search 增加等价 Track ACL 与关联 Task 权限交集。
+- [ ] `crates/buzz-test-client/tests/e2e_relay.rs`：覆盖成员读取、creator/member/admin 禁写、owner Agent 读写、解绑、owner 转派及关联 Task 权限交集。
+- [ ] `crates/buzz-cli/src/lib.rs`：为 Track create/update 声明重复 `--member` 与 `--clear-members` 参数。
+- [ ] `crates/buzz-cli/src/commands/tracks.rs`：解析和输出 members，并实现完整替换与清空。
+- [ ] `crates/buzz-cli/TESTING.md`：增加 Track 私有可见性、成员和 owner Agent live-testing 流程。
+- [ ] `crates/buzz-acp/src/base_prompt.md`：明确 Agent 可用的 Tracks 命令及 owner Agent 权限边界。
+- [ ] `desktop/src/features/tracks/types.ts`：为 Track、draft 与 patch 增加 members，并表达 canRead/canManage 权限。
+- [ ] `desktop/src/features/tracks/lib/trackEvents.ts`：解析和构建 members tags 与清空语义。
+- [ ] `desktop/src/features/tracks/lib/trackEvents.test.mjs`：覆盖 members 解析、替换、清空和去重。
+- [ ] `desktop/src/features/tracks/hooks.ts`：只消费 Relay 授权结果，并向 UI 提供 Track 管理权限状态。
+- [ ] `desktop/src/features/tracks/ui/TrackEditorDialog.tsx`：增加 Person/Agent members 多选并对无管理权身份禁用编辑。
+- [ ] `desktop/src/features/tracks/ui/TrackDetailScreen.tsx`：展示成员并为 creator/member 提供只读详情。
+- [ ] `desktop/src/features/tracks/ui/TrackList.tsx`：只向 owner/owner Agent显示管理菜单，普通可见者保持只读。
+- [ ] `desktop/src/features/tasks/ui/TaskTrackSelect.tsx`：选择器只列出当前身份可见且未归档的 Tracks。
+- [ ] `desktop/src/features/tasks/ui/TaskTrackFilter.tsx`：筛选器不泄露不可见 Track 元数据或关联 Task 数量。
+- [ ] `desktop/src/testing/e2eBridge.ts`：模拟 viewer、members 与 owner Agent 的 Track 可见性及授权失败。
+- [ ] `desktop/tests/e2e/tracks.spec.ts`：覆盖成员多选、只读 UI、无权深链、owner Agent 管理和关联 Task 权限交集。
+- [ ] `wiki/concepts.md`：更新 Track members、私有可见性和 owner Agent 权限定义。
+- [ ] `wiki/modules.md`：登记 Track ACL 的 Relay 与客户端证据入口。
+- [ ] `docs/2026-08-06-tracks-work-management-plan.md`：记录 Track 成员与权限补充方案及逐文件实施状态。
+
 ## 11. 实施前确认项
 
 - [x] 确认 Track 作为一级侧栏入口，位于 Tasks 之后。
@@ -593,3 +680,6 @@ buzz tasks list ... [--track <uuid>]
 - [x] 确认 Track 状态为 `planned / active / completed / canceled`，归档是独立布尔属性。
 - [x] 确认归档只能用于 `completed / canceled`，并通过 Current / Completed / Archived、Undo 和 Restore 提供找回闭环。
 - [x] 确认现有代码仓库 Projects 不复用、不迁移，继续完全由原 feature gate 控制。
+- [x] 确认 Track 不是 community 全员可见，仅 creator、owner、显式 members 与 owner 名下 Agent 可见。
+- [x] 确认已有 Track 只允许 owner 与 owner 名下 Agent 管理；creator、members、管理员和其他成员均不可操作。
+- [x] 确认关联 Task 继承 Track 可见性；Task 仅在现有权限与 Track ACL 均通过时可见。
