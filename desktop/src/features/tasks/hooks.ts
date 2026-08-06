@@ -120,9 +120,27 @@ export function useTasks() {
   const members = useRelayMembersQuery();
   const managedAgents = useManagedAgentsQuery();
   const relayAgents = useRelayAgentsQuery();
+  const communityMembers = React.useMemo(() => {
+    const result = [...(members.data ?? [])];
+    const currentPubkey = identity.data?.pubkey;
+    if (
+      currentPubkey &&
+      !result.some(
+        (member) => member.pubkey.toLowerCase() === currentPubkey.toLowerCase(),
+      )
+    ) {
+      result.push({
+        pubkey: currentPubkey,
+        role: "member",
+        addedBy: null,
+        createdAt: "",
+      });
+    }
+    return result;
+  }, [identity.data?.pubkey, members.data]);
   const memberPubkeys = React.useMemo(
-    () => (members.data ?? []).map((member) => member.pubkey),
-    [members.data],
+    () => communityMembers.map((member) => member.pubkey),
+    [communityMembers],
   );
   const profiles = useUsersBatchQuery(memberPubkeys);
   const query = useQuery({
@@ -188,18 +206,23 @@ export function useTasks() {
 
   const assignees = React.useMemo<TaskAssignee[]>(() => {
     return buildTaskAssignees({
-      members: members.data ?? [],
+      members: communityMembers,
       profiles: profiles.data?.profiles ?? {},
       managedAgents: managedAgents.data ?? [],
       relayAgents: relayAgents.data ?? [],
       viewerPubkey: identity.data?.pubkey,
+      namesLoading:
+        profiles.isPending || managedAgents.isPending || relayAgents.isPending,
     });
   }, [
+    communityMembers,
     identity.data?.pubkey,
     managedAgents.data,
-    members.data,
+    managedAgents.isPending,
     profiles.data?.profiles,
+    profiles.isPending,
     relayAgents.data,
+    relayAgents.isPending,
   ]);
 
   const create = useMutation({

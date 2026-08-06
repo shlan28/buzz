@@ -68,7 +68,11 @@ export type TaskExecution = {
 export type TaskAssignee = {
   pubkey: string | null;
   label: string;
+  selectorLabel: string;
+  shortId: string | null;
   kind: "unassigned" | "person" | "agent";
+  isCurrent: boolean;
+  isNameLoading: boolean;
   canAssign?: boolean;
   unavailableReason?: string;
 };

@@ -1,5 +1,5 @@
 > 更新日期：2026-08-06
-> 更新说明：确认实施 Track Owner / Member 候选过滤、名称展示与成员下拉滚动修复；补充 Track Owner 为当前签名者时 `p` self-tag 被误删的根因、签名兼容规则和回归测试方案。
+> 更新说明：完成 Task Assignee 与 Track Owner / Member 身份选择器的视觉统一；保留 Task 特有的 Unassigned、Agent assignment policy、不可分配原因和紧凑模式，并抽取共享身份摘要组件。
 
 # Buzz Tracks 工作管理方案
 
@@ -428,6 +428,38 @@ Track Members 下拉必须支持鼠标滚轮、触控板和键盘滚动。当前
 - 选择 checkbox 后菜单保持打开且滚动位置不重置，便于连续多选；
 - E2E 使用超过一屏的候选 fixture，分别验证滚轮后末尾候选可见、连续多选和菜单不关闭。
 
+### 4.9 Task Assignee 身份选择器统一
+
+Task Assignee 选择器与 Track Owner / Member 使用同一套身份信息层级，避免同一个 User 或 Agent 在两个工作管理入口中呈现不同样式：
+
+```text
+You                                      [User]
+b2fa0399…63f4e
+
+Creative Product Manager                 [Agent]
+5af288a3…8c33e
+
+Research Agent                            [Agent]
+81d9781a…cc99
+Only the owner can assign tasks
+```
+
+统一规则：
+
+- 主文本、`You`、`User / Agent` Badge、短 ID、名称 skeleton、`Unnamed member` 和 `Unavailable identity` 与 Track 身份选择器一致；
+- 抽取共享的身份摘要 UI，Track 与 Task 只负责提供身份数据和各自业务状态，不复制两套 JSX 与样式；
+- Task Assignee 继续只展示现有 `buildTaskAssignees` 判定有效的 Community 身份，不因样式统一扩大候选范围；
+- Agent 的 `taskAssignmentPolicy`、allowlist 和 `canAssign` 逻辑保持不变；不可分配候选继续禁用，并在身份摘要下增加一行原因，不把原因拼接进名称；
+- `Unassigned` 是 Task 独有的非身份选项，保持列表首项和可选择状态；它显示为单行 `Unassigned`，不伪造 User / Agent Badge 或短 ID；
+- 当前用户显示 `You [User] + 短 ID`，不再显示 Profile 名称作为主文本；
+- 名称首次加载时显示 skeleton，不先闪出完整或缩短 ID 作为主名称；短 ID 仍稳定显示；
+- 已有 Task 指向当前候选中不存在的 assignee 时，触发器显示 `Unavailable identity + 短 ID`，允许用户改派或清空；该历史身份不作为可重新选择的候选；
+- 普通创建表单中的触发器展示完整两层身份摘要；Task 详情的 compact 模式保持原有高度，只在触发器显示主名称和类型，打开菜单后展示完整两层摘要；
+- 下拉复用 Track 的可用高度、纵向滚动、overscroll 和 wheel capture 规则，候选较多时鼠标滚轮、触控板和键盘导航都能到达末尾；
+- Check 图标继续表示当前选中项，不能与 `User / Agent` Badge 混为同一种状态提示。
+
+本次只统一选择器，不扩大到 Task 卡片、列表或看板分组标题；这些紧凑信息面保留现有单行 assignee 展示，避免增加列表行高。
+
 ## 5. 数据与协议设计
 
 ### 5.1 独立事件，不复用 NIP-34
@@ -795,6 +827,18 @@ buzz tasks list ... [--track <uuid>]
 - [x] `desktop/tests/e2e/tracks.spec.ts`：覆盖 User / Agent、You、短 ID、滚轮事件隔离、菜单保持打开与连续多选。
 - [x] `desktop/src-tauri/src/commands/identity.rs`：允许 Track Create / Mutate 保留 Owner self-tag，并增加签名后 `p` tag、事件 ID 与签名回归测试。
 
+### Task Assignee 选择器视觉统一（已实现）
+
+- [x] `docs/2026-08-06-tracks-work-management-plan.md`：记录 Task 与 Track 身份摘要的统一样式及 Task 特有状态边界。
+- [x] `desktop/src/shared/ui/IdentityOptionSummary.tsx`：抽取名称、类型 Badge、短 ID、skeleton、不可用原因和 compact 模式的共享身份摘要。
+- [x] `desktop/src/features/tracks/ui/TrackEditorDialog.tsx`：改用共享身份摘要，保持现有 Track Owner / Member 外观和交互不回退。
+- [x] `desktop/src/features/tasks/types.ts`：为 TaskAssignee 增加短 ID、当前用户和名称加载态表达，同时保留 canAssign 与 unavailableReason。
+- [x] `desktop/src/features/tasks/lib/taskAssignees.ts`：生成与 Track 一致的显示元数据，但继续应用 Task assignment policy 和候选过滤。
+- [x] `desktop/src/features/tasks/lib/taskAssignees.test.mjs`：覆盖 You、User / Agent、短 ID、skeleton、Unnamed member、候选过滤和不可分配原因。
+- [x] `desktop/src/features/tasks/hooks.ts`：向 Task assignee 构建器传递首次身份加载状态。
+- [x] `desktop/src/features/tasks/ui/TaskAssigneeSelect.tsx`：应用统一菜单与触发器样式，处理 Unassigned、历史失效身份、compact 模式和滚动。
+- [x] `desktop/tests/e2e/tasks.spec.ts`：覆盖创建与详情选择器的统一样式、禁用 Agent 原因、滚轮隔离和选中状态。
+
 ## 11. 实施前确认项
 
 - [x] 确认 Track 作为一级侧栏入口，位于 Tasks 之后。
@@ -810,3 +854,4 @@ buzz tasks list ... [--track <uuid>]
 - [x] 确认 Tracks / Tasks 列表在页面内容区内占满宽度，并把 Track 的直接操作固定在行末。
 - [x] 确认 Track Owner / Member 对齐 Task Assignee 的 Community 身份过滤，按“名称与身份类型 + 短 ID”展示，并修复长列表滚动。
 - [x] 确认 Track Create / Mutate 允许 Owner 指向当前签名者，保留业务所需的 `p` self-tag，Relay 必填字段规则保持不变。
+- [x] 确认 Task Assignee 采用与 Track Owner / Member 相同的身份摘要样式，同时保留 Unassigned、Agent assignment policy、不可分配原因和 compact 模式。

@@ -1,6 +1,5 @@
 import * as React from "react";
 import { ChevronDown, X } from "lucide-react";
-import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import {
   Dialog,
@@ -18,7 +17,7 @@ import {
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
 import { Input } from "@/shared/ui/input";
-import { Skeleton } from "@/shared/ui/skeleton";
+import { IdentityOptionSummary } from "@/shared/ui/IdentityOptionSummary";
 import { Textarea } from "@/shared/ui/textarea";
 import { validateTrackDraft } from "../lib/trackEvents";
 import { unavailableTrackIdentity } from "../lib/trackIdentityOptions";
@@ -156,7 +155,7 @@ export function TrackEditorDialog({
                   variant="outline"
                 >
                   {selectedOwner ? (
-                    <IdentitySummary option={selectedOwner} />
+                    <TrackIdentitySummary option={selectedOwner} />
                   ) : (
                     <span className="text-muted-foreground">
                       Select an owner
@@ -189,7 +188,7 @@ export function TrackEditorDialog({
                       })
                     }
                   >
-                    <IdentitySummary option={option} />
+                    <TrackIdentitySummary option={option} />
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuContent>
@@ -301,7 +300,7 @@ function MembersField({
               className="inline-flex min-w-48 items-center gap-2 rounded-xl bg-muted px-2.5 py-2 font-normal text-foreground"
               key={member}
             >
-              <IdentitySummary
+              <TrackIdentitySummary
                 option={
                   optionsByPubkey.get(member.toLowerCase()) ??
                   unavailableTrackIdentity(member)
@@ -370,7 +369,7 @@ function MembersField({
                 }
                 onSelect={(event) => event.preventDefault()}
               >
-                <IdentitySummary option={option} />
+                <TrackIdentitySummary option={option} />
               </DropdownMenuCheckboxItem>
             ))
           )}
@@ -383,25 +382,14 @@ function MembersField({
   );
 }
 
-function IdentitySummary({ option }: { option: TrackOwnerOption }) {
+function TrackIdentitySummary({ option }: { option: TrackOwnerOption }) {
   return (
-    <span className="flex min-w-0 flex-1 items-center gap-3 text-left">
-      <span className="min-w-0 flex-1">
-        {option.isNameLoading ? (
-          <Skeleton className="mb-1 h-4 w-28 max-w-full" />
-        ) : (
-          <span className="block truncate text-sm font-medium">
-            {option.label}
-          </span>
-        )}
-        <span className="block truncate text-xs text-muted-foreground">
-          {option.shortId}
-        </span>
-      </span>
-      <Badge className="shrink-0" variant="outline">
-        {option.kind === "agent" ? "Agent" : "User"}
-      </Badge>
-    </span>
+    <IdentityOptionSummary
+      isNameLoading={option.isNameLoading}
+      kind={option.kind}
+      label={option.label}
+      shortId={option.shortId}
+    />
   );
 }
 
