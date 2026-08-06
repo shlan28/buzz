@@ -68,16 +68,28 @@ mutation:
 
 ```bash
 TRACK_ID="20eef02c-9be8-4055-a747-e348d5a405ad"
+MEMBER_ONE="<64-hex-community-member-pubkey>"
+MEMBER_TWO="<another-64-hex-community-member-pubkey>"
 buzz tracks create --id "$TRACK_ID" --name "Desktop foundations" \
-  --owner me --start-date 2026-08-01 --end-date 2026-08-30 | jq .
+  --owner me --member "$MEMBER_ONE" --member "$MEMBER_TWO" \
+  --start-date 2026-08-01 --end-date 2026-08-30 | jq .
 buzz tracks get --id "$TRACK_ID" | jq -e \
-  '.id == "'"$TRACK_ID"'" and .status == "planned" and (.archived | not)'
+  '.id == "'"$TRACK_ID"'" and .status == "planned" and
+   (.archived | not) and (.members | length == 2)'
 buzz tracks list --scope current --owner me | jq -e \
   'any(.id == "'"$TRACK_ID"'")'
 
 TRACK_HEAD="$(buzz tracks get --id "$TRACK_ID" | jq -r .state_event_id)"
 buzz tracks update --id "$TRACK_ID" --expected-event "$TRACK_HEAD" \
-  --status active --description "Reliable desktop delivery" | jq .
+  --status active --description "Reliable desktop delivery" \
+  --member "$MEMBER_ONE" | jq .
+buzz tracks get --id "$TRACK_ID" | jq -e \
+  '.members == ["'"$MEMBER_ONE"'"]'
+
+TRACK_HEAD="$(buzz tracks get --id "$TRACK_ID" | jq -r .state_event_id)"
+buzz tracks update --id "$TRACK_ID" --expected-event "$TRACK_HEAD" \
+  --clear-members | jq .
+buzz tracks get --id "$TRACK_ID" | jq -e '.members == []'
 ```
 
 Assign Tasks to the Track and verify Tags remain independent, multi-valued
@@ -115,8 +127,15 @@ buzz tracks get --id "$TRACK_ID" | jq -e \
 ```
 
 Also verify invalid date order, an unknown or archived `--track`, malformed
-owner and Track UUIDs, unauthorized updates, stale `--expected-event` (exit 5),
-and that a private-Channel Task is not exposed through Track queries.
+owner/member and Track UUIDs, stale `--expected-event` (exit 5), and the
+permission matrix below:
+
+- creator, owner, explicit members, and the owner's currently managed Agents can read the Track;
+- only the owner and Agents currently owned by that owner can update members or other Track fields, archive, or restore;
+- creator and explicit members are read-only unless they are also the current owner;
+- an unrelated community member, an unrelated member's Agent, and a community admin cannot discover the Track;
+- after owner transfer, the old owner's Agent loses management immediately and the new owner's Agent gains it;
+- a private-Channel Task remains hidden from a Track member without Channel access, and a caller unable to read the Track cannot discover an associated Task.
 
 ---
 

@@ -1144,7 +1144,14 @@ async fn query_events_authed(
                 // Defense-in-depth: never deliver a result-gated event (e.g. kind:44200
                 // or kind:30622) to a non-owner via the feed path, even though feed SQL
                 // kind allowlists already exclude these kinds.
-                if !buzz_core::filter::reader_authorized_for_event(&se.event, &authed_pubkey_hex) {
+                if !crate::handlers::req::event_visible_to_reader(
+                    state,
+                    tenant.community(),
+                    &se.event,
+                    &pubkey_bytes,
+                )
+                .await
+                {
                     continue;
                 }
                 if let Ok(v) = serde_json::to_value(&se.event) {
@@ -1210,7 +1217,14 @@ async fn query_events_authed(
             // Defense-in-depth: never deliver a result-gated event (e.g. kind:44200
             // or kind:30622) to a non-owner via the thread path, even though
             // requires_h_channel_scope already excludes these kinds from thread metadata.
-            if !buzz_core::filter::reader_authorized_for_event(&se.event, &authed_pubkey_hex) {
+            if !crate::handlers::req::event_visible_to_reader(
+                state,
+                tenant.community(),
+                &se.event,
+                &pubkey_bytes,
+            )
+            .await
+            {
                 continue;
             }
             if let Ok(v) = serde_json::to_value(&se.event) {
@@ -1224,7 +1238,7 @@ async fn query_events_authed(
     // skips and the `before_id` BAD_REQUEST are decided here, before any DB
     // work is issued (validation errors are deterministic client mistakes, so
     // surfacing them ahead of transient DB errors is strictly more predictable).
-    let mut catchall_queries: Vec<(usize, buzz_db::EventQuery)> = Vec::new();
+    let mut catchall_queries: Vec<(usize, buzz_db::EventQuery, usize, usize, bool)> = Vec::new();
     for (idx, (raw, filter)) in raw_filters.iter().zip(filters.iter()).enumerate() {
         if handled.contains(&idx) {
             continue;
@@ -1281,11 +1295,27 @@ async fn query_events_authed(
         // ordering in `query_events` (`created_at DESC, id ASC`) makes offset paging
         // stable. `page` defaults to 1 → offset 0, so unrelated general queries are
         // unaffected.
-        if let Some(offset) = extract_page_offset(raw, query.limit) {
+        let page_offset = extract_page_offset(raw, query.limit);
+        if let Some(offset) = page_offset {
             query.offset = Some(offset);
         }
 
-        catchall_queries.push((idx, query));
+        let needs_track_acl = crate::handlers::req::filter_can_match_track_acl_kinds(filter);
+        let visible_offset = if needs_track_acl {
+            page_offset.unwrap_or(0).max(0) as usize
+        } else {
+            0
+        };
+        if needs_track_acl {
+            // `page` is defined over rows visible to the caller, not raw SQL
+            // candidates. Start at the newest candidate and apply the offset
+            // after the dynamic Track ACL, otherwise hidden newer rows can
+            // starve or shift an authorized page.
+            query.offset = None;
+        }
+        let visible_limit = crate::handlers::req::apply_track_acl_query_budget(&mut query, filter);
+
+        catchall_queries.push((idx, query, visible_offset, visible_limit, needs_track_acl));
     }
 
     // Phase 2 — DB reads, bounded-concurrent, order-preserving (`buffered`).
@@ -1293,17 +1323,31 @@ async fn query_events_authed(
     // and error semantics match the previous serial loop.
     use futures_util::stream::{self, StreamExt};
     let db = state.db.clone();
-    let mut catchall_results = stream::iter(catchall_queries.into_iter().map(|(idx, query)| {
-        let db = db.clone();
-        async move { (idx, db.query_events_routed("bridge_query", &query).await) }
-    }))
+    let mut catchall_results = stream::iter(catchall_queries.into_iter().map(
+        |(idx, query, visible_offset, visible_limit, needs_track_acl)| {
+            let db = db.clone();
+            async move {
+                (
+                    idx,
+                    visible_offset,
+                    visible_limit,
+                    needs_track_acl,
+                    db.query_events_routed("bridge_query", &query).await,
+                )
+            }
+        },
+    ))
     .buffered(crate::handlers::req::FILTER_QUERY_CONCURRENCY);
 
     // Phase 3 — post-processing, strictly in filter order.
-    while let Some((idx, filter_events)) = catchall_results.next().await {
+    while let Some((idx, visible_offset, visible_limit, needs_track_acl, filter_events)) =
+        catchall_results.next().await
+    {
         let filter = &filters[idx];
         match filter_events {
             Ok(stored_events) => {
+                let mut authorized_seen = 0_usize;
+                let mut emitted = 0_usize;
                 for se in stored_events {
                     if !event_in_accessible_channel(&se, &accessible_channels) {
                         continue;
@@ -1316,8 +1360,26 @@ async fn query_events_authed(
                     // Also enforces author-only kinds (30300/30350) and the persona
                     // shared-gate (kind:30175 without ["shared","true"]). Single call
                     // covers all three gated event classes.
-                    if !crate::handlers::req::event_visible_to_reader(&se.event, &pubkey_bytes) {
+                    if !crate::handlers::req::event_visible_to_reader(
+                        state,
+                        tenant.community(),
+                        &se.event,
+                        &pubkey_bytes,
+                    )
+                    .await
+                    {
                         continue;
+                    }
+                    if needs_track_acl {
+                        if authorized_seen < visible_offset {
+                            authorized_seen += 1;
+                            continue;
+                        }
+                        if emitted >= visible_limit {
+                            break;
+                        }
+                        authorized_seen += 1;
+                        emitted += 1;
                     }
                     if let Ok(v) = serde_json::to_value(&se.event) {
                         events.push(v);
@@ -1482,6 +1544,8 @@ async fn count_events_authed(
         // over-count foreign unshared persona events (existence leak).
         let needs_persona_filtering =
             crate::handlers::req::filter_can_match_persona_shared_kinds(filter);
+        let needs_track_acl_filtering =
+            crate::handlers::req::filter_can_match_track_acl_kinds(filter);
 
         // If filter targets a specific channel, verify access.
         if let Some(ch_id) = extract_channel_from_filter(filter) {
@@ -1511,6 +1575,7 @@ async fn count_events_authed(
                 && (!needs_author_only_filtering || author_is_self)
                 && !needs_result_gated_filtering
                 && !needs_persona_filtering
+                && !needs_track_acl_filtering
             {
                 match state.db.count_events_routed("bridge_count", &query).await {
                     Ok(n) => total += n as u64,
@@ -1541,9 +1606,13 @@ async fn count_events_authed(
                                 continue;
                             }
                             if !crate::handlers::req::event_visible_to_reader(
+                                state,
+                                tenant.community(),
                                 &se.event,
                                 &pubkey_bytes,
-                            ) {
+                            )
+                            .await
+                            {
                                 continue;
                             }
                             total += 1;
@@ -1581,6 +1650,7 @@ async fn count_events_authed(
                 && (!needs_author_only_filtering || author_is_self)
                 && !needs_result_gated_filtering
                 && !needs_persona_filtering
+                && !needs_track_acl_filtering
             {
                 query.limit = None;
                 match state.db.count_events_routed("bridge_count", &query).await {
@@ -1611,9 +1681,13 @@ async fn count_events_authed(
                                 continue;
                             }
                             if !crate::handlers::req::event_visible_to_reader(
+                                state,
+                                tenant.community(),
                                 &se.event,
                                 &pubkey_bytes,
-                            ) {
+                            )
+                            .await
+                            {
                                 continue;
                             }
                             total += 1;
@@ -1794,7 +1868,14 @@ async fn handle_bridge_search(
             // branch cannot currently return unshared persona content — but the
             // check here ensures that a future FTS allowlist change cannot silently
             // reopen the bypass.
-            if !crate::handlers::req::event_visible_to_reader(&stored.event, pubkey_bytes) {
+            if !crate::handlers::req::event_visible_to_reader(
+                state,
+                tenant.community(),
+                &stored.event,
+                pubkey_bytes,
+            )
+            .await
+            {
                 continue;
             }
             // Dedup across filters.

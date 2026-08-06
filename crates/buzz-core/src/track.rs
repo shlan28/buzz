@@ -10,6 +10,52 @@ pub const TRACK_NAME_MAX_BYTES: usize = 256;
 /// Maximum UTF-8 byte length of a Track description.
 pub const TRACK_DESCRIPTION_MAX_BYTES: usize = 65_536;
 
+/// Return whether `viewer_pubkey_hex` is directly listed in a Track State's
+/// ACL as its creator, current owner, or an explicit member.
+///
+/// Managed-Agent inheritance is intentionally not handled here because it
+/// depends on current community identity state in the database.
+pub fn direct_viewer_authorized(event: &Event, viewer_pubkey_hex: &str) -> bool {
+    event.tags.iter().any(|tag| {
+        let parts = tag.as_slice();
+        parts.len() >= 2
+            && matches!(parts[0].as_str(), "creator" | "p" | "member")
+            && parts[1].eq_ignore_ascii_case(viewer_pubkey_hex)
+    })
+}
+
+/// Validate and deduplicate a complete explicit-member set while preserving
+/// its input order.
+pub fn validate_members<'a>(
+    members: impl IntoIterator<Item = &'a str>,
+) -> Result<Vec<String>, TrackError> {
+    let mut seen = std::collections::HashSet::new();
+    let mut validated = Vec::new();
+    for member in members {
+        validate_owner(member).map_err(|_| TrackError::InvalidMember)?;
+        let normalized = member.to_ascii_lowercase();
+        if seen.insert(normalized.clone()) {
+            validated.push(normalized);
+        }
+    }
+    Ok(validated)
+}
+
+/// Validate a complete member set and reject a redundant owner entry.
+pub fn validate_members_for_owner<'a>(
+    owner: &str,
+    members: impl IntoIterator<Item = &'a str>,
+) -> Result<Vec<String>, TrackError> {
+    let members = validate_members(members)?;
+    if members
+        .iter()
+        .any(|member| member.eq_ignore_ascii_case(owner))
+    {
+        return Err(TrackError::OwnerIsMember);
+    }
+    Ok(members)
+}
+
 /// Track lifecycle state. Archival is deliberately represented separately.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -70,6 +116,12 @@ pub enum TrackError {
     /// Owner is absent or is not a 32-byte hexadecimal public key.
     #[error("track owner must be a 64-character hex pubkey")]
     InvalidOwner,
+    /// An explicit member is not a 32-byte hexadecimal public key.
+    #[error("track member must be a 64-character hex pubkey")]
+    InvalidMember,
+    /// The owner was redundantly included in the explicit member set.
+    #[error("track owner must not also be an explicit member")]
+    OwnerIsMember,
     /// A date is not a calendar date in `YYYY-MM-DD` form.
     #[error("track dates must use YYYY-MM-DD")]
     InvalidDate,
@@ -176,5 +228,27 @@ mod tests {
         );
         validate_archive(TrackStatus::Completed, true).unwrap();
         validate_archive(TrackStatus::Active, false).unwrap();
+    }
+
+    #[test]
+    fn member_validation_deduplicates_and_direct_acl_matches() {
+        let keys = nostr::Keys::generate();
+        let viewer = keys.public_key().to_hex();
+        let members =
+            validate_members([viewer.as_str(), viewer.to_ascii_uppercase().as_str()]).unwrap();
+        assert_eq!(members, vec![viewer.clone()]);
+        let event = nostr::EventBuilder::new(nostr::Kind::Custom(30_510), "")
+            .tags([nostr::Tag::parse(["member", &viewer]).unwrap()])
+            .sign_with_keys(&nostr::Keys::generate())
+            .unwrap();
+        assert!(direct_viewer_authorized(&event, &viewer));
+        assert!(!direct_viewer_authorized(
+            &event,
+            &nostr::Keys::generate().public_key().to_hex()
+        ));
+        assert_eq!(
+            validate_members_for_owner(&viewer, [viewer.as_str()]).unwrap_err(),
+            TrackError::OwnerIsMember
+        );
     }
 }

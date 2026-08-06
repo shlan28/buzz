@@ -59,6 +59,47 @@ fn task_execution_start_allowed(actor: &[u8], agent: &[u8], owner: &[u8]) -> boo
     actor == agent || actor == owner
 }
 
+async fn task_track_visible_to_actor(
+    tenant: &TenantContext,
+    state: &Arc<AppState>,
+    task_state: &Event,
+    actor: &[u8],
+) -> Result<bool, IngestError> {
+    let track_value = task_state.tags.iter().find_map(|tag| {
+        let parts = tag.as_slice();
+        (parts.len() == 2 && parts[0] == "t")
+            .then(|| parts[1].strip_prefix("track-id:"))
+            .flatten()
+    });
+    let Some(track_value) = track_value else {
+        return Ok(true);
+    };
+    let track_id = Uuid::parse_str(track_value)
+        .map_err(|_| IngestError::Rejected("invalid: Task State has malformed Track id".into()))?;
+    let mut query = buzz_db::EventQuery::for_community(tenant.community());
+    query.kinds = Some(vec![KIND_TRACK_STATE as i32]);
+    query.d_tag = Some(track_id.to_string());
+    query.limit = Some(1);
+    let track = state
+        .db
+        .query_events(&query)
+        .await
+        .map_err(|error| IngestError::Internal(format!("error: query Task Track ACL: {error}")))?
+        .into_iter()
+        .next();
+    let Some(track) = track else {
+        return Ok(false);
+    };
+    Ok(super::req::track_state_visible_to_reader(
+        state,
+        tenant.community(),
+        &track.event,
+        actor,
+        &hex::encode(actor),
+    )
+    .await)
+}
+
 /// Route a command-kind event to the appropriate handler.
 pub async fn handle_command(
     tenant: &TenantContext,
@@ -159,20 +200,19 @@ async fn handle_track_command(
     let actor = auth.pubkey().to_bytes().to_vec();
     let actor_hex = hex::encode(&actor);
     if let Some(existing) = &current {
-        let creator = extract_tag(&existing.event, "creator");
-        let owner = extract_tag(&existing.event, "p");
-        let actor_is_admin = state
+        let owner_hex = extract_tag(&existing.event, "p")
+            .ok_or_else(|| IngestError::Internal("error: Track State has no valid owner".into()))?;
+        let owner = decode_pubkey(&owner_hex)?;
+        let actor_agent_owner = state
             .db
-            .get_relay_member(tenant.community(), &actor_hex)
+            .get_agent_owner_pubkey(tenant.community(), &actor)
             .await
-            .map_err(|error| IngestError::Internal(format!("error: read community role: {error}")))?
-            .is_some_and(|member| matches!(member.role.as_str(), "owner" | "admin"));
-        if creator.as_deref() != Some(actor_hex.as_str())
-            && owner.as_deref() != Some(actor_hex.as_str())
-            && !actor_is_admin
-        {
+            .map_err(|error| {
+                IngestError::Internal(format!("error: read actor Agent owner: {error}"))
+            })?;
+        if actor != owner && actor_agent_owner.as_deref() != Some(owner.as_slice()) {
             return Err(IngestError::AuthFailed(
-                "restricted: track may only be edited by its creator, owner, or community administrator"
+                "restricted: track may only be managed by its owner or an Agent owned by that owner"
                     .into(),
             ));
         }
@@ -261,7 +301,7 @@ async fn handle_track_command(
         )
         .as_deref()
             == Some("true");
-        let patch_keys = ["title", "p", "start_date", "end_date"];
+        let patch_keys = ["title", "p", "member", "start_date", "end_date"];
         let has_non_restore_patch = patch_keys
             .iter()
             .any(|key| extract_tag(command, key).is_some())
@@ -270,6 +310,7 @@ async fn handle_track_command(
                 (parts.len() == 2 && parts[0] == "t" && parts[1].starts_with("track-status:"))
                     || parts == ["set", "description"]
                     || parts == ["clear", "description"]
+                    || parts == ["clear", "members"]
             });
         let incoming_archived = extract_tag(command, "archived");
         if current_archived
@@ -318,6 +359,20 @@ async fn handle_track_command(
             if !incoming.is_empty() {
                 replace(&mut raw_tags, key, incoming);
             }
+        }
+        let incoming_members: Vec<Vec<String>> = command
+            .tags
+            .iter()
+            .map(|tag| tag.as_slice())
+            .filter(|parts| parts.len() == 2 && parts[0] == "member")
+            .map(|parts| parts.iter().map(ToString::to_string).collect())
+            .collect();
+        let clears_members = command
+            .tags
+            .iter()
+            .any(|tag| tag.as_slice() == ["clear", "members"]);
+        if !incoming_members.is_empty() || clears_members {
+            replace(&mut raw_tags, "member", incoming_members);
         }
         let incoming_status: Vec<Vec<String>> = command
             .tags
@@ -374,6 +429,7 @@ async fn handle_track_command(
     let starts = values("start_date");
     let ends = values("end_date");
     let archived_values = values("archived");
+    let members = values("member");
     let statuses = raw_tags
         .iter()
         .filter_map(|parts| {
@@ -428,6 +484,16 @@ async fn handle_track_command(
     }
     buzz_core::track::validate_archive(track_status, archived)
         .map_err(|error| IngestError::Rejected(format!("invalid: {error}")))?;
+    let validated_members = buzz_core::track::validate_members_for_owner(
+        &owners[0],
+        members.iter().map(String::as_str),
+    )
+    .map_err(|error| IngestError::Rejected(format!("invalid: {error}")))?;
+    if validated_members.len() != members.len() {
+        return Err(IngestError::Rejected(
+            "invalid: Track members must be unique".into(),
+        ));
+    }
 
     let owner_changed = is_create
         || current
@@ -471,6 +537,52 @@ async fn handle_track_command(
             return Err(IngestError::Rejected(
                 "invalid: track owner is not a current community identity".into(),
             ));
+        }
+    }
+    let members_changed = is_create
+        || command.tags.iter().any(|tag| {
+            let parts = tag.as_slice();
+            parts.len() == 2
+                && (parts[0] == "member" || (parts[0] == "clear" && parts[1] == "members"))
+        });
+    if members_changed {
+        for member_hex in &validated_members {
+            let member = decode_pubkey(member_hex)?;
+            if state
+                .db
+                .is_archived(tenant.community(), member_hex)
+                .await
+                .map_err(|error| {
+                    IngestError::Internal(format!("error: read archived Track member: {error}"))
+                })?
+            {
+                return Err(IngestError::Rejected(
+                    "invalid: archived identities cannot be Track members".into(),
+                ));
+            }
+            let relay_member = state
+                .db
+                .get_relay_member(tenant.community(), member_hex)
+                .await
+                .map_err(|error| {
+                    IngestError::Internal(format!("error: read Track member membership: {error}"))
+                })?;
+            let agent = state
+                .db
+                .get_task_assignment_policy(tenant.community(), &member)
+                .await
+                .map_err(|error| {
+                    IngestError::Internal(format!("error: read Track member identity: {error}"))
+                })?;
+            if relay_member.is_none()
+                && !agent.as_ref().is_some_and(|(_, agent_owner, _)| {
+                    agent_owner.is_some() || !state.config.require_relay_membership
+                })
+            {
+                return Err(IngestError::Rejected(
+                    "invalid: Track member is not a current community identity".into(),
+                ));
+            }
         }
     }
 
@@ -563,6 +675,11 @@ async fn handle_task_execution(
         .map_err(|error| IngestError::Internal(format!("error: read Agent owner: {error}")))?
         .ok_or_else(|| IngestError::Rejected("invalid: task assignee is not an Agent".into()))?;
     let actor = auth.pubkey().to_bytes().to_vec();
+    if !task_track_visible_to_actor(tenant, state, &task.event, &actor).await? {
+        return Err(IngestError::AuthFailed(
+            "restricted: actor cannot access the Task Track".into(),
+        ));
+    }
 
     if is_request {
         if !task_execution_start_allowed(&actor, &assignee, &owner) {
@@ -835,6 +952,11 @@ async fn handle_task_delete(
     }
 
     let actor = auth.pubkey().to_bytes().to_vec();
+    if !task_track_visible_to_actor(tenant, state, &current.event, &actor).await? {
+        return Err(IngestError::AuthFailed(
+            "restricted: actor cannot access the Task Track".into(),
+        ));
+    }
     if let Some(channel_id) = current.channel_id {
         let channel = state
             .db
@@ -944,6 +1066,13 @@ async fn handle_task_command(
 
     let actor = auth.pubkey().to_bytes().to_vec();
     let actor_hex = hex::encode(&actor);
+    if let Some(existing) = &current {
+        if !task_track_visible_to_actor(tenant, state, &existing.event, &actor).await? {
+            return Err(IngestError::AuthFailed(
+                "restricted: actor cannot access the Task Track".into(),
+            ));
+        }
+    }
     let actor_is_admin = state
         .db
         .get_relay_member(tenant.community(), &actor_hex)
@@ -1256,6 +1385,19 @@ async fn handle_task_command(
             if extract_tag(&track.event, "archived").as_deref() == Some("true") {
                 return Err(IngestError::Rejected(
                     "invalid: archived Tracks cannot receive tasks".into(),
+                ));
+            }
+            if !super::req::track_state_visible_to_reader(
+                state,
+                tenant.community(),
+                &track.event,
+                &actor,
+                &actor_hex,
+            )
+            .await
+            {
+                return Err(IngestError::AuthFailed(
+                    "restricted: actor cannot access the target Track".into(),
                 ));
             }
         }

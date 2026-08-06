@@ -8,6 +8,7 @@ export type Track = {
   name: string;
   description: string;
   owner: string;
+  members: string[];
   startDate: string;
   endDate: string;
   status: TrackStatus;
@@ -16,11 +17,20 @@ export type Track = {
   lastEditor: string;
   createdAt: number;
   updatedAt: number;
+  canRead: boolean;
+  canManage: boolean;
 };
 
 export type TrackDraft = Pick<
   Track,
-  "id" | "name" | "description" | "owner" | "startDate" | "endDate" | "status"
+  | "id"
+  | "name"
+  | "description"
+  | "owner"
+  | "members"
+  | "startDate"
+  | "endDate"
+  | "status"
 >;
 
 export type TrackPatch = Partial<Omit<TrackDraft, "id">> & {

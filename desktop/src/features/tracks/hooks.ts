@@ -71,8 +71,13 @@ export function useTracks() {
   const managedAgents = useManagedAgentsQuery();
   const relayAgents = useRelayAgentsQuery();
   const memberPubkeys = React.useMemo(
-    () => (members.data ?? []).map((member) => member.pubkey),
-    [members.data],
+    () => [
+      ...new Set([
+        ...(members.data ?? []).map((member) => member.pubkey),
+        ...(identity.data?.pubkey ? [identity.data.pubkey] : []),
+      ]),
+    ],
+    [identity.data?.pubkey, members.data],
   );
   const profiles = useUsersBatchQuery(memberPubkeys);
   const query = useQuery({
@@ -161,6 +166,21 @@ export function useTracks() {
     relayAgents.data,
   ]);
 
+  const tracks = React.useMemo(() => {
+    const viewer = identity.data?.pubkey.toLowerCase();
+    const viewerOwner = viewer
+      ? profiles.data?.profiles[viewer]?.ownerPubkey?.toLowerCase()
+      : undefined;
+    return (query.data ?? []).map((track) => ({
+      ...track,
+      canRead: true,
+      canManage:
+        Boolean(viewer) &&
+        (track.owner.toLowerCase() === viewer ||
+          track.owner.toLowerCase() === viewerOwner),
+    }));
+  }, [identity.data?.pubkey, profiles.data?.profiles, query.data]);
+
   const create = useMutation({
     mutationFn: (draft: TrackDraft) =>
       publishTrackCommand(buildCreateTrackEvent(draft)),
@@ -193,7 +213,7 @@ export function useTracks() {
   });
 
   return {
-    tracks: query.data ?? [],
+    tracks,
     isLoading: query.isLoading,
     isError: query.isError,
     refetch: query.refetch,

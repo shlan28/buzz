@@ -8,7 +8,8 @@ use tracing::{debug, warn};
 use buzz_core::filter::filters_match;
 use buzz_core::kind::{
     is_unshared_persona_event, AUTHOR_ONLY_KINDS, KIND_AGENT_ENGRAM, KIND_AGENT_TURN_METRIC,
-    KIND_DM_VISIBILITY, KIND_PERSONA, PRIVATE_CALENDAR_KINDS, P_GATED_KINDS, RESULT_GATED_KINDS,
+    KIND_DM_VISIBILITY, KIND_PERSONA, KIND_TASK_STATE, PRIVATE_CALENDAR_KINDS, P_GATED_KINDS,
+    RESULT_GATED_KINDS, TASK_KINDS, TRACK_KINDS,
 };
 use buzz_core::tenant::TenantContext;
 use buzz_db::EventQuery;
@@ -285,7 +286,7 @@ pub async fn handle_req(
     let mut total_sent: usize = 0;
 
     // Phase 1 — pure query construction, in filter order.
-    let filter_queries: Vec<(usize, Option<uuid::Uuid>, EventQuery)> = filters
+    let filter_queries: Vec<(usize, Option<uuid::Uuid>, EventQuery, usize)> = filters
         .iter()
         .enumerate()
         .map(|(idx, filter)| {
@@ -317,7 +318,8 @@ pub async fn handle_req(
             if filter_can_match_persona_shared_kinds(filter) {
                 params.persona_reader = Some(pubkey_bytes.clone());
             }
-            (idx, per_filter_channel, params)
+            let visible_limit = apply_track_acl_query_budget(&mut params, filter);
+            (idx, per_filter_channel, params, visible_limit)
         })
         .collect();
 
@@ -328,18 +330,18 @@ pub async fn handle_req(
     use futures_util::stream::{self, StreamExt};
     let db = state.db.clone();
     let mut results = stream::iter(filter_queries.into_iter().map(
-        |(idx, per_filter_channel, params)| {
+        |(idx, per_filter_channel, params, visible_limit)| {
             let db = db.clone();
             async move {
                 let filter_events = db.query_events_routed("req_historical", &params).await;
-                (idx, per_filter_channel, filter_events)
+                (idx, per_filter_channel, visible_limit, filter_events)
             }
         },
     ))
     .buffered(FILTER_QUERY_CONCURRENCY);
 
     // Phase 3 — post-processing, strictly in filter order.
-    while let Some((idx, per_filter_channel, filter_events)) = results.next().await {
+    while let Some((idx, per_filter_channel, visible_limit, filter_events)) = results.next().await {
         let filter = &filters[idx];
         let events = match filter_events {
             Ok(evs) => evs,
@@ -386,6 +388,11 @@ pub async fn handle_req(
             );
         }
 
+        if visible_limit == 0 {
+            continue;
+        }
+
+        let mut visible_for_filter = 0_usize;
         for stored in &events {
             // Per-filter NIP-01 matching — use the current filter only, not the
             // full filter set. OR semantics across filters are handled by the outer
@@ -406,13 +413,25 @@ pub async fn handle_req(
             // Also enforces author-only kinds (30300/30350) and the persona
             // shared-gate (kind:30175 without ["shared","true"]). Single call
             // covers all three gated event classes.
-            if !event_visible_to_reader(&stored.event, &pubkey_bytes) {
+            if !event_visible_to_reader(
+                &state,
+                conn.tenant.community(),
+                &stored.event,
+                &pubkey_bytes,
+            )
+            .await
+            {
                 continue;
             }
+            visible_for_filter += 1;
+            let page_is_full = visible_for_filter >= visible_limit;
 
             // Dedup AFTER acceptance — an event that fails filter A's constraints
             // must remain eligible for filter B (NIP-01 OR semantics).
             if !seen_ids.insert(stored.event.id) {
+                if page_is_full {
+                    break;
+                }
                 continue;
             }
 
@@ -423,6 +442,9 @@ pub async fn handle_req(
             total_sent += 1;
             if total_sent.is_multiple_of(100) {
                 tokio::task::yield_now().await;
+            }
+            if page_is_full {
+                break;
             }
         }
     }
@@ -723,7 +745,14 @@ async fn handle_search_req(
                     }
                     // Result-level gate: covers author-only, persona shared-gate,
                     // and result-gated kinds in one call.
-                    if !event_visible_to_reader(&stored.event, reader_pubkey_bytes) {
+                    if !event_visible_to_reader(
+                        state,
+                        tenant.community(),
+                        &stored.event,
+                        reader_pubkey_bytes,
+                    )
+                    .await
+                    {
                         continue;
                     }
                     // Dedup AFTER acceptance — an event that fails filter A's constraints
@@ -770,6 +799,19 @@ pub async fn build_event_query_from_filter(
 /// fetch one extra row so callers can reject over-budget scans rather than
 /// returning a truncated count.
 pub(crate) const COUNT_FALLBACK_CANDIDATE_LIMIT: i64 = 5_000;
+/// Maximum candidate rows used to refill a page after Track ACL filtering.
+pub(crate) const TRACK_ACL_QUERY_CANDIDATE_LIMIT: i64 = 5_000;
+
+/// Expand a Track/Task query before SQL LIMIT so hidden newer rows do not
+/// starve an authorized older page. Returns the caller-visible page limit.
+pub(crate) fn apply_track_acl_query_budget(query: &mut EventQuery, filter: &Filter) -> usize {
+    let visible_limit = query.limit.unwrap_or(MAX_HISTORICAL_LIMIT).max(0) as usize;
+    if visible_limit > 0 && filter_can_match_track_acl_kinds(filter) {
+        query.limit = Some(TRACK_ACL_QUERY_CANDIDATE_LIMIT);
+        query.max_limit = Some(TRACK_ACL_QUERY_CANDIDATE_LIMIT);
+    }
+    visible_limit
+}
 
 /// Apply the bounded candidate budget used by COUNT post-filter fallbacks.
 pub(crate) fn apply_count_fallback_limit(query: &mut EventQuery) {
@@ -1250,7 +1292,12 @@ pub(crate) fn is_author_only_event(event: &nostr::Event, requester_pubkey_bytes:
 /// Call this from every read surface — both WS (REQ/COUNT/fan-out) and HTTP
 /// (NIP-98 `/query`, `/count`, FTS search) — instead of inlining the three
 /// individual predicates at each site.
-pub(crate) fn event_visible_to_reader(event: &nostr::Event, requester_pubkey_bytes: &[u8]) -> bool {
+pub(crate) async fn event_visible_to_reader(
+    state: &AppState,
+    community_id: buzz_core::CommunityId,
+    event: &nostr::Event,
+    requester_pubkey_bytes: &[u8],
+) -> bool {
     if is_author_only_event(event, requester_pubkey_bytes) {
         return false;
     }
@@ -1261,7 +1308,137 @@ pub(crate) fn event_visible_to_reader(event: &nostr::Event, requester_pubkey_byt
     if !buzz_core::filter::reader_authorized_for_event(event, &requester_pubkey_hex) {
         return false;
     }
-    true
+    event_visible_under_track_acl(
+        state,
+        community_id,
+        event,
+        requester_pubkey_bytes,
+        &requester_pubkey_hex,
+    )
+    .await
+}
+
+async fn event_visible_under_track_acl(
+    state: &AppState,
+    community_id: buzz_core::CommunityId,
+    event: &nostr::Event,
+    requester_pubkey_bytes: &[u8],
+    requester_pubkey_hex: &str,
+) -> bool {
+    let kind = event.kind.as_u16() as u32;
+    if !buzz_core::filter::kind_requires_track_acl(kind) {
+        return true;
+    }
+    let track_id = if TRACK_KINDS.contains(&kind) {
+        match buzz_core::track::track_id(event) {
+            Ok(id) => Some(id),
+            Err(_) => return false,
+        }
+    } else if TASK_KINDS.contains(&kind) {
+        if kind == KIND_TASK_STATE {
+            event.tags.iter().find_map(|tag| {
+                let parts = tag.as_slice();
+                (parts.len() == 2 && parts[0] == "t")
+                    .then(|| parts[1].strip_prefix("track-id:"))
+                    .flatten()
+                    .and_then(|value| uuid::Uuid::parse_str(value).ok())
+            })
+        } else {
+            let task_id = match buzz_core::task::task_id(event) {
+                Ok(id) => id,
+                Err(_) => return false,
+            };
+            let mut query = EventQuery::for_community(community_id);
+            query.kinds = Some(vec![KIND_TASK_STATE as i32]);
+            query.d_tag = Some(task_id.to_string());
+            query.limit = Some(1);
+            let task_state = match state.db.query_events(&query).await {
+                Ok(events) => events.into_iter().next(),
+                Err(error) => {
+                    warn!(%task_id, %error, "Track ACL task lookup failed; withholding event");
+                    return false;
+                }
+            };
+            let Some(task_state) = task_state else {
+                return false;
+            };
+            task_state.event.tags.iter().find_map(|tag| {
+                let parts = tag.as_slice();
+                (parts.len() == 2 && parts[0] == "t")
+                    .then(|| parts[1].strip_prefix("track-id:"))
+                    .flatten()
+                    .and_then(|value| uuid::Uuid::parse_str(value).ok())
+            })
+        }
+    } else {
+        return false;
+    };
+    let Some(track_id) = track_id else {
+        return true;
+    };
+    let mut query = EventQuery::for_community(community_id);
+    query.kinds = Some(vec![buzz_core::kind::KIND_TRACK_STATE as i32]);
+    query.d_tag = Some(track_id.to_string());
+    query.limit = Some(1);
+    let track_state = match state.db.query_events(&query).await {
+        Ok(events) => events.into_iter().next(),
+        Err(error) => {
+            warn!(%track_id, %error, "Track ACL state lookup failed; withholding event");
+            return false;
+        }
+    };
+    let Some(track_state) = track_state else {
+        return false;
+    };
+    track_state_visible_to_reader(
+        state,
+        community_id,
+        &track_state.event,
+        requester_pubkey_bytes,
+        requester_pubkey_hex,
+    )
+    .await
+}
+
+/// Apply the current Track ACL to one current Track State.
+pub(crate) async fn track_state_visible_to_reader(
+    state: &AppState,
+    community_id: buzz_core::CommunityId,
+    track_state: &nostr::Event,
+    requester_pubkey_bytes: &[u8],
+    requester_pubkey_hex: &str,
+) -> bool {
+    if buzz_core::track::direct_viewer_authorized(track_state, requester_pubkey_hex) {
+        return true;
+    }
+    let owner = track_state.tags.iter().find_map(|tag| {
+        let parts = tag.as_slice();
+        (parts.len() >= 2 && parts[0] == "p").then(|| parts[1].to_string())
+    });
+    let Some(owner) = owner.and_then(|value| hex::decode(value).ok()) else {
+        return false;
+    };
+    match state
+        .db
+        .get_agent_owner_pubkey(community_id, requester_pubkey_bytes)
+        .await
+    {
+        Ok(agent_owner) => agent_owner.as_deref() == Some(owner.as_slice()),
+        Err(error) => {
+            warn!(%error, "Track ACL managed-Agent lookup failed; withholding event");
+            false
+        }
+    }
+}
+
+/// Whether a filter can match events that need current Track ACL evaluation.
+pub(crate) fn filter_can_match_track_acl_kinds(filter: &Filter) -> bool {
+    filter.kinds.as_ref().is_none_or(|kinds| {
+        kinds.iter().any(|kind| {
+            let kind = kind.as_u16() as u32;
+            buzz_core::filter::kind_requires_track_acl(kind)
+        })
+    })
 }
 
 /// Pre-filter authorization for filters that exclusively target author-only kinds.
@@ -1359,6 +1536,40 @@ mod tests {
 
         assert!(query.channel_ids.is_none());
         assert_eq!(query.channel_id, Some(channel));
+    }
+
+    #[test]
+    fn track_acl_query_budget_refills_before_visible_limit() {
+        let mut query = EventQuery::for_community(buzz_core::tenant::CommunityId::from_uuid(
+            uuid::Uuid::new_v4(),
+        ));
+        query.limit = Some(25);
+        let filter = Filter::new().kind(nostr::Kind::Custom(
+            buzz_core::kind::KIND_TRACK_STATE as u16,
+        ));
+
+        let visible_limit = apply_track_acl_query_budget(&mut query, &filter);
+
+        assert_eq!(visible_limit, 25);
+        assert_eq!(query.limit, Some(TRACK_ACL_QUERY_CANDIDATE_LIMIT));
+        assert_eq!(query.max_limit, Some(TRACK_ACL_QUERY_CANDIDATE_LIMIT));
+    }
+
+    #[test]
+    fn zero_limit_track_query_does_not_expand_candidate_budget() {
+        let mut query = EventQuery::for_community(buzz_core::tenant::CommunityId::from_uuid(
+            uuid::Uuid::new_v4(),
+        ));
+        query.limit = Some(0);
+        let filter = Filter::new().kind(nostr::Kind::Custom(
+            buzz_core::kind::KIND_TRACK_STATE as u16,
+        ));
+
+        let visible_limit = apply_track_acl_query_budget(&mut query, &filter);
+
+        assert_eq!(visible_limit, 0);
+        assert_eq!(query.limit, Some(0));
+        assert!(query.max_limit.is_none());
     }
 
     /// S2 invariant: the bounded-concurrency pipeline (phase 2) must yield

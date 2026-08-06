@@ -262,6 +262,362 @@ async fn query_track_state(
     events
 }
 
+async fn query_filter(
+    client: &mut BuzzTestClient,
+    filter: Filter,
+    name: &str,
+) -> Vec<nostr::Event> {
+    let sid = sub_id(name);
+    client
+        .subscribe(&sid, vec![filter])
+        .await
+        .expect("subscribe");
+    let events = client
+        .collect_until_eose(&sid, Duration::from_secs(5))
+        .await
+        .expect("collect query results");
+    client.close_subscription(&sid).await.expect("close query");
+    events
+}
+
+async fn count_filter(client: &mut BuzzTestClient, filter: Filter, name: &str) -> u64 {
+    let sid = sub_id(name);
+    client
+        .send_raw(&serde_json::json!(["COUNT", sid, filter]))
+        .await
+        .expect("send COUNT");
+    loop {
+        match client
+            .recv_event(Duration::from_secs(5))
+            .await
+            .expect("COUNT response")
+        {
+            RelayMessage::Count {
+                subscription_id,
+                count,
+            } if subscription_id == sid => return count,
+            _ => {}
+        }
+    }
+}
+
+async fn seed_agent_owner(host: &str, owner: &Keys, agent: &Keys) {
+    seed_relay_member(host, agent, "member").await;
+    let pool = e2e_db_pool().await;
+    let community_id = ensure_test_community(host).await;
+    sqlx::query(
+        "INSERT INTO users (community_id, pubkey) VALUES ($1, $2) \
+         ON CONFLICT (community_id, pubkey) DO NOTHING",
+    )
+    .bind(community_id)
+    .bind(owner.public_key().as_bytes())
+    .execute(&pool)
+    .await
+    .expect("seed Agent owner identity");
+    sqlx::query(
+        "INSERT INTO users (community_id, pubkey, agent_owner_pubkey) VALUES ($1, $2, $3) \
+         ON CONFLICT (community_id, pubkey) DO UPDATE SET agent_owner_pubkey = $3",
+    )
+    .bind(community_id)
+    .bind(agent.public_key().as_bytes())
+    .bind(owner.public_key().as_bytes())
+    .execute(&pool)
+    .await
+    .expect("seed managed Agent identity");
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_track_acl_protects_history_tasks_count_and_fanout() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let url = relay_url();
+    let host = url
+        .strip_prefix("ws://")
+        .or_else(|| url.strip_prefix("wss://"))
+        .and_then(|authority| authority.split('/').next())
+        .expect("RELAY_URL must contain a host");
+    let creator = Keys::generate();
+    let owner = Keys::generate();
+    let member = Keys::generate();
+    let outsider = Keys::generate();
+    let admin = Keys::generate();
+    let owner_agent = Keys::generate();
+    let next_owner = Keys::generate();
+    for (keys, role) in [
+        (&creator, "member"),
+        (&owner, "member"),
+        (&member, "member"),
+        (&outsider, "member"),
+        (&admin, "admin"),
+        (&next_owner, "member"),
+    ] {
+        seed_relay_member(host, keys, role).await;
+    }
+    seed_agent_owner(host, &owner, &owner_agent).await;
+
+    let mut creator_client = BuzzTestClient::connect(&url, &creator).await.unwrap();
+    let mut owner_client = BuzzTestClient::connect(&url, &owner).await.unwrap();
+    let mut member_client = BuzzTestClient::connect(&url, &member).await.unwrap();
+    let mut outsider_client = BuzzTestClient::connect(&url, &outsider).await.unwrap();
+    let mut admin_client = BuzzTestClient::connect(&url, &admin).await.unwrap();
+    let mut agent_client = BuzzTestClient::connect(&url, &owner_agent).await.unwrap();
+
+    let track_id = Uuid::new_v4();
+    let create = build_track_create(&TrackCreateInput {
+        id: track_id,
+        name: "Private Track".into(),
+        description: "ACL integration".into(),
+        owner: owner.public_key().to_hex(),
+        members: vec![member.public_key().to_hex()],
+        start_date: "2026-08-01".into(),
+        end_date: "2026-08-31".into(),
+        status: TrackStatus::Active,
+    })
+    .unwrap()
+    .sign_with_keys(&creator)
+    .unwrap();
+    let create_id = create.id;
+    let ok = creator_client.send_event(create).await.unwrap();
+    assert!(ok.accepted, "Track create rejected: {}", ok.message);
+
+    for (client, label) in [
+        (&mut creator_client, "creator"),
+        (&mut owner_client, "owner"),
+        (&mut member_client, "member"),
+        (&mut agent_client, "owner-agent"),
+    ] {
+        assert_eq!(query_track_state(client, track_id, label).await.len(), 1);
+    }
+    assert!(
+        query_track_state(&mut outsider_client, track_id, "outsider")
+            .await
+            .is_empty()
+    );
+    assert!(query_track_state(&mut admin_client, track_id, "admin")
+        .await
+        .is_empty());
+
+    let create_history_filter = Filter::new().id(create_id);
+    assert_eq!(
+        query_filter(
+            &mut member_client,
+            create_history_filter.clone(),
+            "member-history"
+        )
+        .await
+        .len(),
+        1
+    );
+    assert!(query_filter(
+        &mut outsider_client,
+        create_history_filter,
+        "outsider-history"
+    )
+    .await
+    .is_empty());
+
+    let state = query_track_state(&mut owner_client, track_id, "permission-head").await;
+    for (client, keys, label) in [
+        (&mut creator_client, &creator, "creator"),
+        (&mut member_client, &member, "member"),
+        (&mut admin_client, &admin, "admin"),
+    ] {
+        let denied = build_track_mutate(&TrackMutateInput {
+            id: track_id,
+            previous_event: state[0].id.to_hex(),
+            name: Some(format!("denied-{label}")),
+            ..TrackMutateInput::default()
+        })
+        .unwrap()
+        .sign_with_keys(keys)
+        .unwrap();
+        assert!(
+            !client.send_event(denied).await.unwrap().accepted,
+            "{label} managed Track"
+        );
+    }
+
+    let agent_update = build_track_mutate(&TrackMutateInput {
+        id: track_id,
+        previous_event: state[0].id.to_hex(),
+        name: Some("Managed by owner Agent".into()),
+        ..TrackMutateInput::default()
+    })
+    .unwrap()
+    .sign_with_keys(&owner_agent)
+    .unwrap();
+    assert!(
+        agent_client
+            .send_event(agent_update)
+            .await
+            .unwrap()
+            .accepted
+    );
+
+    let task_id = Uuid::new_v4();
+    let task_create = build_task_create(&TaskCreateInput {
+        id: task_id,
+        title: "Track protected Task".into(),
+        description: String::new(),
+        assignee: None,
+        status: TaskStatus::Todo,
+        priority: TaskPriority::None,
+        due: None,
+        labels: Vec::new(),
+        project: None,
+        track: Some(track_id),
+        channel: None,
+        source_event: None,
+    })
+    .unwrap()
+    .sign_with_keys(&creator)
+    .unwrap();
+    let task_create_id = task_create.id;
+    assert!(
+        creator_client
+            .send_event(task_create)
+            .await
+            .unwrap()
+            .accepted
+    );
+    assert_eq!(
+        query_task_state(&mut member_client, task_id, "member-task")
+            .await
+            .len(),
+        1
+    );
+    assert!(
+        query_task_state(&mut outsider_client, task_id, "outsider-task")
+            .await
+            .is_empty()
+    );
+    assert_eq!(
+        query_filter(
+            &mut member_client,
+            Filter::new().id(task_create_id),
+            "member-task-command"
+        )
+        .await
+        .len(),
+        1
+    );
+    assert!(query_filter(
+        &mut outsider_client,
+        Filter::new().id(task_create_id),
+        "outsider-task-command"
+    )
+    .await
+    .is_empty());
+    let task_filter = Filter::new()
+        .kind(Kind::Custom(buzz_core::kind::KIND_TASK_STATE as u16))
+        .custom_tags(
+            SingleLetterTag::lowercase(Alphabet::D),
+            [task_id.to_string()],
+        );
+    assert_eq!(
+        count_filter(&mut member_client, task_filter.clone(), "member-count").await,
+        1
+    );
+    assert_eq!(
+        count_filter(&mut outsider_client, task_filter.clone(), "outsider-count").await,
+        0
+    );
+
+    let member_live_sid = sub_id("member-live");
+    member_client
+        .subscribe(&member_live_sid, vec![task_filter.clone()])
+        .await
+        .unwrap();
+    member_client
+        .collect_until_eose(&member_live_sid, Duration::from_secs(5))
+        .await
+        .unwrap();
+    let outsider_live_sid = sub_id("outsider-live");
+    outsider_client
+        .subscribe(&outsider_live_sid, vec![task_filter])
+        .await
+        .unwrap();
+    outsider_client
+        .collect_until_eose(&outsider_live_sid, Duration::from_secs(5))
+        .await
+        .unwrap();
+    let task_state = query_task_state(&mut creator_client, task_id, "task-live-head").await;
+    let task_update = build_task_mutate(&TaskMutateInput {
+        id: task_id,
+        previous_event: task_state[0].id.to_hex(),
+        title: Some("Track protected Task updated".into()),
+        ..TaskMutateInput::default()
+    })
+    .unwrap()
+    .sign_with_keys(&creator)
+    .unwrap();
+    assert!(
+        creator_client
+            .send_event(task_update)
+            .await
+            .unwrap()
+            .accepted
+    );
+    assert!(matches!(
+        member_client.recv_event(Duration::from_secs(5)).await.unwrap(),
+        RelayMessage::Event { subscription_id, .. } if subscription_id == member_live_sid
+    ));
+    assert!(matches!(
+        outsider_client.recv_event(Duration::from_millis(500)).await,
+        Err(TestClientError::Timeout)
+    ));
+
+    let pool = e2e_db_pool().await;
+    let community_id = ensure_test_community(host).await;
+    sqlx::query(
+        "UPDATE users SET agent_owner_pubkey = NULL WHERE community_id = $1 AND pubkey = $2",
+    )
+    .bind(community_id)
+    .bind(owner_agent.public_key().as_bytes())
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(
+        query_track_state(&mut agent_client, track_id, "unlinked-agent")
+            .await
+            .is_empty()
+    );
+
+    let state = query_track_state(&mut owner_client, track_id, "transfer-head").await;
+    let transfer = build_track_mutate(&TrackMutateInput {
+        id: track_id,
+        previous_event: state[0].id.to_hex(),
+        owner: Some(next_owner.public_key().to_hex()),
+        ..TrackMutateInput::default()
+    })
+    .unwrap()
+    .sign_with_keys(&owner)
+    .unwrap();
+    assert!(owner_client.send_event(transfer).await.unwrap().accepted);
+    assert!(query_track_state(&mut owner_client, track_id, "old-owner")
+        .await
+        .is_empty());
+    let mut next_owner_client = BuzzTestClient::connect(&url, &next_owner).await.unwrap();
+    assert_eq!(
+        query_track_state(&mut next_owner_client, track_id, "next-owner")
+            .await
+            .len(),
+        1
+    );
+    assert!(query_filter(
+        &mut owner_client,
+        Filter::new()
+            .kind(Kind::Custom(buzz_core::kind::KIND_TRACK_MUTATE as u16))
+            .custom_tags(
+                SingleLetterTag::lowercase(Alphabet::T),
+                [format!("track-id:{track_id}")],
+            ),
+        "old-owner-history"
+    )
+    .await
+    .is_empty());
+}
+
 #[tokio::test]
 #[ignore]
 async fn test_track_archive_restore_and_task_reference() {
@@ -277,6 +633,7 @@ async fn test_track_archive_restore_and_task_reference() {
         name: format!("track-e2e-{track_id}"),
         description: "Track lifecycle integration".into(),
         owner: keys.public_key().to_hex(),
+        members: Vec::new(),
         start_date: "2026-08-01".into(),
         end_date: "2026-08-31".into(),
         status: TrackStatus::Completed,

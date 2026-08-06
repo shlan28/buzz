@@ -1,14 +1,14 @@
 # Buzz 模块地图
 
 > 更新日期：2026-08-06
-> 更新说明：登记 Tracks vertical slice，并补充 Tasks 的 Track 与多 Tag 扩展入口。
+> 更新说明：补充 Track ACL、owner Agent 管理权及关联 Task 权限交集的 Relay 和客户端入口。
 
 ## Relay 与核心
 
 | 模块 | 职责 |
 |---|---|
 | `buzz-core` | 零 I/O 类型、event、filter、kind、验证、tenant；包含 Task 与 Track 的 kind、状态和字段验证 |
-| `buzz-relay` | WebSocket/HTTP 入口与所有服务编排；校验 Task / Track 权限、引用和并发版本，并生成当前 State |
+| `buzz-relay` | WebSocket/HTTP 入口与所有服务编排；校验 Task / Track 权限、引用和并发版本，生成当前 State，并统一过滤查询、计数、搜索和 fan-out |
 | `buzz-db` | Postgres 数据访问；原子保存 Task / Track Command 历史并替换当前 State |
 | `buzz-auth` | NIP-42/NIP-98、token、scope、rate limit |
 | `buzz-pubsub` | Redis fan-out、presence、typing |
@@ -79,13 +79,16 @@ Tracks 的主要入口：
 
 | 文件/目录 | 职责 |
 |---|---|
-| `crates/buzz-core/src/track.rs` | Track 状态、日期、owner、归档与字段验证 |
+| `crates/buzz-core/src/track.rs` | Track 状态、日期、owner、members、归档与直接可见身份验证 |
 | `crates/buzz-db/src/tracks.rs` | Track Command 与 State 的原子 CAS 事务 |
+| `crates/buzz-relay/src/handlers/req.rs` | 动态解析 Track ACL、owner Agent 关系与关联 Task 权限交集 |
+| `crates/buzz-relay/src/handlers/event.rs` | 按连接过滤 Track 与关联 Task 的实时 fan-out |
+| `crates/buzz-relay/src/api/bridge.rs` | 在 HTTP query、count、search、feed 和 thread 路径执行相同 ACL |
 | `crates/buzz-cli/src/commands/tracks.rs` | Agent 和命令行的 Track create/list/get/update/archive/restore 操作面 |
-| `desktop/src/features/tracks/` | Current / Completed / Archived、详情、编辑、进度、Undo 与 Restore |
+| `desktop/src/features/tracks/` | Current / Completed / Archived、成员管理、只读权限态、详情、进度、Undo 与 Restore |
 | `desktop/src/features/tasks/` | Task 单一 Track 归属、多 Tag 编辑、Track 分组和 Tag OR 筛选 |
 
-Tracks 是独立的 community 工作管理模块，不依赖或复用 feature-gated NIP-34 Projects。
+Tracks 是独立的 community 工作管理模块，不依赖或复用 feature-gated NIP-34 Projects。Track 仅对 creator、owner、显式 members 与 owner Agents 可见；关联 Task 只有在原有 Task/Channel 权限和 Track ACL 都通过时才可见。
 
 ## Mobile feature 地图
 

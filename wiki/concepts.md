@@ -1,7 +1,7 @@
 # Buzz 核心概念
 
 > 更新日期：2026-08-06
-> 更新说明：增加 Track 与多 Tag Task，并明确 Track、Task、Tag 和代码仓库 Project 的边界。
+> 更新说明：补充 Track 成员、私有可见性、owner Agent 管理权与关联 Task 的权限继承规则。
 
 ## Community
 
@@ -37,13 +37,15 @@ YAML 定义的自动化。触发源可以是消息、reaction、schedule 或 web
 
 ## Track、Task 与 Tag
 
-Track 是 community 内用于协调一组相关工作的上层容器。每个 Track 有稳定 UUID、名称、负责人、开始日期、结束日期和 `planned / active / completed / canceled` 状态；归档是独立属性，只有 completed 或 canceled Track 可以归档。归档后不会从系统删除，仍可从 Archived 范围、详情深链或 Restore 操作找回。
+Track 是 community 内用于协调一组相关工作的上层容器。每个 Track 有稳定 UUID、名称、负责人、只读成员、开始日期、结束日期和 `planned / active / completed / canceled` 状态；归档是独立属性，只有 completed 或 canceled Track 可以归档。归档后不会从系统删除，仍可从 Archived 范围、详情深链或 Restore 操作找回。
+
+Track 不是 community 全员可见。只有 creator、当前 owner、显式 Track members，以及 Buzz 身份关系中归属于当前 owner 的托管 Agent 可以读取。只有当前 owner 与这些 owner Agents 可以编辑、转派、管理成员、归档或恢复；creator、members 和 community owner/admin 不因其身份自动获得管理权。
 
 Task 是 community 内由人和 Agent 共用的通用工作项。Task 有稳定 UUID、单一负责人、状态、优先级、截止时间，以及可选的单一 Track、Project、Channel、来源消息关联；按负责人展示时，拖到另一列表示转派，而不是改变状态。把 Task 指派给 Agent 只表示责任归属，不会自动启动 Agent。
 
 一个 Task 最多归属一个 Track，但可以拥有多个 Tag。Track 用于表达有负责人和时间边界的工作归属，Tag 用于轻量、多维标记；Tasks 支持按 Track 分组或筛选，Tag 只提供 OR 筛选，不提供 Tag 分组。
 
-Task 的创建和修改保留实际操作者，当前状态由 Relay 签名并供 Desktop 与 CLI 查询。关联私密 Channel 的 Task 继续遵守该 Channel 的可见范围；Agent 的对话权限与“谁可以给它指派 Task”是两项独立设置。
+Task 的创建和修改保留实际操作者，当前状态由 Relay 签名并供 Desktop 与 CLI 查询。关联 Track 的 Task 继承 Track 可见性，其有效读取权限是原有 Task/Channel 权限与 Track ACL 的交集：看不到 Track 就看不到 Task，能看到 Track 也不会绕过私密 Channel 权限。未关联 Track 或清除 Track 归属的 Task 继续沿用原有可见范围。Agent 的对话权限与“谁可以给它指派 Task”是两项独立设置。
 
 ## Project / Forge
 

@@ -1,5 +1,5 @@
 > 更新日期：2026-08-06
-> 更新说明：补充 Track 成员、私有可见性与 Task 权限继承方案；Track 仅对 creator、owner、显式成员及代表 owner 行动的托管 Agent 可见，只有 owner 与 owner 名下 Agent 可以管理 Track，关联 Task 还必须通过 Track 可见性检查。
+> 更新说明：完成 Track 成员、私有可见性与 Task 权限继承实现；Track 仅对 creator、owner、显式成员及代表 owner 行动的托管 Agent 可见，只有 owner 与 owner 名下 Agent 可以管理 Track，关联 Task 还必须通过 Track 可见性检查。
 
 # Buzz Tracks 工作管理方案
 
@@ -640,36 +640,37 @@ buzz tasks list ... [--track <uuid>]
 - [x] `docs/assets/tracks-ui-concept-2026-08-06.png`：保存与 Buzz 整体 UI 一致的 Tracks 示意图。
 - [x] `docs/2026-08-06-tracks-work-management-plan.md`：记录本方案、UI、协议、测试和实施清单。
 
-### Track 成员与权限补充（待实现）
+### Track 成员与权限补充（已实现）
 
-- [ ] `crates/buzz-core/src/track.rs`：增加 Track member 集合校验、去重和直接可见身份判断。
-- [ ] `crates/buzz-core/src/filter.rs`：把 Track Command/State 与可反查关联 Task 的事件纳入 fail-closed 受限事件识别，防止通用查询旁路。
-- [ ] `crates/buzz-sdk/src/lib.rs`：为 Track create/mutate input 增加 members 与 clear-members patch 语义。
-- [ ] `crates/buzz-sdk/src/builders.rs`：构建、替换和清空 Track member tags，并补充 builder 测试。
-- [ ] `crates/buzz-relay/src/handlers/command_executor.rs`：限制 mutation 为 owner/owner Agent，校验成员身份，并要求 Task 操作者可读目标 Track。
-- [ ] `crates/buzz-relay/src/handlers/req.rs`：在 WebSocket 历史查询与搜索中应用 Track ACL，并按交集过滤关联 Task。
-- [ ] `crates/buzz-relay/src/handlers/count.rs`：确保 Track 与关联 Task COUNT 采用相同授权结果且不泄露存在性。
-- [ ] `crates/buzz-relay/src/handlers/event.rs`：按连接过滤 Track State 和关联 Task 的实时 fan-out，禁止 community 全广播。
-- [ ] `crates/buzz-relay/src/api/bridge.rs`：为 HTTP query/count/search 增加等价 Track ACL 与关联 Task 权限交集。
-- [ ] `crates/buzz-test-client/tests/e2e_relay.rs`：覆盖成员读取、creator/member/admin 禁写、owner Agent 读写、解绑、owner 转派及关联 Task 权限交集。
-- [ ] `crates/buzz-cli/src/lib.rs`：为 Track create/update 声明重复 `--member` 与 `--clear-members` 参数。
-- [ ] `crates/buzz-cli/src/commands/tracks.rs`：解析和输出 members，并实现完整替换与清空。
-- [ ] `crates/buzz-cli/TESTING.md`：增加 Track 私有可见性、成员和 owner Agent live-testing 流程。
-- [ ] `crates/buzz-acp/src/base_prompt.md`：明确 Agent 可用的 Tracks 命令及 owner Agent 权限边界。
-- [ ] `desktop/src/features/tracks/types.ts`：为 Track、draft 与 patch 增加 members，并表达 canRead/canManage 权限。
-- [ ] `desktop/src/features/tracks/lib/trackEvents.ts`：解析和构建 members tags 与清空语义。
-- [ ] `desktop/src/features/tracks/lib/trackEvents.test.mjs`：覆盖 members 解析、替换、清空和去重。
-- [ ] `desktop/src/features/tracks/hooks.ts`：只消费 Relay 授权结果，并向 UI 提供 Track 管理权限状态。
-- [ ] `desktop/src/features/tracks/ui/TrackEditorDialog.tsx`：增加 Person/Agent members 多选并对无管理权身份禁用编辑。
-- [ ] `desktop/src/features/tracks/ui/TrackDetailScreen.tsx`：展示成员并为 creator/member 提供只读详情。
-- [ ] `desktop/src/features/tracks/ui/TrackList.tsx`：只向 owner/owner Agent显示管理菜单，普通可见者保持只读。
-- [ ] `desktop/src/features/tasks/ui/TaskTrackSelect.tsx`：选择器只列出当前身份可见且未归档的 Tracks。
-- [ ] `desktop/src/features/tasks/ui/TaskTrackFilter.tsx`：筛选器不泄露不可见 Track 元数据或关联 Task 数量。
-- [ ] `desktop/src/testing/e2eBridge.ts`：模拟 viewer、members 与 owner Agent 的 Track 可见性及授权失败。
-- [ ] `desktop/tests/e2e/tracks.spec.ts`：覆盖成员多选、只读 UI、无权深链、owner Agent 管理和关联 Task 权限交集。
-- [ ] `wiki/concepts.md`：更新 Track members、私有可见性和 owner Agent 权限定义。
-- [ ] `wiki/modules.md`：登记 Track ACL 的 Relay 与客户端证据入口。
-- [ ] `docs/2026-08-06-tracks-work-management-plan.md`：记录 Track 成员与权限补充方案及逐文件实施状态。
+- [x] `crates/buzz-core/src/track.rs`：增加 Track member 集合校验、去重和直接可见身份判断。
+- [x] `crates/buzz-core/src/filter.rs`：把 Track Command/State 与可反查关联 Task 的事件纳入 fail-closed 受限事件识别，防止通用查询旁路。
+- [x] `crates/buzz-sdk/src/lib.rs`：为 Track create/mutate input 增加 members 与 clear-members patch 语义。
+- [x] `crates/buzz-sdk/src/builders.rs`：构建、替换和清空 Track member tags，并补充 builder 测试。
+- [x] `crates/buzz-relay/src/handlers/command_executor.rs`：限制 mutation 为 owner/owner Agent，校验成员身份，并要求 Task 操作者可读目标 Track。
+- [x] `crates/buzz-relay/src/handlers/req.rs`：在 WebSocket 历史查询与搜索中应用 Track ACL，并按交集过滤关联 Task。
+- [x] `crates/buzz-relay/src/handlers/count.rs`：确保 Track 与关联 Task COUNT 采用相同授权结果且不泄露存在性。
+- [x] `crates/buzz-relay/src/handlers/event.rs`：按连接过滤 Track State 和关联 Task 的实时 fan-out，禁止 community 全广播。
+- [x] `crates/buzz-relay/src/api/bridge.rs`：为 HTTP query/count/search/feed/thread 增加等价 Track ACL 与关联 Task 权限交集。
+- [x] `crates/buzz-relay/src/push_runtime.rs`：在移动端唤醒匹配前执行 Track 与关联 Task ACL。
+- [x] `crates/buzz-test-client/tests/e2e_relay.rs`：覆盖成员读取、creator/member/admin 禁写、owner Agent 读写、解绑、owner 转派及关联 Task 权限交集。
+- [x] `crates/buzz-cli/src/lib.rs`：为 Track create/update 声明重复 `--member` 与 `--clear-members` 参数。
+- [x] `crates/buzz-cli/src/commands/tracks.rs`：解析和输出 members，并实现完整替换与清空。
+- [x] `crates/buzz-cli/TESTING.md`：增加 Track 私有可见性、成员和 owner Agent live-testing 流程。
+- [x] `crates/buzz-acp/src/base_prompt.md`：明确 Agent 可用的 Tracks 命令及 owner Agent 权限边界。
+- [x] `desktop/src/features/tracks/types.ts`：为 Track、draft 与 patch 增加 members，并表达 canRead/canManage 权限。
+- [x] `desktop/src/features/tracks/lib/trackEvents.ts`：解析和构建 members tags 与清空语义。
+- [x] `desktop/src/features/tracks/lib/trackEvents.test.mjs`：覆盖 members 解析、替换、清空和去重。
+- [x] `desktop/src/features/tracks/hooks.ts`：只消费 Relay 授权结果，并向 UI 提供 Track 管理权限状态。
+- [x] `desktop/src/features/tracks/ui/TrackEditorDialog.tsx`：增加 Person/Agent members 多选并对无管理权身份禁用编辑。
+- [x] `desktop/src/features/tracks/ui/TrackDetailScreen.tsx`：展示成员并为 creator/member 提供只读详情。
+- [x] `desktop/src/features/tracks/ui/TrackList.tsx`：只向 owner/owner Agent 显示管理菜单，普通可见者保持只读。
+- [x] `desktop/src/features/tasks/ui/TaskTrackSelect.tsx`：确认选择器只消费 Relay 授权返回且未归档的 Tracks。
+- [x] `desktop/src/features/tasks/ui/TaskTrackFilter.tsx`：确认筛选器不构造或泄露不可见 Track 元数据及关联 Task 数量。
+- [x] `desktop/src/testing/e2eBridge.ts`：模拟 viewer、members 与 owner Agent 的 Track 可见性及授权失败。
+- [x] `desktop/tests/e2e/tracks.spec.ts`：覆盖成员多选、只读 UI、无权深链、owner Agent 管理和关联 Task 权限交集。
+- [x] `wiki/concepts.md`：更新 Track members、私有可见性和 owner Agent 权限定义。
+- [x] `wiki/modules.md`：登记 Track ACL 的 Relay 与客户端证据入口。
+- [x] `docs/2026-08-06-tracks-work-management-plan.md`：记录 Track 成员与权限补充方案及逐文件实施状态。
 
 ## 11. 实施前确认项
 

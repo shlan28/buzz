@@ -4,6 +4,7 @@ import {
   buildCreateTrackEvent,
   buildMutateTrackEvent,
   parseTrackState,
+  uniqueMembers,
 } from "./trackEvents.ts";
 
 const relay = "a".repeat(64);
@@ -18,6 +19,8 @@ const event = {
     ["d", "00000000-0000-4000-8000-000000000001"],
     ["title", "Desktop foundations"],
     ["p", "d".repeat(64), "", "owner"],
+    ["member", "1".repeat(64)],
+    ["member", "2".repeat(64)],
     ["start_date", "2026-08-01"],
     ["end_date", "2026-08-30"],
     ["t", "track-status:active"],
@@ -35,6 +38,7 @@ test("parses a Relay-signed track state", () => {
     name: "Desktop foundations",
     description: "A reliable desktop foundation",
     owner: "d".repeat(64),
+    members: ["1".repeat(64), "2".repeat(64)],
     startDate: "2026-08-01",
     endDate: "2026-08-30",
     status: "active",
@@ -43,6 +47,8 @@ test("parses a Relay-signed track state", () => {
     lastEditor: "f".repeat(64),
     createdAt: 5,
     updatedAt: 10,
+    canRead: true,
+    canManage: false,
   });
 });
 
@@ -71,6 +77,7 @@ test("builds create and version-bound mutate commands", () => {
     name: "  Desktop foundations  ",
     description: "Outcome",
     owner: "d".repeat(64),
+    members: ["1".repeat(64), "1".repeat(64), "d".repeat(64)],
     startDate: "2026-08-01",
     endDate: "2026-08-30",
     status: "planned",
@@ -82,6 +89,10 @@ test("builds create and version-bound mutate commands", () => {
     ["archived", "false"],
   );
   assert.deepEqual(
+    create.tags.filter((tag) => tag[0] === "member"),
+    [["member", "1".repeat(64)]],
+  );
+  assert.deepEqual(
     create.tags.find((tag) => tag[0] === "title"),
     ["title", "Desktop foundations"],
   );
@@ -91,11 +102,23 @@ test("builds create and version-bound mutate commands", () => {
   const mutate = buildMutateTrackEvent(track, {
     status: "completed",
     archived: true,
+    members: ["2".repeat(64), "3".repeat(64), "3".repeat(64)],
   });
   assert.equal(mutate.kind, 42511);
   assert.deepEqual(
     mutate.tags.find((tag) => tag[0] === "previous"),
     ["previous", event.id],
+  );
+  assert.equal(
+    mutate.tags.some((tag) => tag[0] === "clear" && tag[1] === "members"),
+    true,
+  );
+  assert.deepEqual(
+    mutate.tags.filter((tag) => tag[0] === "member"),
+    [
+      ["member", "2".repeat(64)],
+      ["member", "3".repeat(64)],
+    ],
   );
   assert.deepEqual(
     mutate.tags.find((tag) => tag[0] === "archived"),
@@ -111,6 +134,7 @@ test("blocks invalid dates and archiving unfinished work", () => {
         name: "Track",
         description: "",
         owner: "d".repeat(64),
+        members: [],
         startDate: "2026-08-02",
         endDate: "2026-08-01",
         status: "planned",
@@ -140,5 +164,15 @@ test("blocks invalid dates and archiving unfinished work", () => {
   assert.throws(
     () => buildMutateTrackEvent(archived, { status: "active" }),
     /completed or canceled/,
+  );
+});
+
+test("normalizes member sets case-insensitively and excludes the owner", () => {
+  assert.deepEqual(
+    uniqueMembers(
+      ["A".repeat(64), "a".repeat(64), "b".repeat(64), "invalid"],
+      "b".repeat(64),
+    ),
+    ["A".repeat(64)],
   );
 });

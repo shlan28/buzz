@@ -260,7 +260,12 @@ pub fn build_track_create(input: &TrackCreateInput) -> Result<EventBuilder, SdkE
     buzz_core::track::validate_date_range(&input.start_date, &input.end_date)
         .map_err(|error| SdkError::InvalidInput(error.to_string()))?;
     let owner = check_pubkey_hex(&input.owner, "track owner")?;
-    let tags = vec![
+    let members = buzz_core::track::validate_members_for_owner(
+        &owner,
+        input.members.iter().map(String::as_str),
+    )
+    .map_err(|error| SdkError::InvalidInput(error.to_string()))?;
+    let mut tags = vec![
         tag(&["t", &format!("track-id:{}", input.id)])?,
         tag(&["title", input.name.trim()])?,
         tag(&["p", &owner])?,
@@ -269,6 +274,9 @@ pub fn build_track_create(input: &TrackCreateInput) -> Result<EventBuilder, SdkE
         tag(&["t", &format!("track-status:{}", input.status.as_str())])?,
         tag(&["archived", "false"])?,
     ];
+    for member in members {
+        tags.push(tag(&["member", &member])?);
+    }
     Ok(EventBuilder::new(Kind::Custom(KIND_TRACK_CREATE as u16), &input.description).tags(tags))
 }
 
@@ -296,6 +304,20 @@ pub fn build_track_mutate(input: &TrackMutateInput) -> Result<EventBuilder, SdkE
     }
     if let Some(owner) = &input.owner {
         tags.push(tag(&["p", &check_pubkey_hex(owner, "track owner")?])?);
+    }
+    if let Some(members) = &input.members {
+        tags.push(tag(&["clear", "members"])?);
+        let members = match &input.owner {
+            Some(owner) => buzz_core::track::validate_members_for_owner(
+                owner,
+                members.iter().map(String::as_str),
+            ),
+            None => buzz_core::track::validate_members(members.iter().map(String::as_str)),
+        }
+        .map_err(|error| SdkError::InvalidInput(error.to_string()))?;
+        for member in members {
+            tags.push(tag(&["member", &member])?);
+        }
     }
     if let Some(start_date) = &input.start_date {
         buzz_core::track::validate_date(start_date)
@@ -328,6 +350,7 @@ pub fn build_track_mutate(input: &TrackMutateInput) -> Result<EventBuilder, SdkE
     let changed = input.name.is_some()
         || input.description.is_some()
         || input.owner.is_some()
+        || input.members.is_some()
         || input.start_date.is_some()
         || input.end_date.is_some()
         || input.status.is_some()
@@ -2365,13 +2388,15 @@ mod tests {
     #[test]
     fn track_builders_use_stable_id_and_explicit_restore() {
         let owner = keys().public_key().to_hex();
+        let member = keys().public_key().to_hex();
         let id = Uuid::from_u128(9);
         let create = sign(
             build_track_create(&TrackCreateInput {
                 id,
                 name: "Desktop foundations".into(),
                 description: "Build a reliable base".into(),
-                owner,
+                owner: owner.clone(),
+                members: vec![member.clone(), member.clone()],
                 start_date: "2026-08-01".into(),
                 end_date: "2026-08-30".into(),
                 status: buzz_core::track::TrackStatus::Planned,
@@ -2382,6 +2407,14 @@ mod tests {
         assert!(create.tags.iter().any(|tag| {
             tag.as_slice() == ["t", "track-id:00000000-0000-0000-0000-000000000009"]
         }));
+        assert_eq!(
+            create
+                .tags
+                .iter()
+                .filter(|tag| tag.as_slice() == ["member", member.as_str()])
+                .count(),
+            1
+        );
 
         let restore = sign(
             build_track_mutate(&TrackMutateInput {
@@ -2397,6 +2430,32 @@ mod tests {
             .tags
             .iter()
             .any(|tag| tag.as_slice() == ["archived", "false"]));
+
+        let clear_members = sign(
+            build_track_mutate(&TrackMutateInput {
+                id,
+                previous_event: "cd".repeat(32),
+                members: Some(Vec::new()),
+                ..TrackMutateInput::default()
+            })
+            .unwrap(),
+        );
+        assert!(clear_members
+            .tags
+            .iter()
+            .any(|tag| tag.as_slice() == ["clear", "members"]));
+
+        assert!(build_track_create(&TrackCreateInput {
+            id,
+            name: "Invalid membership".into(),
+            description: String::new(),
+            owner: owner.clone(),
+            members: vec![owner],
+            start_date: "2026-08-01".into(),
+            end_date: "2026-08-30".into(),
+            status: buzz_core::track::TrackStatus::Planned,
+        })
+        .is_err());
     }
 
     #[test]

@@ -1369,6 +1369,9 @@ pub enum TracksCmd {
         /// `me` or a 64-hex person/Agent pubkey.
         #[arg(long, default_value = "me")]
         owner: String,
+        /// Initial read-only member pubkey; may be repeated.
+        #[arg(long = "member")]
+        members: Vec<String>,
         /// Date-only value in YYYY-MM-DD format.
         #[arg(long)]
         start_date: String,
@@ -1412,6 +1415,12 @@ pub enum TracksCmd {
         /// `me` or a 64-hex person/Agent pubkey.
         #[arg(long)]
         owner: Option<String>,
+        /// Replace the complete read-only member set; may be repeated.
+        #[arg(long = "member")]
+        members: Vec<String>,
+        /// Remove every explicit member from the Track.
+        #[arg(long, default_value_t = false, conflicts_with = "members")]
+        clear_members: bool,
         #[arg(long)]
         start_date: Option<String>,
         #[arg(long)]
@@ -2261,6 +2270,7 @@ mod tests {
     fn track_commands_require_dates_and_conflict_heads() {
         let track_id = "20eef02c-9be8-4055-a747-e348d5a405ad";
         let event_id = "a".repeat(64);
+        let member = "b".repeat(64);
         assert!(Cli::try_parse_from([
             "buzz",
             "tracks",
@@ -2271,6 +2281,8 @@ mod tests {
             "2026-08-01",
             "--end-date",
             "2026-08-30",
+            "--member",
+            &member,
         ])
         .is_ok());
         assert!(Cli::try_parse_from([
@@ -2294,6 +2306,19 @@ mod tests {
             &event_id,
         ])
         .is_ok());
+        assert!(Cli::try_parse_from([
+            "buzz",
+            "tracks",
+            "update",
+            "--id",
+            track_id,
+            "--expected-event",
+            &event_id,
+            "--member",
+            &member,
+            "--clear-members",
+        ])
+        .is_err());
     }
 
     #[test]

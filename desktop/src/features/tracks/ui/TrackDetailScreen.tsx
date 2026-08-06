@@ -7,6 +7,7 @@ import {
   List,
   Pencil,
   RotateCcw,
+  UsersRound,
   UserRound,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -48,6 +49,16 @@ export function TrackDetailScreen({ trackId }: { trackId: string }) {
   const ownerLabel = tracksQuery.owners.find(
     (owner) => owner.pubkey.toLowerCase() === track?.owner.toLowerCase(),
   )?.label;
+  const ownerLabels = React.useMemo(
+    () =>
+      new Map(
+        tracksQuery.owners.map((owner) => [
+          owner.pubkey.toLowerCase(),
+          owner.label,
+        ]),
+      ),
+    [tracksQuery.owners],
+  );
 
   if (tracksQuery.isLoading || tasksQuery.isLoading) {
     return <Centered>Loading track…</Centered>;
@@ -144,7 +155,7 @@ export function TrackDetailScreen({ trackId }: { trackId: string }) {
               {track.description || "No description"}
             </p>
           </div>
-          {!track.archived ? (
+          {!track.archived && track.canManage ? (
             <Button
               onClick={() => setEditing(true)}
               size="sm"
@@ -179,6 +190,29 @@ export function TrackDetailScreen({ trackId }: { trackId: string }) {
             {progress.completed}/{progress.total} visible tasks completed
           </span>
           <Progress className="h-1.5 w-36" value={progress.percent} />
+          {!track.canManage ? (
+            <span className="rounded-full bg-muted px-2 py-0.5 font-medium text-foreground">
+              Read only
+            </span>
+          ) : null}
+        </div>
+        <div
+          className="mt-3 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground"
+          data-testid="track-members"
+        >
+          <UsersRound className="mr-1 h-3.5 w-3.5" />
+          {track.members.length === 0 ? (
+            <span>No additional members</span>
+          ) : (
+            track.members.map((member) => (
+              <span
+                className="rounded-full bg-muted px-2 py-1 text-foreground"
+                key={member}
+              >
+                {ownerLabels.get(member.toLowerCase()) ?? "Unknown member"}
+              </span>
+            ))
+          )}
         </div>
       </header>
       {track.archived ? (
@@ -189,15 +223,17 @@ export function TrackDetailScreen({ trackId }: { trackId: string }) {
               This track is hidden from Current and Completed views.
             </span>
           </div>
-          <Button
-            disabled={tracksQuery.update.isPending}
-            onClick={restore}
-            size="sm"
-            variant="outline"
-          >
-            <RotateCcw className="h-4 w-4" />
-            Restore track
-          </Button>
+          {track.canManage ? (
+            <Button
+              disabled={tracksQuery.update.isPending}
+              onClick={restore}
+              size="sm"
+              variant="outline"
+            >
+              <RotateCcw className="h-4 w-4" />
+              Restore track
+            </Button>
+          ) : null}
         </div>
       ) : null}
       <div className="flex items-center justify-end gap-1 border-b border-border px-5 py-2">

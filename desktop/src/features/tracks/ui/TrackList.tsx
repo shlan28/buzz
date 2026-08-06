@@ -114,7 +114,7 @@ export function TrackList({
                 </span>
               </div>
               <div className="justify-self-end">
-                {track.archived ? (
+                {track.archived && track.canManage ? (
                   <Button
                     disabled={pending}
                     onClick={() => onRestore(track)}
@@ -124,7 +124,7 @@ export function TrackList({
                     <RotateCcw className="h-4 w-4" />
                     Restore
                   </Button>
-                ) : (
+                ) : track.canManage ? (
                   <DropdownMenu modal={false}>
                     <DropdownMenuTrigger asChild>
                       <Button
@@ -149,6 +149,10 @@ export function TrackList({
                       ) : null}
                     </DropdownMenuContent>
                   </DropdownMenu>
+                ) : (
+                  <span className="text-xs text-muted-foreground">
+                    Read only
+                  </span>
                 )}
               </div>
             </div>

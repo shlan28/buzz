@@ -43,12 +43,16 @@ export function parseTrackState(
   const endDate = firstTag(event, "end_date");
   const rawStatus = semanticTag(event, "track-status:");
   const rawArchived = firstTag(event, "archived");
+  const rawMembers = event.tags
+    .filter((tag) => tag[0] === "member")
+    .map((tag) => tag[1] ?? "");
   if (
     !id ||
     !isUuid(id) ||
     !name ||
     !owner ||
     !/^[0-9a-f]{64}$/i.test(owner) ||
+    rawMembers.some((member) => !/^[0-9a-f]{64}$/i.test(member)) ||
     !isDateOnly(startDate) ||
     !isDateOnly(endDate) ||
     startDate > endDate ||
@@ -64,6 +68,7 @@ export function parseTrackState(
     name,
     description: event.content,
     owner,
+    members: uniqueMembers(rawMembers, owner),
     startDate,
     endDate,
     status: rawStatus as TrackStatus,
@@ -72,6 +77,8 @@ export function parseTrackState(
     lastEditor: firstTag(event, "last_editor") ?? event.pubkey,
     createdAt: parseTimestamp(firstTag(event, "created_at"), event.created_at),
     updatedAt: event.created_at,
+    canRead: true,
+    canManage: false,
   };
 }
 
@@ -103,6 +110,12 @@ export function buildMutateTrackEvent(track: Track, patch: TrackPatch) {
   ];
   if (patch.name !== undefined) tags.push(["title", patch.name.trim()]);
   if (patch.owner !== undefined) tags.push(["p", patch.owner]);
+  if (patch.members !== undefined) {
+    tags.push(["clear", "members"]);
+    for (const member of uniqueMembers(patch.members, next.owner)) {
+      tags.push(["member", member]);
+    }
+  }
   if (patch.startDate !== undefined) tags.push(["start_date", patch.startDate]);
   if (patch.endDate !== undefined) tags.push(["end_date", patch.endDate]);
   if (patch.status !== undefined)
@@ -122,7 +135,7 @@ export function buildMutateTrackEvent(track: Track, patch: TrackPatch) {
 export function validateTrackDraft(
   draft: Pick<
     TrackDraft,
-    "name" | "owner" | "startDate" | "endDate" | "status"
+    "name" | "owner" | "members" | "startDate" | "endDate" | "status"
   > & { description?: string },
 ) {
   const nameBytes = new TextEncoder().encode(draft.name.trim()).length;
@@ -131,6 +144,9 @@ export function validateTrackDraft(
   }
   if (!/^[0-9a-f]{64}$/i.test(draft.owner)) {
     throw new Error("Track owner must be a 64-character public key.");
+  }
+  if (draft.members.some((member) => !/^[0-9a-f]{64}$/i.test(member))) {
+    throw new Error("Every Track member must be a 64-character public key.");
   }
   if (
     draft.description !== undefined &&
@@ -158,11 +174,35 @@ function trackFieldTags(draft: TrackDraft): string[][] {
     ["t", `track-id:${draft.id}`],
     ["title", draft.name.trim()],
     ["p", draft.owner],
+    ...uniqueMembers(draft.members, draft.owner).map((member) => [
+      "member",
+      member,
+    ]),
     ["start_date", draft.startDate],
     ["end_date", draft.endDate],
     ["t", `track-status:${draft.status}`],
     ["archived", "false"],
   ];
+}
+
+export function uniqueMembers(members: readonly string[], owner?: string) {
+  const ownerKey = owner?.toLowerCase();
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const member of members) {
+    const value = member.trim();
+    const normalized = value.toLowerCase();
+    if (
+      !/^[0-9a-f]{64}$/i.test(value) ||
+      normalized === ownerKey ||
+      seen.has(normalized)
+    ) {
+      continue;
+    }
+    seen.add(normalized);
+    result.push(value);
+  }
+  return result;
 }
 
 function isUuid(value: string) {

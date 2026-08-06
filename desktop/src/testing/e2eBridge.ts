@@ -3959,6 +3959,19 @@ function emitMockGlobalEvent(event: RelayEvent) {
   ) {
     return;
   }
+  if (event.kind === KIND_TRACK_STATE && !mockViewerCanReadTrack(event)) {
+    return;
+  }
+  if (event.kind === KIND_TASK_STATE) {
+    if (!mockViewerCanReadTask(event)) return;
+  }
+  if (event.kind === KIND_TASK_EXECUTION_STATE) {
+    const taskId = taskSemanticTag(event, "task-id:")?.slice("task-id:".length);
+    const task = mockTaskEvents.find(
+      (candidate) => taskTag(candidate, "d") === taskId,
+    );
+    if (!task || !mockViewerCanReadTask(task)) return;
+  }
   for (const socket of mockSockets.values()) {
     for (const [subId, subscription] of socket.subscriptions) {
       if (subscription.kinds && !subscription.kinds.includes(event.kind)) {
@@ -5221,6 +5234,7 @@ function filterMockTaskEvents(filter: MockFilter): RelayEvent[] {
   return mockTaskEvents
     .filter((event) => {
       if (filter.kinds && !filter.kinds.includes(event.kind)) return false;
+      if (!mockViewerCanReadTask(event)) return false;
       if (authors && !authors.includes(event.pubkey.toLowerCase()))
         return false;
       if (
@@ -5236,11 +5250,23 @@ function filterMockTaskEvents(filter: MockFilter): RelayEvent[] {
     .slice(0, filter.limit ?? 500);
 }
 
+function mockViewerCanReadTask(event: RelayEvent): boolean {
+  const trackId = taskSemanticTag(event, "track-id:")?.slice(
+    "track-id:".length,
+  );
+  if (!trackId) return true;
+  const track = mockTrackEvents.find(
+    (candidate) => taskTag(candidate, "d") === trackId,
+  );
+  return Boolean(track && mockViewerCanReadTrack(track));
+}
+
 function filterMockTrackEvents(filter: MockFilter): RelayEvent[] {
   const authors = filter.authors?.map((author) => author.toLowerCase());
   return mockTrackEvents
     .filter((event) => {
       if (filter.kinds && !filter.kinds.includes(event.kind)) return false;
+      if (!mockViewerCanReadTrack(event)) return false;
       if (authors && !authors.includes(event.pubkey.toLowerCase()))
         return false;
       if (
@@ -5254,6 +5280,30 @@ function filterMockTrackEvents(filter: MockFilter): RelayEvent[] {
     })
     .sort((left, right) => right.created_at - left.created_at)
     .slice(0, filter.limit ?? 500);
+}
+
+function mockViewerCanReadTrack(event: RelayEvent): boolean {
+  const viewer = MOCK_IDENTITY_PUBKEY.toLowerCase();
+  const owner = taskTag(event, "p")?.toLowerCase();
+  const creator = taskTag(event, "creator")?.toLowerCase();
+  const viewerOwner =
+    getMockProfileByPubkey(viewer)?.owner_pubkey?.toLowerCase();
+  return (
+    viewer === owner ||
+    viewer === creator ||
+    event.tags.some(
+      (tag) => tag[0] === "member" && tag[1]?.toLowerCase() === viewer,
+    ) ||
+    (Boolean(viewerOwner) && viewerOwner === owner)
+  );
+}
+
+function mockViewerCanManageTrack(event: RelayEvent): boolean {
+  const viewer = MOCK_IDENTITY_PUBKEY.toLowerCase();
+  const owner = taskTag(event, "p")?.toLowerCase();
+  const viewerOwner =
+    getMockProfileByPubkey(viewer)?.owner_pubkey?.toLowerCase();
+  return viewer === owner || (Boolean(viewerOwner) && viewerOwner === owner);
 }
 
 function deriveMockTrackState(command: RelayEvent): RelayEvent | null {
@@ -5282,6 +5332,16 @@ function deriveMockTrackState(command: RelayEvent): RelayEvent | null {
         tags = tags.filter((tag) => tag[0] !== name);
         tags.push(...incoming.map((tag) => [...tag]));
       }
+    }
+    if (
+      command.tags.some((tag) => tag[0] === "clear" && tag[1] === "members")
+    ) {
+      tags = tags.filter((tag) => tag[0] !== "member");
+      tags.push(
+        ...command.tags
+          .filter((tag) => tag[0] === "member")
+          .map((tag) => [...tag]),
+      );
     }
     const status = command.tags.find(
       (tag) => tag[0] === "t" && tag[1]?.startsWith("track-status:"),
@@ -9574,6 +9634,13 @@ function sendToMockSocket(args: {
 
     if (filter.kinds?.includes(KIND_TASK_EXECUTION_STATE)) {
       for (const event of mockTaskExecutionEvents) {
+        const taskId = taskSemanticTag(event, "task-id:")?.slice(
+          "task-id:".length,
+        );
+        const task = mockTaskEvents.find(
+          (candidate) => taskTag(candidate, "d") === taskId,
+        );
+        if (!task || !mockViewerCanReadTask(task)) continue;
         sendWsText(socket.handler, ["EVENT", subId, event]);
       }
       sendWsText(socket.handler, ["EOSE", subId]);
@@ -9645,6 +9712,23 @@ function sendToMockSocket(args: {
     const event = rest[0] as RelayEvent;
 
     if (event.kind === KIND_TRACK_CREATE || event.kind === KIND_TRACK_MUTATE) {
+      if (event.kind === KIND_TRACK_MUTATE) {
+        const trackId = taskSemanticTag(event, "track-id:")?.slice(
+          "track-id:".length,
+        );
+        const current = mockTrackEvents.find(
+          (candidate) => taskTag(candidate, "d") === trackId,
+        );
+        if (!current || !mockViewerCanManageTrack(current)) {
+          sendWsText(socket.handler, [
+            "OK",
+            event.id,
+            false,
+            "restricted: only the Track owner or its owner Agent may manage it",
+          ]);
+          return;
+        }
+      }
       const state = deriveMockTrackState(event);
       if (!state) {
         sendWsText(socket.handler, [
@@ -9717,6 +9801,23 @@ function sendToMockSocket(args: {
       if (rejection) {
         sendWsText(socket.handler, ["OK", event.id, false, rejection]);
         return;
+      }
+      const targetTrackId = taskSemanticTag(event, "track-id:")?.slice(
+        "track-id:".length,
+      );
+      if (targetTrackId) {
+        const targetTrack = mockTrackEvents.find(
+          (candidate) => taskTag(candidate, "d") === targetTrackId,
+        );
+        if (!targetTrack || !mockViewerCanReadTrack(targetTrack)) {
+          sendWsText(socket.handler, [
+            "OK",
+            event.id,
+            false,
+            "restricted: target Track is not visible",
+          ]);
+          return;
+        }
       }
       const state = deriveMockTaskState(event);
       if (!state) {

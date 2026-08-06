@@ -1,4 +1,5 @@
 import * as React from "react";
+import { ChevronDown, X } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import {
   Dialog,
@@ -8,6 +9,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/shared/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/shared/ui/dropdown-menu";
 import { Input } from "@/shared/ui/input";
 import { Textarea } from "@/shared/ui/textarea";
 import { validateTrackDraft } from "../lib/trackEvents";
@@ -42,6 +49,7 @@ export function TrackEditorDialog({
     initialDraft(track, currentPubkey),
   );
   const [validationError, setValidationError] = React.useState<string>();
+  const readOnly = Boolean(track && !track.canManage);
 
   React.useEffect(() => {
     if (open) {
@@ -74,6 +82,7 @@ export function TrackEditorDialog({
               name: draft.name,
               description: draft.description,
               owner: draft.owner,
+              members: draft.members,
               startDate: draft.startDate,
               endDate: draft.endDate,
               status: draft.status,
@@ -109,6 +118,7 @@ export function TrackEditorDialog({
               autoFocus
               id="track-name"
               maxLength={256}
+              disabled={readOnly}
               value={draft.name}
               onChange={(event) =>
                 setDraft({ ...draft, name: event.target.value })
@@ -119,6 +129,7 @@ export function TrackEditorDialog({
             <Textarea
               id="track-description"
               placeholder="What outcome should this track reach?"
+              disabled={readOnly}
               value={draft.description}
               onChange={(event) =>
                 setDraft({ ...draft, description: event.target.value })
@@ -129,9 +140,16 @@ export function TrackEditorDialog({
             <select
               className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
               id="track-owner"
+              disabled={readOnly}
               value={draft.owner}
               onChange={(event) =>
-                setDraft({ ...draft, owner: event.target.value })
+                setDraft({
+                  ...draft,
+                  owner: event.target.value,
+                  members: draft.members.filter(
+                    (member) => member !== event.target.value,
+                  ),
+                })
               }
             >
               <option disabled value="">
@@ -145,10 +163,19 @@ export function TrackEditorDialog({
               ))}
             </select>
           </Field>
+          <MembersField
+            disabled={readOnly}
+            members={draft.members}
+            options={ownerOptions.filter(
+              (option) => option.pubkey !== draft.owner,
+            )}
+            onChange={(members) => setDraft({ ...draft, members })}
+          />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Start date" htmlFor="track-start-date">
               <Input
                 id="track-start-date"
+                disabled={readOnly}
                 type="date"
                 value={draft.startDate}
                 onChange={(event) =>
@@ -160,6 +187,7 @@ export function TrackEditorDialog({
               <Input
                 aria-invalid={draft.endDate < draft.startDate}
                 id="track-end-date"
+                disabled={readOnly}
                 min={draft.startDate}
                 type="date"
                 value={draft.endDate}
@@ -173,6 +201,7 @@ export function TrackEditorDialog({
             <select
               className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
               id="track-status"
+              disabled={readOnly}
               value={draft.status}
               onChange={(event) =>
                 setDraft({
@@ -202,12 +231,118 @@ export function TrackEditorDialog({
           <Button disabled={pending} onClick={onClose} variant="outline">
             Cancel
           </Button>
-          <Button disabled={pending} onClick={submit}>
+          <Button disabled={pending || readOnly} onClick={submit}>
             {pending ? "Saving…" : track ? "Save changes" : "Create track"}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function MembersField({
+  members,
+  options,
+  disabled,
+  onChange,
+}: {
+  members: string[];
+  options: TrackOwnerOption[];
+  disabled: boolean;
+  onChange: (members: string[]) => void;
+}) {
+  const labels = new Map(
+    options.map((option) => [option.pubkey.toLowerCase(), option.label]),
+  );
+  const selected = new Set(members.map((member) => member.toLowerCase()));
+  return (
+    <div className="space-y-1.5 text-sm font-medium">
+      <span>Members</span>
+      {members.length > 0 ? (
+        <div
+          className="flex flex-wrap gap-1.5"
+          data-testid="track-member-chips"
+        >
+          {members.map((member) => (
+            <span
+              className="inline-flex min-w-0 items-center gap-1 rounded-full bg-muted px-2 py-1 text-xs font-normal text-foreground"
+              key={member}
+            >
+              <span className="max-w-40 truncate">
+                {labels.get(member.toLowerCase()) ?? "Unknown member"}
+              </span>
+              {!disabled ? (
+                <button
+                  aria-label={`Remove ${labels.get(member.toLowerCase()) ?? "member"}`}
+                  className="rounded-full text-muted-foreground hover:text-foreground"
+                  onClick={() =>
+                    onChange(
+                      members.filter((candidate) => candidate !== member),
+                    )
+                  }
+                  type="button"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              ) : null}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      <DropdownMenu modal={false}>
+        <DropdownMenuTrigger asChild>
+          <Button
+            aria-label="Add track members"
+            className="w-full justify-between font-normal"
+            disabled={disabled}
+            type="button"
+            variant="outline"
+          >
+            {members.length === 0
+              ? "Add people or agents"
+              : `${members.length} ${members.length === 1 ? "member" : "members"}`}
+            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="start"
+          className="max-h-64 overflow-y-auto"
+          onCloseAutoFocus={(event) => event.preventDefault()}
+          style={{ minWidth: "var(--radix-dropdown-menu-trigger-width)" }}
+        >
+          {options.length === 0 ? (
+            <p className="px-3 py-2 text-xs text-muted-foreground">
+              No other community identities are available.
+            </p>
+          ) : (
+            options.map((option) => (
+              <DropdownMenuCheckboxItem
+                checked={selected.has(option.pubkey.toLowerCase())}
+                key={option.pubkey}
+                onCheckedChange={(checked) =>
+                  onChange(
+                    checked
+                      ? [...members, option.pubkey]
+                      : members.filter(
+                          (member) =>
+                            member.toLowerCase() !==
+                            option.pubkey.toLowerCase(),
+                        ),
+                  )
+                }
+                onSelect={(event) => event.preventDefault()}
+              >
+                {option.label}
+                {option.kind === "agent" ? " · Agent" : ""}
+              </DropdownMenuCheckboxItem>
+            ))
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <p className="text-xs font-normal text-muted-foreground">
+        Members can find and read this track. They cannot manage it.
+      </p>
+    </div>
   );
 }
 
@@ -238,6 +373,7 @@ function initialDraft(
       name: track.name,
       description: track.description,
       owner: track.owner,
+      members: track.members,
       startDate: track.startDate,
       endDate: track.endDate,
       status: track.status,
@@ -251,6 +387,7 @@ function initialDraft(
     name: "",
     description: "",
     owner: currentPubkey ?? "",
+    members: [],
     startDate,
     endDate: end.toISOString().slice(0, 10),
     status: "planned",

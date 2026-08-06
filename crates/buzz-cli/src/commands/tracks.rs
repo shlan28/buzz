@@ -21,6 +21,7 @@ struct TrackSnapshot {
     description: String,
     owner: String,
     owner_type: Option<String>,
+    members: Vec<String>,
     start_date: String,
     end_date: String,
     status: String,
@@ -45,6 +46,7 @@ impl TrackSnapshot {
         let mut name = None;
         let mut owner = None;
         let mut owner_type = None;
+        let mut members = Vec::new();
         let mut start_date = None;
         let mut end_date = None;
         let mut status = None;
@@ -67,6 +69,7 @@ impl TrackSnapshot {
                     owner = Some(value.to_string());
                     owner_type = parts.get(3).cloned().filter(|value| !value.is_empty());
                 }
+                "member" => members.push(value.to_string()),
                 "start_date" => start_date = Some(value.to_string()),
                 "end_date" => end_date = Some(value.to_string()),
                 "t" if value.starts_with("track-status:") => {
@@ -88,6 +91,7 @@ impl TrackSnapshot {
             description: event.content.clone(),
             owner: required(owner, "p")?,
             owner_type,
+            members,
             start_date: required(start_date, "start_date")?,
             end_date: required(end_date, "end_date")?,
             status: status.unwrap_or_else(|| "planned".into()),
@@ -129,6 +133,21 @@ fn normalize_owner(value: &str, me: &str) -> Result<String, CliError> {
         .map_err(|error| {
             CliError::Usage(format!("--owner must be `me` or a 64-hex pubkey: {error}"))
         })
+}
+
+fn normalize_members(values: Vec<String>) -> Result<Vec<String>, CliError> {
+    let mut normalized = Vec::with_capacity(values.len());
+    for value in values {
+        let member = PublicKey::from_hex(&value)
+            .map(|key| key.to_hex())
+            .map_err(|error| {
+                CliError::Usage(format!("--member must be a 64-hex pubkey: {error}"))
+            })?;
+        if !normalized.contains(&member) {
+            normalized.push(member);
+        }
+    }
+    Ok(normalized)
 }
 
 async fn relay_self(client: &BuzzClient) -> Result<String, CliError> {
@@ -235,6 +254,7 @@ pub async fn dispatch(command: TracksCmd, client: &BuzzClient) -> Result<(), Cli
             id,
             description,
             owner,
+            members,
             start_date,
             end_date,
             status,
@@ -249,6 +269,7 @@ pub async fn dispatch(command: TracksCmd, client: &BuzzClient) -> Result<(), Cli
                 name,
                 description: description.unwrap_or_default(),
                 owner: normalize_owner(&owner, &client.keys().public_key().to_hex())?,
+                members: normalize_members(members)?,
                 start_date,
                 end_date,
                 status: TrackStatus::from_str(&status)
@@ -342,6 +363,8 @@ pub async fn dispatch(command: TracksCmd, client: &BuzzClient) -> Result<(), Cli
             description,
             clear_description,
             owner,
+            members,
+            clear_members,
             start_date,
             end_date,
             status,
@@ -361,6 +384,13 @@ pub async fn dispatch(command: TracksCmd, client: &BuzzClient) -> Result<(), Cli
                     .as_deref()
                     .map(|value| normalize_owner(value, &client.keys().public_key().to_hex()))
                     .transpose()?,
+                members: if clear_members {
+                    Some(Vec::new())
+                } else if members.is_empty() {
+                    None
+                } else {
+                    Some(normalize_members(members)?)
+                },
                 start_date,
                 end_date,
                 status: status
@@ -416,6 +446,17 @@ mod tests {
     }
 
     #[test]
+    fn members_are_validated_and_deduplicated() {
+        let first = nostr::Keys::generate().public_key().to_hex();
+        let second = nostr::Keys::generate().public_key().to_hex();
+        assert_eq!(
+            normalize_members(vec![first.clone(), second.clone(), first.clone()]).unwrap(),
+            vec![first, second]
+        );
+        assert!(normalize_members(vec!["Alice".into()]).is_err());
+    }
+
+    #[test]
     fn ids_are_strict() {
         assert!(parse_track_id("10eef02c-9be8-4055-a747-e348d5a405ad").is_ok());
         assert!(parse_track_id("track-1").is_err());
@@ -436,6 +477,7 @@ mod tests {
             Tag::parse(["d", &track_id.to_string()]).unwrap(),
             Tag::parse(["title", "Desktop foundations"]).unwrap(),
             Tag::parse(["p", &owner]).unwrap(),
+            Tag::parse(["member", &creator]).unwrap(),
             Tag::parse(["start_date", "2026-08-01"]).unwrap(),
             Tag::parse(["end_date", "2026-08-30"]).unwrap(),
             Tag::parse(["t", "track-status:active"]).unwrap(),
@@ -452,6 +494,7 @@ mod tests {
         assert_eq!(snapshot.id, track_id.to_string());
         assert_eq!(snapshot.name, "Desktop foundations");
         assert_eq!(snapshot.owner, owner);
+        assert_eq!(snapshot.members, vec![creator]);
         assert_eq!(snapshot.status, "active");
         assert!(!snapshot.archived);
     }

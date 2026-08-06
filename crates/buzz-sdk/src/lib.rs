@@ -96,6 +96,8 @@ pub struct TrackCreateInput {
     pub description: String,
     /// Responsible Person or Agent public key in hexadecimal.
     pub owner: String,
+    /// Explicit read-only Track members.
+    pub members: Vec<String>,
     /// Required date-only start in `YYYY-MM-DD` form.
     pub start_date: String,
     /// Required date-only target end in `YYYY-MM-DD` form.
@@ -117,6 +119,8 @@ pub struct TrackMutateInput {
     pub description: Option<Option<String>>,
     /// Replacement owner public key.
     pub owner: Option<String>,
+    /// Complete replacement member set. An empty set clears all members.
+    pub members: Option<Vec<String>>,
     /// Replacement start date.
     pub start_date: Option<String>,
     /// Replacement end date.

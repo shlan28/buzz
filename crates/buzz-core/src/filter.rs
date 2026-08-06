@@ -32,6 +32,15 @@ pub fn reader_authorized_for_event(event: &nostr::Event, reader_pubkey_hex: &str
         .any(|t| t.content() == Some(reader_pubkey_hex))
 }
 
+/// Return whether an event kind needs the Relay's database-backed Track ACL
+/// gate before it may be delivered or counted.
+///
+/// The actual decision is intentionally Relay-owned: managed-Agent ownership
+/// and a Task's current Track assignment are dynamic database relationships.
+pub fn kind_requires_track_acl(kind: u32) -> bool {
+    crate::kind::TRACK_KINDS.contains(&kind) || crate::kind::TASK_KINDS.contains(&kind)
+}
+
 fn filter_match_one(f: &Filter, ev: &StoredEvent) -> bool {
     if let Some(kinds) = &f.kinds {
         if !kinds.contains(&ev.event.kind) {
@@ -296,5 +305,16 @@ mod tests {
             !reader_authorized_for_event(&metric, &agent_keys.public_key().to_hex()),
             "the authoring agent must NOT be authorized to read its own metric event (owner-only)"
         );
+    }
+
+    #[test]
+    fn track_and_task_kinds_require_dynamic_acl() {
+        assert!(kind_requires_track_acl(crate::kind::KIND_TRACK_STATE));
+        assert!(kind_requires_track_acl(crate::kind::KIND_TRACK_MUTATE));
+        assert!(kind_requires_track_acl(crate::kind::KIND_TASK_STATE));
+        assert!(kind_requires_track_acl(
+            crate::kind::KIND_TASK_EXECUTION_UPDATE
+        ));
+        assert!(!kind_requires_track_acl(crate::kind::KIND_TEXT_NOTE));
     }
 }
