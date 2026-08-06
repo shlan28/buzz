@@ -40,7 +40,11 @@ export type TrackPatch = Partial<Omit<TrackDraft, "id">> & {
 export type TrackOwnerOption = {
   pubkey: string;
   label: string;
+  shortId: string;
   kind: "person" | "agent";
+  isCurrent: boolean;
+  isNameLoading: boolean;
+  unavailable?: boolean;
 };
 
 export type TrackProgress = {

@@ -1,5 +1,6 @@
 import * as React from "react";
 import { ChevronDown, X } from "lucide-react";
+import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import {
   Dialog,
@@ -13,11 +14,14 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
 import { Input } from "@/shared/ui/input";
+import { Skeleton } from "@/shared/ui/skeleton";
 import { Textarea } from "@/shared/ui/textarea";
 import { validateTrackDraft } from "../lib/trackEvents";
+import { unavailableTrackIdentity } from "../lib/trackIdentityOptions";
 import type {
   Track,
   TrackDraft,
@@ -58,19 +62,23 @@ export function TrackEditorDialog({
     }
   }, [currentPubkey, open, track]);
 
-  const ownerOptions = React.useMemo(() => {
-    if (!draft.owner || owners.some((owner) => owner.pubkey === draft.owner)) {
-      return owners;
+  const identityOptions = React.useMemo(() => {
+    const next = [...owners];
+    for (const pubkey of [draft.owner, ...draft.members]) {
+      if (
+        pubkey &&
+        !next.some(
+          (option) => option.pubkey.toLowerCase() === pubkey.toLowerCase(),
+        )
+      ) {
+        next.push(unavailableTrackIdentity(pubkey));
+      }
     }
-    return [
-      ...owners,
-      {
-        pubkey: draft.owner,
-        label: "Unknown current owner",
-        kind: "person" as const,
-      },
-    ];
-  }, [draft.owner, owners]);
+    return next;
+  }, [draft.members, draft.owner, owners]);
+  const selectedOwner = identityOptions.find(
+    (option) => option.pubkey.toLowerCase() === draft.owner.toLowerCase(),
+  );
 
   const submit = () => {
     try {
@@ -137,37 +145,62 @@ export function TrackEditorDialog({
             />
           </Field>
           <Field label="Owner" htmlFor="track-owner">
-            <select
-              className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-              id="track-owner"
-              disabled={readOnly}
-              value={draft.owner}
-              onChange={(event) =>
-                setDraft({
-                  ...draft,
-                  owner: event.target.value,
-                  members: draft.members.filter(
-                    (member) => member !== event.target.value,
-                  ),
-                })
-              }
-            >
-              <option disabled value="">
-                Select an owner
-              </option>
-              {ownerOptions.map((owner) => (
-                <option key={owner.pubkey} value={owner.pubkey}>
-                  {owner.label}
-                  {owner.kind === "agent" ? " · Agent" : ""}
-                </option>
-              ))}
-            </select>
+            <DropdownMenu modal={false}>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  aria-label="Select track owner"
+                  className="h-auto min-h-9 w-full justify-between py-2 font-normal"
+                  disabled={readOnly}
+                  id="track-owner"
+                  type="button"
+                  variant="outline"
+                >
+                  {selectedOwner ? (
+                    <IdentitySummary option={selectedOwner} />
+                  ) : (
+                    <span className="text-muted-foreground">
+                      Select an owner
+                    </span>
+                  )}
+                  <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="start"
+                className="max-h-[min(16rem,var(--radix-dropdown-menu-content-available-height))] overflow-y-auto overflow-x-hidden overscroll-contain"
+                onWheelCapture={(event) => event.stopPropagation()}
+                style={{
+                  minWidth: "var(--radix-dropdown-menu-trigger-width)",
+                }}
+              >
+                {identityOptions.map((option) => (
+                  <DropdownMenuItem
+                    aria-label={`${option.label}, ${option.kind === "agent" ? "Agent" : "User"}, ${option.shortId}`}
+                    key={option.pubkey}
+                    onSelect={() =>
+                      setDraft({
+                        ...draft,
+                        owner: option.pubkey,
+                        members: draft.members.filter(
+                          (member) =>
+                            member.toLowerCase() !==
+                            option.pubkey.toLowerCase(),
+                        ),
+                      })
+                    }
+                  >
+                    <IdentitySummary option={option} />
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </Field>
           <MembersField
             disabled={readOnly}
             members={draft.members}
-            options={ownerOptions.filter(
-              (option) => option.pubkey !== draft.owner,
+            options={identityOptions.filter(
+              (option) =>
+                option.pubkey.toLowerCase() !== draft.owner.toLowerCase(),
             )}
             onChange={(members) => setDraft({ ...draft, members })}
           />
@@ -251,8 +284,8 @@ function MembersField({
   disabled: boolean;
   onChange: (members: string[]) => void;
 }) {
-  const labels = new Map(
-    options.map((option) => [option.pubkey.toLowerCase(), option.label]),
+  const optionsByPubkey = new Map(
+    options.map((option) => [option.pubkey.toLowerCase(), option]),
   );
   const selected = new Set(members.map((member) => member.toLowerCase()));
   return (
@@ -265,16 +298,19 @@ function MembersField({
         >
           {members.map((member) => (
             <span
-              className="inline-flex min-w-0 items-center gap-1 rounded-full bg-muted px-2 py-1 text-xs font-normal text-foreground"
+              className="inline-flex min-w-48 items-center gap-2 rounded-xl bg-muted px-2.5 py-2 font-normal text-foreground"
               key={member}
             >
-              <span className="max-w-40 truncate">
-                {labels.get(member.toLowerCase()) ?? "Unknown member"}
-              </span>
+              <IdentitySummary
+                option={
+                  optionsByPubkey.get(member.toLowerCase()) ??
+                  unavailableTrackIdentity(member)
+                }
+              />
               {!disabled ? (
                 <button
-                  aria-label={`Remove ${labels.get(member.toLowerCase()) ?? "member"}`}
-                  className="rounded-full text-muted-foreground hover:text-foreground"
+                  aria-label={`Remove ${optionsByPubkey.get(member.toLowerCase())?.label ?? "member"}`}
+                  className="ml-auto shrink-0 rounded-full text-muted-foreground hover:text-foreground"
                   onClick={() =>
                     onChange(
                       members.filter((candidate) => candidate !== member),
@@ -306,8 +342,9 @@ function MembersField({
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="start"
-          className="max-h-64 overflow-y-auto"
+          className="max-h-[min(16rem,var(--radix-dropdown-menu-content-available-height))] overflow-y-auto overflow-x-hidden overscroll-contain"
           onCloseAutoFocus={(event) => event.preventDefault()}
+          onWheelCapture={(event) => event.stopPropagation()}
           style={{ minWidth: "var(--radix-dropdown-menu-trigger-width)" }}
         >
           {options.length === 0 ? (
@@ -317,6 +354,7 @@ function MembersField({
           ) : (
             options.map((option) => (
               <DropdownMenuCheckboxItem
+                aria-label={`${option.label}, ${option.kind === "agent" ? "Agent" : "User"}, ${option.shortId}`}
                 checked={selected.has(option.pubkey.toLowerCase())}
                 key={option.pubkey}
                 onCheckedChange={(checked) =>
@@ -332,8 +370,7 @@ function MembersField({
                 }
                 onSelect={(event) => event.preventDefault()}
               >
-                {option.label}
-                {option.kind === "agent" ? " · Agent" : ""}
+                <IdentitySummary option={option} />
               </DropdownMenuCheckboxItem>
             ))
           )}
@@ -343,6 +380,28 @@ function MembersField({
         Members can find and read this track. They cannot manage it.
       </p>
     </div>
+  );
+}
+
+function IdentitySummary({ option }: { option: TrackOwnerOption }) {
+  return (
+    <span className="flex min-w-0 flex-1 items-center gap-3 text-left">
+      <span className="min-w-0 flex-1">
+        {option.isNameLoading ? (
+          <Skeleton className="mb-1 h-4 w-28 max-w-full" />
+        ) : (
+          <span className="block truncate text-sm font-medium">
+            {option.label}
+          </span>
+        )}
+        <span className="block truncate text-xs text-muted-foreground">
+          {option.shortId}
+        </span>
+      </span>
+      <Badge className="shrink-0" variant="outline">
+        {option.kind === "agent" ? "Agent" : "User"}
+      </Badge>
+    </span>
   );
 }
 

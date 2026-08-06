@@ -1,5 +1,5 @@
 > 更新日期：2026-08-06
-> 更新说明：完成 Tracks 与 Tasks 列表宽度及 Track 行尾操作修正；列表在页面内容区内占满宽度，Track 操作固定在独立的最右列并直接展示，不再使用省略号菜单。
+> 更新说明：确认实施 Track Owner / Member 候选过滤、名称展示与成员下拉滚动修复；补充 Track Owner 为当前签名者时 `p` self-tag 被误删的根因、签名兼容规则和回归测试方案。
 
 # Buzz Tracks 工作管理方案
 
@@ -370,6 +370,64 @@ Tracks 列表与详情必须覆盖：
 
 验收时使用与反馈截图接近的宽屏窗口，并额外覆盖窄窗口。宽屏下列表左右边线应与页面内容区对齐；Track 操作必须位于整行最右侧；Tasks 标题列应获得明显更多空间。
 
+### 4.8 Track 成员身份显示
+
+Track Owner 与 Members 选择器不能把 pubkey 当成成员名称。每个候选身份使用两层信息展示，并显式标记身份类型：
+
+```text
+You                                      [User]
+b2fa0399…63f4e
+
+Creative Product Manager                 [Agent]
+5af288a3…8c33e
+
+Unnamed member                           [User]
+deadbeef…beef
+```
+
+显示规则：
+
+- 主文本优先显示用户 Profile 名称、本地托管 Agent 名称或 Relay Agent 名称；
+- 当前登录身份的主文本固定显示 `You`，不再重复显示自己的 Profile 名称；
+- 主文本右侧始终显示 `User` 或 `Agent` 标记，Person 在用户界面统一写作 `User`；
+- 次要文本始终显示缩短后的 pubkey，用于区分重名身份；完整 pubkey 不作为默认可见名称；
+- 用户 Profile 名称尚在首次加载时，主文本位置显示与单行名称等高的 skeleton，不先闪出 pubkey；次要短 ID 可以保持稳定显示；
+- 已确认是有效身份但没有 Profile 名称、托管 Agent 名称或 Relay Agent 名称时，主文本显示 `Unnamed member`，次要文本继续显示短 ID；
+- Agent 已能从 Agent 目录获得名称时，不等待用户 Profile 查询即可展示 Agent 名称；
+- 已选择的 member chip 与下拉候选使用同一套名称、类型和加载规则，避免选择前后名称不一致；
+- skeleton 只用于名称初次解析，后台刷新不能让已经显示的名称退回 skeleton；
+- 名称解析失败不影响 Track ACL，也不阻止用户通过短 ID 识别、添加或移除成员。
+
+成员选择器的信息层级继续使用 Buzz 现有 `text-sm`、`text-xs`、Badge、Skeleton 与主题色，不新增字号或固定颜色。
+
+#### 候选身份过滤
+
+Track Owner 与 Members 必须对齐现有 Task Assignee 的身份有效性过滤，而不是直接展示全部 pubkey，也不能把本机或 Relay 中发现的全部 Agent 无条件追加到列表：
+
+1. 候选基线只来自当前 Community 的有效 `relay_members`；
+2. pubkey 使用小写归一化并去重；
+3. 当前登录用户始终保留，即使自己的 Profile 尚未加载，并显示为 `You`；
+4. 非当前用户只有在至少满足一项时才保留：存在用户 Profile、匹配本机 Managed Agent、匹配当前 Relay Agent；
+5. 与当前用户本机 Managed Agent 语义重复的旧 Relay Agent Profile，沿用 Task Assignee 的 owner + normalized name 规则去重；
+6. 不再额外追加不属于 `relay_members` 的 Managed Agent 或 Relay Agent；本机存在但未加入当前 Community 的 Agent 不应出现；
+7. Agent / User 判断沿用 Task Assignee：匹配 Managed Agent、Relay Agent 或 Profile 带有效 `ownerPubkey` 时标记为 Agent，其余标记为 User；
+8. Track 候选只复用 Task Assignee 的身份有效性与重复身份过滤，不复用 `taskAssignmentPolicy`、allowlist 或 `canAssign`；加入 Track 与分配 Task 是不同权限；
+9. Profile 与 Agent 数据首次加载完成前，基于 `relay_members` 保留稳定候选位置并显示名称 skeleton；所有身份数据 settled 后，再移除无法解析为有效用户或 Agent 的纯 ID 残留；
+10. 编辑已有 Track 时，如果当前 owner / member 已不符合新候选规则，仍以 `Unavailable identity + 短 ID` 显示历史值，允许具备权限的 owner 将其移除或替换，但不能把它作为新成员再次添加。
+
+该规则会过滤已确认的测试残留、无 Profile 的纯 pubkey 和不属于当前 Community 的本机 Agent；有效但暂时未命名的 Agent 仍可通过 Agent 关系保留并显示 `Unnamed member`。
+
+#### 下拉滚动
+
+Track Members 下拉必须支持鼠标滚轮、触控板和键盘滚动。当前实现额外叠加固定 `max-h-64` 滚动容器，在 Dialog + Radix DropdownMenu 组合中会出现滚轮事件被外层拦截的问题。修正规则：
+
+- 高度使用 `min(16rem, var(--radix-dropdown-menu-content-available-height))`，不能超过当前窗口可用空间；
+- 内容容器使用 `overflow-y-auto overflow-x-hidden overscroll-contain`；
+- 在菜单内容层拦截 `onWheelCapture` 的事件冒泡，滚轮只推动候选列表，不滚动或关闭外层 Dialog；
+- 保留 Radix 的键盘导航，`ArrowUp` / `ArrowDown` 移动选项时自动滚入可视区域；
+- 选择 checkbox 后菜单保持打开且滚动位置不重置，便于连续多选；
+- E2E 使用超过一屏的候选 fixture，分别验证滚轮后末尾候选可见、连续多选和菜单不关闭。
+
 ## 5. 数据与协议设计
 
 ### 5.1 独立事件，不复用 NIP-34
@@ -422,7 +480,26 @@ Task Tag 沿用已经存在的协议表达，不新增 Track 专属 Tag 机制�
 
 一次 Task mutation 修改 Tag 时继续采用完整替换语义：先携带 `["clear", "labels"]`，再写入当前完整 Tag 集合。未显式修改 Tag 的旧客户端 patch 必须保留 State 中已有 Tag。
 
-### 5.2 原子性与并发
+### 5.2 Track Owner self-tag 签名兼容
+
+Track Create / Mutate 的 `p` tag 表示业务 Owner，不是社交事件中的提及关系。当用户创建 Track 时，Owner 默认是当前用户，因此 `p` tag 合法地指向事件签名者本人。
+
+当前 Desktop 签名器只为 Task State / Create / Mutate 开启 `allow_self_tagging()`。Track 表单虽然已经生成名称、Owner、日期范围、状态和 archived 等全部必填 tags，但 nostr-sdk 在签名 Track Command 时会按默认规则移除指向签名者本人的 `p` tag。Relay 随后只能看到缺少 Owner 的事件，并返回聚合校验错误：
+
+```text
+invalid: track requires one name, owner, date range, status, and archived value
+```
+
+修正规则：
+
+- `KIND_TRACK_CREATE` 和 `KIND_TRACK_MUTATE` 必须与 Task Command 一样允许 self-tag，确保 Owner 可以是实际签名者；
+- 不改变普通消息等其他事件的默认 self-tag 清理规则，避免扩大协议行为；
+- Track State 由 Relay 签名，不经过 Desktop Track Command 签名路径，本次不额外放宽它；
+- 增加签名层回归测试，分别验证 Track Create / Mutate 的 self-owner `p` tag 在签名后仍存在、事件 ID 与签名有效；
+- 保留现有非 Task / Track 事件的测试，确认默认 self-tag 过滤没有被意外关闭；
+- Relay Track 字段校验和事件结构保持不变，不通过放宽必填字段来掩盖客户端签名缺陷。
+
+### 5.3 原子性与并发
 
 - Track Create/Mutate 必须进入 Relay 写前 `command_executor`，不能依赖 post-storage side effect；
 - 数据库在同一事务中保存真实签名 Command、替换旧 Track State、写入 Relay-signed 新 State；
@@ -434,7 +511,7 @@ Task Tag 沿用已经存在的协议表达，不新增 Track 专属 Tag 机制�
 - Track State fan-out 必须逐连接执行 Track 可见性检查，不得广播给全部 community 连接；
 - Task 关联 Track 的修改继续通过 Task 自己的 CAS 事务完成，不与 Track State 双写。
 
-### 5.3 引用完整性
+### 5.4 引用完整性
 
 - Task 设置 `trackId` 时，Relay 必须确认该 Track 属于同一 community 且未归档；
 - Task 设置或替换 `trackId` 时，操作者必须对目标 Track 有读取权；已知 UUID 不能绕过 Track ACL；
@@ -707,6 +784,17 @@ buzz tasks list ... [--track <uuid>]
 - [x] `desktop/src/features/tasks/ui/TaskListView.tsx`：移除列表最大宽度，使 Task 列表占满内容区并把新增空间分配给标题列。
 - [x] `desktop/tests/e2e/tracks.spec.ts`：增加 Tracks / Tasks 宽屏满宽和 Track 行尾直接操作的回归断言及截图验证。
 
+### Desktop Track 成员名称与签名修复（已确认实施）
+
+- [x] `docs/2026-08-06-tracks-work-management-plan.md`：记录名称、身份类型、短 ID、You、skeleton 和 Unnamed member 显示规则。
+- [x] `desktop/src/features/tracks/types.ts`：扩展 Track identity option，表达当前用户、名称加载态和无名称态。
+- [x] `desktop/src/features/tracks/lib/trackIdentityOptions.ts`：按 Task Assignee 的身份有效性、归一化和重复 Agent 规则构建 Track 候选，但不应用 Task assignment policy。
+- [x] `desktop/src/features/tracks/lib/trackIdentityOptions.test.mjs`：覆盖当前用户保留、纯 ID 过滤、有效用户/Agent、非 Community Agent 排除、重复 Agent 去重、skeleton、Unnamed member 与历史失效身份。
+- [x] `desktop/src/features/tracks/hooks.ts`：只把当前 Community relay members 及其 Profile / Agent 元数据交给候选构建器，并保留首次名称加载状态。
+- [x] `desktop/src/features/tracks/ui/TrackEditorDialog.tsx`：为 Owner / Members 候选和已选 chip 展示名称层级，并修复下拉滚轮、触控板、键盘滚动及多选后位置保持。
+- [x] `desktop/tests/e2e/tracks.spec.ts`：覆盖 User / Agent、You、短 ID、滚轮事件隔离、菜单保持打开与连续多选。
+- [x] `desktop/src-tauri/src/commands/identity.rs`：允许 Track Create / Mutate 保留 Owner self-tag，并增加签名后 `p` tag、事件 ID 与签名回归测试。
+
 ## 11. 实施前确认项
 
 - [x] 确认 Track 作为一级侧栏入口，位于 Tasks 之后。
@@ -720,3 +808,5 @@ buzz tasks list ... [--track <uuid>]
 - [x] 确认已有 Track 只允许 owner 与 owner 名下 Agent 管理；creator、members、管理员和其他成员均不可操作。
 - [x] 确认关联 Task 继承 Track 可见性；Task 仅在现有权限与 Track ACL 均通过时可见。
 - [x] 确认 Tracks / Tasks 列表在页面内容区内占满宽度，并把 Track 的直接操作固定在行末。
+- [x] 确认 Track Owner / Member 对齐 Task Assignee 的 Community 身份过滤，按“名称与身份类型 + 短 ID”展示，并修复长列表滚动。
+- [x] 确认 Track Create / Mutate 允许 Owner 指向当前签名者，保留业务所需的 `p` self-tag，Relay 必填字段规则保持不变。

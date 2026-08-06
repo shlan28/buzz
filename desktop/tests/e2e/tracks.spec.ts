@@ -314,9 +314,26 @@ test("Track editor saves a deduplicated multi-member selection", async ({
   await installTracks(page);
   await page.goto(`/#/tracks/${ACTIVE_TRACK}`);
   await page.getByRole("button", { name: "Edit" }).click();
+  await expect(page.getByLabel("Select track owner")).toContainText("You");
+  await expect(page.getByLabel("Select track owner")).toContainText("User");
+  await expect(page.getByLabel("Select track owner")).toContainText(
+    "deadbeef…beef",
+  );
   await page.getByLabel("Add track members").click();
-  await page.getByRole("menuitemcheckbox", { name: /alice/i }).click();
-  await page.getByRole("menuitemcheckbox", { name: /bob/i }).click();
+  const memberMenu = page.getByRole("menu");
+  const alice = page.getByRole("menuitemcheckbox", {
+    name: /alice, Agent, 953d3363…001f/i,
+  });
+  const bob = page.getByRole("menuitemcheckbox", {
+    name: /bob, User, bb22a529…f260/i,
+  });
+  await expect(alice).toBeVisible();
+  await expect(bob).toBeVisible();
+  await memberMenu.dispatchEvent("wheel", { deltaY: 160 });
+  await expect(memberMenu).toBeVisible();
+  await alice.click();
+  await bob.click();
+  await expect(memberMenu).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("track-member-chips")).toContainText("alice");
   await expect(page.getByTestId("track-member-chips")).toContainText("bob");

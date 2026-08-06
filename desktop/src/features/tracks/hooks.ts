@@ -16,12 +16,12 @@ import {
   type KIND_TRACK_MUTATE,
   KIND_TRACK_STATE,
 } from "@/shared/constants/kinds";
-import { truncatePubkey } from "@/shared/lib/pubkey";
 import {
   buildCreateTrackEvent,
   buildMutateTrackEvent,
   parseTrackState,
 } from "./lib/trackEvents";
+import { buildTrackIdentityOptions } from "./lib/trackIdentityOptions";
 import type { Track, TrackDraft, TrackOwnerOption, TrackPatch } from "./types";
 
 export const tracksQueryKey = ["tracks"] as const;
@@ -70,14 +70,27 @@ export function useTracks() {
   const members = useRelayMembersQuery();
   const managedAgents = useManagedAgentsQuery();
   const relayAgents = useRelayAgentsQuery();
+  const communityMembers = React.useMemo(() => {
+    const result = [...(members.data ?? [])];
+    const currentPubkey = identity.data?.pubkey;
+    if (
+      currentPubkey &&
+      !result.some(
+        (member) => member.pubkey.toLowerCase() === currentPubkey.toLowerCase(),
+      )
+    ) {
+      result.push({
+        pubkey: currentPubkey,
+        role: "member",
+        addedBy: null,
+        createdAt: "",
+      });
+    }
+    return result;
+  }, [identity.data?.pubkey, members.data]);
   const memberPubkeys = React.useMemo(
-    () => [
-      ...new Set([
-        ...(members.data ?? []).map((member) => member.pubkey),
-        ...(identity.data?.pubkey ? [identity.data.pubkey] : []),
-      ]),
-    ],
-    [identity.data?.pubkey, members.data],
+    () => communityMembers.map((member) => member.pubkey),
+    [communityMembers],
   );
   const profiles = useUsersBatchQuery(memberPubkeys);
   const query = useQuery({
@@ -108,62 +121,24 @@ export function useTracks() {
   }, [queryClient]);
 
   const owners = React.useMemo<TrackOwnerOption[]>(() => {
-    const managedByPubkey = new Map(
-      (managedAgents.data ?? []).map((agent) => [
-        agent.pubkey.toLowerCase(),
-        agent.name,
-      ]),
-    );
-    const relayByPubkey = new Map(
-      (relayAgents.data ?? []).map((agent) => [
-        agent.pubkey.toLowerCase(),
-        agent.name,
-      ]),
-    );
-    const seen = new Set<string>();
-    const result: TrackOwnerOption[] = [];
-    for (const member of members.data ?? []) {
-      const normalized = member.pubkey.toLowerCase();
-      if (seen.has(normalized)) continue;
-      seen.add(normalized);
-      const managedName = managedByPubkey.get(normalized);
-      const relayName = relayByPubkey.get(normalized);
-      const profile = profiles.data?.profiles[normalized];
-      result.push({
-        pubkey: member.pubkey,
-        label:
-          profile?.displayName ??
-          managedName ??
-          relayName ??
-          truncatePubkey(member.pubkey),
-        kind:
-          managedName || relayName || profile?.ownerPubkey ? "agent" : "person",
-      });
-    }
-    for (const agent of [
-      ...(managedAgents.data ?? []),
-      ...(relayAgents.data ?? []),
-    ]) {
-      const normalized = agent.pubkey.toLowerCase();
-      if (seen.has(normalized)) continue;
-      seen.add(normalized);
-      result.push({
-        pubkey: agent.pubkey,
-        label: agent.name || truncatePubkey(agent.pubkey),
-        kind: "agent",
-      });
-    }
-    return result.sort((left, right) => {
-      if (left.pubkey === identity.data?.pubkey) return -1;
-      if (right.pubkey === identity.data?.pubkey) return 1;
-      return left.label.localeCompare(right.label);
+    return buildTrackIdentityOptions({
+      members: communityMembers,
+      profiles: profiles.data?.profiles ?? {},
+      managedAgents: managedAgents.data ?? [],
+      relayAgents: relayAgents.data ?? [],
+      viewerPubkey: identity.data?.pubkey,
+      namesLoading:
+        profiles.isPending || managedAgents.isPending || relayAgents.isPending,
     });
   }, [
+    communityMembers,
     identity.data?.pubkey,
     managedAgents.data,
-    members.data,
+    managedAgents.isPending,
+    profiles.isPending,
     profiles.data?.profiles,
     relayAgents.data,
+    relayAgents.isPending,
   ]);
 
   const tracks = React.useMemo(() => {
