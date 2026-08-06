@@ -4814,6 +4814,42 @@ async function handleGetChannelWindow(
   }
 }
 
+async function handleGetChannelHistoryRange(
+  args: {
+    channelId: string;
+    since: number;
+    until: number;
+    limit?: number | null;
+  },
+  config: E2eConfig | undefined,
+): Promise<RelayEvent[]> {
+  const cap = Math.min(args.limit ?? 500, 500);
+  const identity = getIdentity(config);
+  if (!identity) {
+    return getMockMessageStore(args.channelId)
+      .filter(
+        (event) =>
+          TIMELINE_KINDS.has(event.kind) &&
+          event.created_at >= args.since &&
+          event.created_at <= args.until,
+      )
+      .sort(
+        (left, right) =>
+          right.created_at - left.created_at || left.id.localeCompare(right.id),
+      )
+      .slice(0, cap);
+  }
+  return relayQuery(config, [
+    {
+      "#h": [args.channelId],
+      kinds: [...TIMELINE_KINDS],
+      since: args.since,
+      until: args.until,
+      limit: cap,
+    },
+  ]);
+}
+
 function getMockUserNotes(pubkey: string): RawUserNote[] {
   const now = Math.floor(Date.now() / 1000);
 
@@ -11791,6 +11827,11 @@ export function maybeInstallE2eTauriMocks() {
       case "get_channel_window":
         return handleGetChannelWindow(
           payload as Parameters<typeof handleGetChannelWindow>[0],
+          activeConfig,
+        );
+      case "get_channel_history_range":
+        return handleGetChannelHistoryRange(
+          payload as Parameters<typeof handleGetChannelHistoryRange>[0],
           activeConfig,
         );
       case "send_channel_message":

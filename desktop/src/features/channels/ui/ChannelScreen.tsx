@@ -80,6 +80,7 @@ import { useChannelPanelHistoryState } from "./useChannelPanelHistoryState";
 import { useChannelProfilePanel } from "./useChannelProfilePanel";
 import { useChannelRouteTarget } from "./useChannelRouteTarget";
 import { useChannelUnreadState } from "./useChannelUnreadState";
+import { useAgentDmHistoryDialog } from "../useAgentDmHistoryDialog";
 import type { ChannelScreenProps } from "./ChannelScreen.types";
 const HEADER_ACTIONS_COMPACT_BREAKPOINT_PX = 760,
   EMPTY_RELAY_EVENTS: RelayEvent[] = [];
@@ -369,6 +370,14 @@ export function ChannelScreen({
     }
     return pubkeys;
   }, [knownAgentPubkeys, messageProfiles, communityAgentPubkeys]);
+  const agentDmHistory = useAgentDmHistoryDialog({
+    activeChannel,
+    agentAvatarUrl: activeDmAvatarUrl,
+    agentName: activeChannelTitle,
+    agentPubkeys,
+    currentProfile,
+    currentPubkey,
+  });
   const personasQuery = usePersonasQuery();
   const { personaLookup, respondToLookup } = React.useMemo(() => {
     const agents = managedAgentsQuery.data ?? [];
@@ -766,6 +775,7 @@ export function ChannelScreen({
         onAddBotOpenChange={setIsAddBotOpen}
         onJoinChannel={joinChannelMutation.mutateAsync}
         onManageChannel={handleManageChannel}
+        onOpenAgentDmHistory={agentDmHistory.open}
         onToggleMembers={handleToggleMembers}
         showHeaderContent={!isSinglePanelView}
         transparentChrome={activeChannel?.channelType !== "forum"}
@@ -785,6 +795,7 @@ export function ChannelScreen({
       joinChannelMutation.isPending,
       joinChannelMutation.mutateAsync,
       handleManageChannel,
+      agentDmHistory.open,
       handleToggleMembers,
       isSinglePanelView,
     ],
@@ -801,6 +812,7 @@ export function ChannelScreen({
           open={welcomeAgentCreate.isOpen}
           sendError={welcomeAgentCreate.error}
         />
+        {agentDmHistory.dialog}
         <div
           className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
           ref={channelContentRef}

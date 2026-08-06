@@ -15,3 +15,18 @@ export async function getChannelWindowEvents(
       : null,
   });
 }
+
+/** Fetch a bounded, read-only slice for the Agent DM history dialog. */
+export async function getChannelHistoryRangeEvents(
+  channelId: string,
+  since: number,
+  until: number,
+  limit = 500,
+): Promise<RelayEvent[]> {
+  return invokeTauri<RelayEvent[]>("get_channel_history_range", {
+    channelId,
+    since,
+    until,
+    limit,
+  });
+}
