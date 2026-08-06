@@ -13,7 +13,8 @@ use buzz_core::{
         KIND_MODERATION_BAN, KIND_MODERATION_RESOLVE_REPORT, KIND_MODERATION_TIMEOUT,
         KIND_MODERATION_UNBAN, KIND_MODERATION_UNTIMEOUT, KIND_PRESENCE_UPDATE, KIND_TASK_CREATE,
         KIND_TASK_DELETE, KIND_TASK_EXECUTION_REQUEST, KIND_TASK_EXECUTION_UPDATE,
-        KIND_TASK_MUTATE, KIND_USER_STATUS, KIND_WORKFLOW_DEF, KIND_WORKFLOW_TRIGGER,
+        KIND_TASK_MUTATE, KIND_TRACK_CREATE, KIND_TRACK_MUTATE, KIND_USER_STATUS,
+        KIND_WORKFLOW_DEF, KIND_WORKFLOW_TRIGGER,
     },
     observer::{
         content_looks_like_nip44, OBSERVER_AGENT_TAG, OBSERVER_FRAME_CONTROL, OBSERVER_FRAME_TAG,
@@ -26,7 +27,7 @@ use uuid::Uuid;
 use crate::{
     CalendarEventInput, ChannelKind, CustomEmoji, DiffMeta, MemberRole, SdkError, TaskCreateInput,
     TaskDeleteInput, TaskExecutionRequestInput, TaskExecutionUpdateInput, TaskMutateInput,
-    ThreadRef, Visibility, VoteDirection,
+    ThreadRef, TrackCreateInput, TrackMutateInput, Visibility, VoteDirection,
 };
 
 /// NIP-52 date-based calendar event kind.
@@ -108,6 +109,7 @@ pub fn build_task_create(input: &TaskCreateInput) -> Result<EventBuilder, SdkErr
     if let Some(due) = input.due {
         tags.push(tag(&["due", &due.to_string()])?);
     }
+    let mut seen_labels = std::collections::HashSet::new();
     for label in &input.labels {
         let label = label.trim();
         if label.is_empty() || label.len() > 64 {
@@ -115,10 +117,16 @@ pub fn build_task_create(input: &TaskCreateInput) -> Result<EventBuilder, SdkErr
                 "task label must contain 1..=64 bytes".into(),
             ));
         }
+        if !seen_labels.insert(label) {
+            continue;
+        }
         tags.push(tag(&["t", &format!("label:{label}")])?);
     }
     if let Some(project) = &input.project {
         tags.push(tag(&["a", project])?);
+    }
+    if let Some(track) = input.track {
+        tags.push(tag(&["t", &format!("track-id:{track}")])?);
     }
     if let Some(channel) = input.channel {
         tags.push(tag(&["h", &channel.to_string()])?);
@@ -169,14 +177,29 @@ pub fn build_task_mutate(input: &TaskMutateInput) -> Result<EventBuilder, SdkErr
     }
     if let Some(labels) = &input.labels {
         tags.push(tag(&["clear", "labels"])?);
+        let mut seen_labels = std::collections::HashSet::new();
         for label in labels {
-            tags.push(tag(&["t", &format!("label:{}", label.trim())])?);
+            let label = label.trim();
+            if label.is_empty() || label.len() > 64 {
+                return Err(SdkError::InvalidInput(
+                    "task label must contain 1..=64 bytes".into(),
+                ));
+            }
+            if seen_labels.insert(label) {
+                tags.push(tag(&["t", &format!("label:{label}")])?);
+            }
         }
     }
     if let Some(project) = &input.project {
         match project {
             Some(value) => tags.push(tag(&["a", value])?),
             None => tags.push(tag(&["clear", "project"])?),
+        }
+    }
+    if let Some(track) = input.track {
+        match track {
+            Some(value) => tags.push(tag(&["t", &format!("track-id:{value}")])?),
+            None => tags.push(tag(&["clear", "track"])?),
         }
     }
     if let Some(channel) = input.channel {
@@ -214,6 +237,7 @@ pub fn build_task_mutate(input: &TaskMutateInput) -> Result<EventBuilder, SdkErr
         || input.due.is_some()
         || input.labels.is_some()
         || input.project.is_some()
+        || input.track.is_some()
         || input.channel.is_some()
         || input.source_event.is_some()
         || input.archived.is_some();
@@ -223,6 +247,97 @@ pub fn build_task_mutate(input: &TaskMutateInput) -> Result<EventBuilder, SdkErr
         ));
     }
     Ok(EventBuilder::new(Kind::Custom(KIND_TASK_MUTATE as u16), content).tags(tags))
+}
+
+/// Build an actor-signed Track create command.
+pub fn build_track_create(input: &TrackCreateInput) -> Result<EventBuilder, SdkError> {
+    buzz_core::track::validate_name(&input.name)
+        .map_err(|error| SdkError::InvalidInput(error.to_string()))?;
+    check_content(
+        &input.description,
+        buzz_core::track::TRACK_DESCRIPTION_MAX_BYTES,
+    )?;
+    buzz_core::track::validate_date_range(&input.start_date, &input.end_date)
+        .map_err(|error| SdkError::InvalidInput(error.to_string()))?;
+    let owner = check_pubkey_hex(&input.owner, "track owner")?;
+    let tags = vec![
+        tag(&["t", &format!("track-id:{}", input.id)])?,
+        tag(&["title", input.name.trim()])?,
+        tag(&["p", &owner])?,
+        tag(&["start_date", &input.start_date])?,
+        tag(&["end_date", &input.end_date])?,
+        tag(&["t", &format!("track-status:{}", input.status.as_str())])?,
+        tag(&["archived", "false"])?,
+    ];
+    Ok(EventBuilder::new(Kind::Custom(KIND_TRACK_CREATE as u16), &input.description).tags(tags))
+}
+
+/// Build an actor-signed Track mutation command.
+pub fn build_track_mutate(input: &TrackMutateInput) -> Result<EventBuilder, SdkError> {
+    check_hex_len(&input.previous_event, 64, "previous event")?;
+    if let (Some(start_date), Some(end_date)) = (&input.start_date, &input.end_date) {
+        buzz_core::track::validate_date_range(start_date, end_date)
+            .map_err(|error| SdkError::InvalidInput(error.to_string()))?;
+    }
+    if let (Some(status), Some(archived)) = (input.status, input.archived) {
+        buzz_core::track::validate_archive(status, archived)
+            .map_err(|error| SdkError::InvalidInput(error.to_string()))?;
+    }
+    let mut tags = vec![
+        tag(&["t", &format!("track-id:{}", input.id)])?,
+        tag(&["action", "update"])?,
+        tag(&["previous", &input.previous_event])?,
+        tag(&["e", &input.previous_event, "", "previous"])?,
+    ];
+    if let Some(name) = &input.name {
+        buzz_core::track::validate_name(name)
+            .map_err(|error| SdkError::InvalidInput(error.to_string()))?;
+        tags.push(tag(&["title", name.trim()])?);
+    }
+    if let Some(owner) = &input.owner {
+        tags.push(tag(&["p", &check_pubkey_hex(owner, "track owner")?])?);
+    }
+    if let Some(start_date) = &input.start_date {
+        buzz_core::track::validate_date(start_date)
+            .map_err(|error| SdkError::InvalidInput(error.to_string()))?;
+        tags.push(tag(&["start_date", start_date])?);
+    }
+    if let Some(end_date) = &input.end_date {
+        buzz_core::track::validate_date(end_date)
+            .map_err(|error| SdkError::InvalidInput(error.to_string()))?;
+        tags.push(tag(&["end_date", end_date])?);
+    }
+    if let Some(status) = input.status {
+        tags.push(tag(&["t", &format!("track-status:{}", status.as_str())])?);
+    }
+    if let Some(archived) = input.archived {
+        tags.push(tag(&["archived", if archived { "true" } else { "false" }])?);
+    }
+    let content = match &input.description {
+        Some(Some(value)) => {
+            check_content(value, buzz_core::track::TRACK_DESCRIPTION_MAX_BYTES)?;
+            tags.push(tag(&["set", "description"])?);
+            value.as_str()
+        }
+        Some(None) => {
+            tags.push(tag(&["clear", "description"])?);
+            ""
+        }
+        None => "",
+    };
+    let changed = input.name.is_some()
+        || input.description.is_some()
+        || input.owner.is_some()
+        || input.start_date.is_some()
+        || input.end_date.is_some()
+        || input.status.is_some()
+        || input.archived.is_some();
+    if !changed {
+        return Err(SdkError::InvalidInput(
+            "track mutation must change at least one field".into(),
+        ));
+    }
+    Ok(EventBuilder::new(Kind::Custom(KIND_TRACK_MUTATE as u16), content).tags(tags))
 }
 
 /// Build an actor-signed task soft-delete command.
@@ -2228,6 +2343,7 @@ mod tests {
             due: None,
             labels: vec!["backend".into()],
             project: None,
+            track: Some(Uuid::from_u128(7)),
             channel: None,
             source_event: None,
         };
@@ -2240,6 +2356,47 @@ mod tests {
             .collect();
         assert!(tags.contains(&vec!["t".into(), format!("task-id:{}", Uuid::nil())]));
         assert!(tags.contains(&vec!["t".into(), "task-status:in-progress".into()]));
+        assert!(tags.contains(&vec![
+            "t".into(),
+            "track-id:00000000-0000-0000-0000-000000000007".into()
+        ]));
+    }
+
+    #[test]
+    fn track_builders_use_stable_id_and_explicit_restore() {
+        let owner = keys().public_key().to_hex();
+        let id = Uuid::from_u128(9);
+        let create = sign(
+            build_track_create(&TrackCreateInput {
+                id,
+                name: "Desktop foundations".into(),
+                description: "Build a reliable base".into(),
+                owner,
+                start_date: "2026-08-01".into(),
+                end_date: "2026-08-30".into(),
+                status: buzz_core::track::TrackStatus::Planned,
+            })
+            .unwrap(),
+        );
+        assert_eq!(create.kind.as_u16() as u32, KIND_TRACK_CREATE);
+        assert!(create.tags.iter().any(|tag| {
+            tag.as_slice() == ["t", "track-id:00000000-0000-0000-0000-000000000009"]
+        }));
+
+        let restore = sign(
+            build_track_mutate(&TrackMutateInput {
+                id,
+                previous_event: "ab".repeat(32),
+                archived: Some(false),
+                ..TrackMutateInput::default()
+            })
+            .unwrap(),
+        );
+        assert_eq!(restore.kind.as_u16() as u32, KIND_TRACK_MUTATE);
+        assert!(restore
+            .tags
+            .iter()
+            .any(|tag| tag.as_slice() == ["archived", "false"]));
     }
 
     #[test]

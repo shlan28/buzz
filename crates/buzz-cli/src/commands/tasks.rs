@@ -31,6 +31,7 @@ struct TaskSnapshot {
     due: Option<u64>,
     labels: Vec<String>,
     project: Option<String>,
+    track_id: Option<String>,
     channel: Option<String>,
     source_event: String,
     created_at: u64,
@@ -58,6 +59,7 @@ impl TaskSnapshot {
         let mut due = None;
         let mut labels = Vec::new();
         let mut project = None;
+        let mut track_id = None;
         let mut channel = None;
         let mut source_event = None;
         let mut created_at = None;
@@ -89,6 +91,9 @@ impl TaskSnapshot {
                         labels.push(label.to_string());
                     }
                 }
+                "t" if value.starts_with("track-id:") => {
+                    track_id = value.strip_prefix("track-id:").map(str::to_string);
+                }
                 "due" => due = value.parse().ok(),
                 "a" => project = Some(value.to_string()),
                 "h" => channel = Some(value.to_string()),
@@ -116,6 +121,7 @@ impl TaskSnapshot {
             due,
             labels,
             project,
+            track_id,
             channel,
             source_event: source_event
                 .ok_or_else(|| CliError::Other("task state is missing source_event tag".into()))?,
@@ -174,6 +180,13 @@ fn parse_due(value: &str) -> Result<i64, CliError> {
     } else {
         Ok(seconds)
     }
+}
+
+fn labels_match_any(task_labels: &[String], requested_labels: &[String]) -> bool {
+    requested_labels.is_empty()
+        || requested_labels
+            .iter()
+            .any(|label| task_labels.contains(label))
 }
 
 async fn publish_command(
@@ -390,6 +403,7 @@ pub async fn dispatch(command: TasksCmd, client: &BuzzClient) -> Result<(), CliE
             due,
             labels,
             project,
+            track,
             channel,
             source_event,
         } => {
@@ -405,6 +419,11 @@ pub async fn dispatch(command: TasksCmd, client: &BuzzClient) -> Result<(), CliE
                 .map(uuid::Uuid::parse_str)
                 .transpose()
                 .map_err(|error| CliError::Usage(format!("--channel must be a UUID: {error}")))?;
+            let track = track
+                .as_deref()
+                .map(uuid::Uuid::parse_str)
+                .transpose()
+                .map_err(|error| CliError::Usage(format!("--track must be a UUID: {error}")))?;
             let input = TaskCreateInput {
                 id,
                 title,
@@ -417,6 +436,7 @@ pub async fn dispatch(command: TasksCmd, client: &BuzzClient) -> Result<(), CliE
                 due,
                 labels,
                 project,
+                track,
                 channel,
                 source_event,
             };
@@ -442,6 +462,7 @@ pub async fn dispatch(command: TasksCmd, client: &BuzzClient) -> Result<(), CliE
             priorities,
             labels,
             project,
+            track,
             channel,
             include_archived,
             limit,
@@ -456,6 +477,12 @@ pub async fn dispatch(command: TasksCmd, client: &BuzzClient) -> Result<(), CliE
                 .as_deref()
                 .map(|value| normalize_assignee(value, &client.keys().public_key().to_hex()))
                 .transpose()?;
+            let track = track
+                .as_deref()
+                .map(uuid::Uuid::parse_str)
+                .transpose()
+                .map_err(|error| CliError::Usage(format!("--track must be a UUID: {error}")))?
+                .map(|id| id.to_string());
             if let Some(Some(pubkey)) = normalized_assignee.as_ref() {
                 filter["#p"] = serde_json::json!([pubkey]);
             }
@@ -494,10 +521,13 @@ pub async fn dispatch(command: TasksCmd, client: &BuzzClient) -> Result<(), CliE
                 assignee_matches
                     && (statuses.is_empty() || statuses.contains(&task.status))
                     && (priorities.is_empty() || priorities.contains(&task.priority))
-                    && labels.iter().all(|label| task.labels.contains(label))
+                    && labels_match_any(&task.labels, &labels)
                     && project
                         .as_ref()
                         .is_none_or(|value| task.project.as_ref() == Some(value))
+                    && track
+                        .as_ref()
+                        .is_none_or(|value| task.track_id.as_ref() == Some(value))
                     && channel
                         .as_ref()
                         .is_none_or(|value| task.channel.as_ref() == Some(value))
@@ -526,6 +556,8 @@ pub async fn dispatch(command: TasksCmd, client: &BuzzClient) -> Result<(), CliE
             clear_labels,
             project,
             clear_project,
+            track,
+            clear_track,
             channel,
             clear_channel,
         } => {
@@ -536,6 +568,11 @@ pub async fn dispatch(command: TasksCmd, client: &BuzzClient) -> Result<(), CliE
                 .map(uuid::Uuid::parse_str)
                 .transpose()
                 .map_err(|error| CliError::Usage(format!("--channel must be a UUID: {error}")))?;
+            let track = track
+                .as_deref()
+                .map(uuid::Uuid::parse_str)
+                .transpose()
+                .map_err(|error| CliError::Usage(format!("--track must be a UUID: {error}")))?;
             let input = TaskMutateInput {
                 id,
                 previous_event: expected_event,
@@ -571,6 +608,11 @@ pub async fn dispatch(command: TasksCmd, client: &BuzzClient) -> Result<(), CliE
                     Some(None)
                 } else {
                     project.map(Some)
+                },
+                track: if clear_track {
+                    Some(None)
+                } else {
+                    track.map(Some)
                 },
                 channel: if clear_channel {
                     Some(None)
@@ -673,5 +715,19 @@ mod tests {
                 "task_id": "10eef02c-9be8-4055-a747-e348d5a405ad",
             })
         );
+    }
+
+    #[test]
+    fn multiple_label_filters_use_or_semantics() {
+        let task_labels = vec!["desktop".to_string(), "p0".to_string()];
+        assert!(labels_match_any(&task_labels, &[]));
+        assert!(labels_match_any(
+            &task_labels,
+            &["desktop".to_string(), "unrelated".to_string()]
+        ));
+        assert!(!labels_match_any(
+            &task_labels,
+            &["mobile".to_string(), "p1".to_string()]
+        ));
     }
 }

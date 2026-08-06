@@ -86,6 +86,7 @@ export default defineConfig({
         "**/reminders.spec.ts",
         "**/calendar.spec.ts",
         "**/tasks.spec.ts",
+        "**/tracks.spec.ts",
         "**/reminder-click-repro.spec.ts",
         "**/virtualization.spec.ts",
         "**/scroll-history.spec.ts",

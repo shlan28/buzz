@@ -54,6 +54,9 @@ import {
   KIND_TASK_MUTATE,
   KIND_TASK_STATE,
   KIND_TEXT_NOTE,
+  KIND_TRACK_CREATE,
+  KIND_TRACK_MUTATE,
+  KIND_TRACK_STATE,
   KIND_USER_STATUS,
 } from "@/shared/constants/kinds";
 import type {
@@ -263,6 +266,8 @@ type E2eConfig = {
     calendarEvents?: RelayEvent[];
     /** Relay-signed current Task State events returned by mock REQs. */
     taskEvents?: RelayEvent[];
+    /** Relay-signed current Track State events returned by mock REQs. */
+    trackEvents?: RelayEvent[];
     /** Relay-signed current Task Execution State events returned by mock REQs. */
     taskExecutionEvents?: RelayEvent[];
     /** Sequenced Task Command failures; null accepts that publish. */
@@ -2849,6 +2854,7 @@ const mockUserStatuses: RelayEvent[] = [];
 const mockReminderEvents: RelayEvent[] = [];
 const mockPersonaEvents: RelayEvent[] = [];
 const mockTaskEvents: RelayEvent[] = [];
+const mockTrackEvents: RelayEvent[] = [];
 const mockTaskExecutionEvents: RelayEvent[] = [];
 let mockRelayMembers: RawRelayMember[] = [];
 const mockSockets = new Map<number, MockSocket>();
@@ -2894,9 +2900,16 @@ function resetMockPersonaCatalogEvents(config: E2eConfig | undefined) {
 
 function resetMockTaskEvents(config: E2eConfig | undefined) {
   mockTaskEvents.length = 0;
+  mockTrackEvents.length = 0;
   mockTaskExecutionEvents.length = 0;
   for (const event of config?.mock?.taskEvents ?? []) {
     mockTaskEvents.push({
+      ...event,
+      tags: event.tags.map((tag) => [...tag]),
+    });
+  }
+  for (const event of config?.mock?.trackEvents ?? []) {
+    mockTrackEvents.push({
       ...event,
       tags: event.tags.map((tag) => [...tag]),
     });
@@ -5223,6 +5236,102 @@ function filterMockTaskEvents(filter: MockFilter): RelayEvent[] {
     .slice(0, filter.limit ?? 500);
 }
 
+function filterMockTrackEvents(filter: MockFilter): RelayEvent[] {
+  const authors = filter.authors?.map((author) => author.toLowerCase());
+  return mockTrackEvents
+    .filter((event) => {
+      if (filter.kinds && !filter.kinds.includes(event.kind)) return false;
+      if (authors && !authors.includes(event.pubkey.toLowerCase()))
+        return false;
+      if (
+        filter["#d"] &&
+        !event.tags.some(
+          (tag) => tag[0] === "d" && filter["#d"]?.includes(tag[1]),
+        )
+      )
+        return false;
+      return true;
+    })
+    .sort((left, right) => right.created_at - left.created_at)
+    .slice(0, filter.limit ?? 500);
+}
+
+function deriveMockTrackState(command: RelayEvent): RelayEvent | null {
+  const trackId = taskSemanticTag(command, "track-id:")?.slice(
+    "track-id:".length,
+  );
+  if (!trackId) return null;
+  const currentIndex = mockTrackEvents.findIndex(
+    (event) => taskTag(event, "d") === trackId,
+  );
+  const current = mockTrackEvents[currentIndex];
+  const isCreate = command.kind === KIND_TRACK_CREATE;
+  if ((isCreate && current) || (!isCreate && !current)) return null;
+
+  let tags = current?.tags.map((tag) => [...tag]) ?? [];
+  let content = current?.content ?? command.content;
+  if (isCreate) {
+    tags = command.tags.map((tag) => [...tag]);
+    tags.push(["creator", command.pubkey]);
+    tags.push(["created_at", String(command.created_at)]);
+  } else {
+    if (taskTag(command, "previous") !== current?.id) return null;
+    for (const name of ["title", "p", "start_date", "end_date", "archived"]) {
+      const incoming = command.tags.filter((tag) => tag[0] === name);
+      if (incoming.length > 0) {
+        tags = tags.filter((tag) => tag[0] !== name);
+        tags.push(...incoming.map((tag) => [...tag]));
+      }
+    }
+    const status = command.tags.find(
+      (tag) => tag[0] === "t" && tag[1]?.startsWith("track-status:"),
+    );
+    if (status) {
+      tags = tags.filter(
+        (tag) => !(tag[0] === "t" && tag[1]?.startsWith("track-status:")),
+      );
+      tags.push([...status]);
+    }
+    if (
+      command.tags.some((tag) => tag[0] === "set" && tag[1] === "description")
+    )
+      content = command.content;
+    if (
+      command.tags.some((tag) => tag[0] === "clear" && tag[1] === "description")
+    )
+      content = "";
+  }
+  tags = tags.filter(
+    (tag) =>
+      ![
+        "d",
+        "previous",
+        "action",
+        "clear",
+        "set",
+        "last_editor",
+        "source_event",
+      ].includes(tag[0]) &&
+      !(tag[0] === "t" && tag[1]?.startsWith("track-id:")),
+  );
+  tags.push(["d", trackId]);
+  tags.push(["last_editor", command.pubkey]);
+  tags.push(["source_event", command.id]);
+  const relaySelf = getConfig()?.mock?.relaySelf;
+  if (!relaySelf) return null;
+  const state = createMockEvent(
+    KIND_TRACK_STATE,
+    content,
+    tags,
+    relaySelf,
+    Math.max(command.created_at, (current?.created_at ?? 0) + 1),
+    mockEventId(),
+  );
+  if (currentIndex >= 0) mockTrackEvents.splice(currentIndex, 1, state);
+  else mockTrackEvents.push(state);
+  return state;
+}
+
 function taskTag(event: RelayEvent, name: string) {
   return event.tags.find((tag) => tag[0] === name)?.[1];
 }
@@ -5280,6 +5389,24 @@ function deriveMockTaskState(command: RelayEvent): RelayEvent | null {
         );
         tags.push([...incoming]);
       }
+    }
+    const labels = command.tags.filter(
+      (tag) => tag[0] === "t" && tag[1]?.startsWith("label:"),
+    );
+    if (labels.length > 0 || clears.has("labels")) {
+      tags = tags.filter(
+        (tag) => !(tag[0] === "t" && tag[1]?.startsWith("label:")),
+      );
+      tags.push(...labels.map((tag) => [...tag]));
+    }
+    const track = command.tags.find(
+      (tag) => tag[0] === "t" && tag[1]?.startsWith("track-id:"),
+    );
+    if (track || clears.has("track")) {
+      tags = tags.filter(
+        (tag) => !(tag[0] === "t" && tag[1]?.startsWith("track-id:")),
+      );
+      if (track) tags.push([...track]);
     }
     if (
       command.tags.some((tag) => tag[0] === "set" && tag[1] === "description")
@@ -9437,6 +9564,14 @@ function sendToMockSocket(args: {
       return;
     }
 
+    if (filter.kinds?.includes(KIND_TRACK_STATE)) {
+      for (const event of filterMockTrackEvents(filter)) {
+        sendWsText(socket.handler, ["EVENT", subId, event]);
+      }
+      sendWsText(socket.handler, ["EOSE", subId]);
+      return;
+    }
+
     if (filter.kinds?.includes(KIND_TASK_EXECUTION_STATE)) {
       for (const event of mockTaskExecutionEvents) {
         sendWsText(socket.handler, ["EVENT", subId, event]);
@@ -9508,6 +9643,22 @@ function sendToMockSocket(args: {
 
   if (type === "EVENT") {
     const event = rest[0] as RelayEvent;
+
+    if (event.kind === KIND_TRACK_CREATE || event.kind === KIND_TRACK_MUTATE) {
+      const state = deriveMockTrackState(event);
+      if (!state) {
+        sendWsText(socket.handler, [
+          "OK",
+          event.id,
+          false,
+          "conflict: invalid track command",
+        ]);
+        return;
+      }
+      emitMockGlobalEvent(state);
+      sendWsText(socket.handler, ["OK", event.id, true, "stored"]);
+      return;
+    }
 
     if (event.kind === KIND_TASK_EXECUTION_REQUEST) {
       const rejection = getConfig()?.mock?.taskPublishErrors?.shift();

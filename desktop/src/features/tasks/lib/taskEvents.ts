@@ -58,6 +58,7 @@ export function parseTaskHistoryEvent(
   add("Assignee", firstTag(event, "p"));
   add("Status", semanticTag(event, "task-status:"));
   add("Priority", semanticTag(event, "task-priority:"));
+  add("Track", semanticTag(event, "track-id:"));
   add("Due", firstTag(event, "due"));
   add("Project", event.tags.find((tag) => tag[0] === "a")?.[1]);
   add("Channel", firstTag(event, "h"));
@@ -122,6 +123,7 @@ export function parseTaskState(
     labels: event.tags
       .filter((tag) => tag[0] === "t" && tag[1]?.startsWith("label:"))
       .map((tag) => tag[1].slice(6)),
+    trackId: semanticTag(event, "track-id:") ?? null,
     project:
       event.tags.find(
         (tag) => tag[0] === "a" && tag[1]?.startsWith("30617:"),
@@ -230,6 +232,15 @@ export function buildMutateTaskEvent(task: Task, patch: TaskPatch) {
     if (patch.dueDate !== null) tags.push(["due", String(patch.dueDate)]);
     else tags.push(["clear", "due"]);
   }
+  if (patch.labels !== undefined) {
+    tags.push(["clear", "labels"]);
+    for (const label of uniqueLabels(patch.labels))
+      tags.push(["t", `label:${label}`]);
+  }
+  if (patch.trackId !== undefined) {
+    if (patch.trackId) tags.push(["t", `track-id:${patch.trackId}`]);
+    else tags.push(["clear", "track"]);
+  }
   if (patch.description !== undefined)
     tags.push([patch.description.length > 0 ? "set" : "clear", "description"]);
   if (patch.archived !== undefined)
@@ -274,7 +285,27 @@ function taskFieldTags(draft: TaskDraft): string[][] {
   ];
   if (draft.assignee) tags.push(["p", draft.assignee]);
   if (draft.dueDate !== null) tags.push(["due", String(draft.dueDate)]);
+  for (const label of uniqueLabels(draft.labels ?? []))
+    tags.push(["t", `label:${label}`]);
+  if (draft.trackId) tags.push(["t", `track-id:${draft.trackId}`]);
   return tags;
+}
+
+function uniqueLabels(labels: readonly string[]) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of labels) {
+    const label = value.trim();
+    const byteLength = new TextEncoder().encode(label).length;
+    if (!label || byteLength > 64) {
+      throw new Error("Task tags must contain between 1 and 64 bytes.");
+    }
+    const normalized = label.toLocaleLowerCase();
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    result.push(label);
+  }
+  return result;
 }
 
 function parseDueTimestamp(value: string | undefined): number | null {

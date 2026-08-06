@@ -188,6 +188,9 @@ enum Cmd {
     /// Create, inspect, update, assign, and archive community tasks
     #[command(subcommand)]
     Tasks(TasksCmd),
+    /// Create, inspect, update, archive, and restore work tracks
+    #[command(subcommand)]
+    Tracks(TracksCmd),
     /// Get and set channel canvas documents
     #[command(subcommand)]
     Canvas(CanvasCmd),
@@ -1245,6 +1248,9 @@ pub enum TasksCmd {
         labels: Vec<String>,
         #[arg(long)]
         project: Option<String>,
+        /// Work Track UUID. Independent of the optional code repository project.
+        #[arg(long)]
+        track: Option<String>,
         /// Channel id; also scopes task visibility.
         #[arg(long)]
         channel: Option<String>,
@@ -1269,6 +1275,9 @@ pub enum TasksCmd {
         labels: Vec<String>,
         #[arg(long)]
         project: Option<String>,
+        /// Return only tasks assigned to this Track UUID.
+        #[arg(long)]
+        track: Option<String>,
         #[arg(long)]
         channel: Option<String>,
         #[arg(long, default_value_t = false)]
@@ -1309,6 +1318,12 @@ pub enum TasksCmd {
         project: Option<String>,
         #[arg(long, default_value_t = false, conflicts_with = "project")]
         clear_project: bool,
+        /// Replace the Task's work Track assignment.
+        #[arg(long)]
+        track: Option<String>,
+        /// Remove the Task from its current work Track.
+        #[arg(long, default_value_t = false, conflicts_with = "track")]
+        clear_track: bool,
         #[arg(long)]
         channel: Option<String>,
         #[arg(long, default_value_t = false, conflicts_with = "channel")]
@@ -1333,6 +1348,86 @@ pub enum TasksCmd {
     },
     /// Archive without deleting task history.
     Archive {
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        expected_event: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum TracksCmd {
+    /// Create a work Track.
+    Create {
+        #[arg(long)]
+        name: String,
+        /// Stable UUID/idempotency key; generated when omitted.
+        #[arg(long)]
+        id: Option<String>,
+        #[arg(long)]
+        description: Option<String>,
+        /// `me` or a 64-hex person/Agent pubkey.
+        #[arg(long, default_value = "me")]
+        owner: String,
+        /// Date-only value in YYYY-MM-DD format.
+        #[arg(long)]
+        start_date: String,
+        /// Date-only value in YYYY-MM-DD format; cannot precede start date.
+        #[arg(long)]
+        end_date: String,
+        #[arg(long, default_value = "planned", value_parser = ["planned", "active", "completed", "canceled"])]
+        status: String,
+    },
+    /// Get the current state of a Track.
+    Get {
+        #[arg(long)]
+        id: String,
+    },
+    /// List current Track states.
+    List {
+        /// Product-list scope. Archived Tracks retain their lifecycle status.
+        #[arg(long, default_value = "current", value_parser = ["current", "completed", "archived"])]
+        scope: String,
+        #[arg(long, value_parser = ["planned", "active", "completed", "canceled"])]
+        status: Option<String>,
+        /// `me` or a 64-hex person/Agent pubkey.
+        #[arg(long)]
+        owner: Option<String>,
+        #[arg(long, default_value_t = 50, value_parser = clap::value_parser!(u32).range(1..=200))]
+        limit: u32,
+    },
+    /// Partially update explicitly supplied Track fields.
+    Update {
+        #[arg(long)]
+        id: String,
+        /// Current Track State event id; prevents overwriting a newer edit.
+        #[arg(long)]
+        expected_event: String,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        description: Option<String>,
+        #[arg(long, default_value_t = false, conflicts_with = "description")]
+        clear_description: bool,
+        /// `me` or a 64-hex person/Agent pubkey.
+        #[arg(long)]
+        owner: Option<String>,
+        #[arg(long)]
+        start_date: Option<String>,
+        #[arg(long)]
+        end_date: Option<String>,
+        #[arg(long, value_parser = ["planned", "active", "completed", "canceled"])]
+        status: Option<String>,
+    },
+    /// Hide a completed or canceled Track from daily views.
+    Archive {
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        expected_event: String,
+    },
+    /// Return an archived Track to its lifecycle-status view.
+    Restore {
         #[arg(long)]
         id: String,
         #[arg(long)]
@@ -2041,6 +2136,7 @@ async fn run(cli: Cli) -> Result<(), CliError> {
         Cmd::Channels(sub) => commands::channels::dispatch(sub, &client, &cli.format).await,
         Cmd::Calendar(sub) => commands::calendar::dispatch(sub, &client).await,
         Cmd::Tasks(sub) => commands::tasks::dispatch(sub, &client).await,
+        Cmd::Tracks(sub) => commands::tracks::dispatch(sub, &client).await,
         Cmd::Canvas(sub) => commands::channels::dispatch_canvas(sub, &client).await,
         Cmd::Reactions(sub) => commands::reactions::dispatch(sub, &client).await,
         Cmd::Emoji(sub) => commands::emoji::dispatch(sub, &client).await,
@@ -2146,6 +2242,58 @@ mod tests {
             "--clear-description",
         ])
         .is_err());
+        assert!(Cli::try_parse_from([
+            "buzz",
+            "tasks",
+            "update",
+            "--id",
+            task_id,
+            "--expected-event",
+            &event_id,
+            "--track",
+            task_id,
+            "--clear-track",
+        ])
+        .is_err());
+    }
+
+    #[test]
+    fn track_commands_require_dates_and_conflict_heads() {
+        let track_id = "20eef02c-9be8-4055-a747-e348d5a405ad";
+        let event_id = "a".repeat(64);
+        assert!(Cli::try_parse_from([
+            "buzz",
+            "tracks",
+            "create",
+            "--name",
+            "Desktop foundations",
+            "--start-date",
+            "2026-08-01",
+            "--end-date",
+            "2026-08-30",
+        ])
+        .is_ok());
+        assert!(Cli::try_parse_from([
+            "buzz",
+            "tracks",
+            "create",
+            "--name",
+            "No end date",
+            "--start-date",
+            "2026-08-01",
+        ])
+        .is_err());
+        assert!(Cli::try_parse_from(["buzz", "tracks", "archive", "--id", track_id]).is_err());
+        assert!(Cli::try_parse_from([
+            "buzz",
+            "tracks",
+            "restore",
+            "--id",
+            track_id,
+            "--expected-event",
+            &event_id,
+        ])
+        .is_ok());
     }
 
     #[test]
@@ -2171,6 +2319,7 @@ mod tests {
             "repos",
             "social",
             "tasks",
+            "tracks",
             "upload",
             "users",
             "workflows",
@@ -2266,7 +2415,11 @@ mod tests {
         );
         assert_eq!(
             names(&cmd, "tasks"),
-            vec!["archive", "assign", "create", "delete", "get", "list", "update"]
+            vec!["archive", "assign", "create", "delete", "execute", "get", "list", "update"]
+        );
+        assert_eq!(
+            names(&cmd, "tracks"),
+            vec!["archive", "create", "get", "list", "restore", "update"]
         );
         assert_eq!(names(&cmd, "reactions"), vec!["add", "get", "remove"]);
         assert_eq!(
@@ -2372,7 +2525,8 @@ mod tests {
             ("reactions", 3),
             ("repos", 5),
             ("social", 7),
-            ("tasks", 7),
+            ("tasks", 8),
+            ("tracks", 6),
             ("upload", 1),
             ("users", 5),
             ("workflows", 8),

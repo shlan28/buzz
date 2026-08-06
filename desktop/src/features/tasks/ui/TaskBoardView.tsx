@@ -17,7 +17,9 @@ export function TaskBoardView({
   onOpen,
   onReassign,
   onStatusChange,
+  onTrackChange,
   executions,
+  trackNames,
 }: {
   columns: TaskColumnModel[];
   assignees: TaskAssignee[];
@@ -26,7 +28,9 @@ export function TaskBoardView({
   onOpen: (taskId: string) => void;
   onReassign: (task: Task, assignee: string | null) => void;
   onStatusChange: (task: Task, status: TaskStatus) => void;
+  onTrackChange: (task: Task, trackId: string | null) => void;
   executions: ReadonlyMap<string, TaskExecution>;
+  trackNames?: ReadonlyMap<string, string>;
 }) {
   return (
     <div className="flex min-h-0 flex-1 gap-4 overflow-x-auto p-5">
@@ -38,7 +42,9 @@ export function TaskBoardView({
           key={column.id}
           onDragOver={(event) => {
             if (
-              (groupBy === "status" || column.canAssign !== false) &&
+              (groupBy === "status" ||
+                groupBy === "track" ||
+                column.canAssign !== false) &&
               !pending
             )
               event.preventDefault();
@@ -61,12 +67,17 @@ export function TaskBoardView({
                 onStatusChange(dragged, column.status);
               return;
             }
+            if (groupBy === "track") {
+              if (dragged.trackId !== column.trackId)
+                onTrackChange(dragged, column.trackId ?? null);
+              return;
+            }
             if (dragged.assignee !== column.pubkey)
               onReassign(dragged, column.pubkey);
           }}
         >
           <header className="flex items-center gap-2 px-3 py-3">
-            {column.kind === "status" ? (
+            {column.kind === "status" || column.kind === "track" ? (
               <Columns3 className="h-4 w-4" />
             ) : column.kind === "agent" ? (
               <Bot className="h-4 w-4" />
@@ -80,11 +91,13 @@ export function TaskBoardView({
                 {column.tasks.length === 1 ? "task" : "tasks"} ·{" "}
                 {column.kind === "status"
                   ? "Status"
-                  : column.kind === "agent"
-                    ? "Agent"
-                    : column.kind === "person"
-                      ? "Person"
-                      : "No owner"}
+                  : column.kind === "track"
+                    ? "Track"
+                    : column.kind === "agent"
+                      ? "Agent"
+                      : column.kind === "person"
+                        ? "Person"
+                        : "No owner"}
               </p>
             </div>
           </header>
@@ -103,6 +116,9 @@ export function TaskBoardView({
                     (assignee) => assignee.pubkey === task.assignee,
                   )}
                   execution={executions.get(task.id)}
+                  trackName={
+                    task.trackId ? trackNames?.get(task.trackId) : undefined
+                  }
                   task={task}
                   onOpen={() => onOpen(task.id)}
                 />

@@ -15,15 +15,20 @@ import type {
   TaskDraft,
   TaskPriority,
   TaskStatus,
+  TaskTrackOption,
 } from "../types";
 import {
   dueTimestampToLocalDate,
   localDateToDueTimestamp,
 } from "../lib/taskDates";
 import { TaskAssigneeSelect } from "./TaskAssigneeSelect";
+import { TaskTagInput } from "./TaskTagInput";
+import { TaskTrackSelect } from "./TaskTrackSelect";
 
 export function CreateTaskDialog({
   assignees,
+  tracks,
+  tagSuggestions,
   open,
   pending,
   error,
@@ -31,6 +36,8 @@ export function CreateTaskDialog({
   onSave,
 }: {
   assignees: TaskAssignee[];
+  tracks: TaskTrackOption[];
+  tagSuggestions: string[];
   open: boolean;
   pending: boolean;
   error?: string;
@@ -125,6 +132,16 @@ export function CreateTaskDialog({
               />
             </label>
           </div>
+          <TaskTrackSelect
+            tracks={tracks}
+            value={draft.trackId}
+            onChange={(trackId) => setDraft({ ...draft, trackId })}
+          />
+          <TaskTagInput
+            labels={draft.labels}
+            suggestions={tagSuggestions}
+            onChange={(labels) => setDraft({ ...draft, labels })}
+          />
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
         </div>
         <DialogFooter>
@@ -152,6 +169,8 @@ function blankDraft(): TaskDraft {
     status: "todo",
     priority: "none",
     dueDate: null,
+    labels: [],
+    trackId: null,
   };
 }
 function SelectField({

@@ -134,6 +134,41 @@ test("mutation can modify and clear the due timestamp", () => {
   );
 });
 
+test("task commands preserve a single Track and a deduplicated Tag set", () => {
+  const task = parseTaskState(event, relay);
+  assert.ok(task);
+  const trackId = "e4b9fdaf-f1e8-4d36-8bc4-a32435536335";
+  const changed = buildMutateTaskEvent(task, {
+    trackId,
+    labels: ["launch", "Launch", "desktop"],
+  });
+  assert.deepEqual(
+    changed.tags.filter(
+      (tag) => tag[0] === "t" && tag[1]?.startsWith("track-id:"),
+    ),
+    [["t", `track-id:${trackId}`]],
+  );
+  assert.deepEqual(
+    changed.tags.filter(
+      (tag) => tag[0] === "t" && tag[1]?.startsWith("label:"),
+    ),
+    [
+      ["t", "label:launch"],
+      ["t", "label:desktop"],
+    ],
+  );
+  assert.throws(
+    () => buildMutateTaskEvent(task, { labels: ["你".repeat(22)] }),
+    /between 1 and 64 bytes/,
+  );
+  assert.deepEqual(
+    buildMutateTaskEvent(task, { trackId: null }).tags.find(
+      (tag) => tag[0] === "clear",
+    ),
+    ["clear", "track"],
+  );
+});
+
 test("mutation writes the selected user's pubkey and explicit clear separately", () => {
   const task = parseTaskState(event, relay);
   assert.ok(task);

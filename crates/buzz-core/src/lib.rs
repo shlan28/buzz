@@ -38,6 +38,8 @@ pub mod relay;
 pub mod task;
 /// Tenant identity — the server-resolved community key carried on scoped paths.
 pub mod tenant;
+/// Buzz Tracks protocol fields and validation.
+pub mod track;
 /// Schnorr signature and event ID verification.
 pub mod verification;
 

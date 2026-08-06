@@ -1,14 +1,14 @@
 # Buzz Wiki 索引
 
-> 更新日期：2026-08-01
-> 更新说明：新增 Code Spec 导航入口。
+> 更新日期：2026-08-06
+> 更新说明：在核心概念与模块地图中增加 Tracks 工作管理导航。
 
 这是 Buzz 的 LLM 维护型知识层。先读 [项目总览](overview.md)，再按问题进入对应页面。
 
 ## 产品与概念
 
 - [项目总览](overview.md) — Buzz 是什么、解决什么问题、当前能力边界。
-- [核心概念](concepts.md) — community、identity、event、kind、channel、thread、agent、workflow、project。
+- [核心概念](concepts.md) — community、identity、event、channel、agent、workflow、track、task、tag、project。
 - [客户端体验](clients.md) — Desktop、Mobile、Web 与 CLI 的职责边界。
 - [客户端 UI 设计规范](../docs/2026-07-31-buzz-client-ui-design-standard.md) — 新功能设计与验收依据。
 

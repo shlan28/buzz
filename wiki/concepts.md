@@ -1,7 +1,7 @@
 # Buzz 核心概念
 
-> 更新日期：2026-08-03
-> 更新说明：补充 community 通用 Tasks，并明确它与 NIP-34 Project/Issue 的边界。
+> 更新日期：2026-08-06
+> 更新说明：增加 Track 与多 Tag Task，并明确 Track、Task、Tag 和代码仓库 Project 的边界。
 
 ## Community
 
@@ -35,9 +35,13 @@ channel 是协作空间，使用 NIP-29 `h` tag 定位，而不是 `e` tag。thr
 
 YAML 定义的自动化。触发源可以是消息、reaction、schedule 或 webhook；条件由 `evalexpr` 求值；运行与审批通过事件记录。
 
-## Task
+## Track、Task 与 Tag
 
-community 内由人和 Agent 共用的通用工作项。Task 有稳定 UUID、单一负责人、状态、优先级、截止时间和可选的 Project、Channel、来源消息关联；按负责人展示时，拖到另一列表示转派，而不是改变状态。把 Task 指派给 Agent 只表示责任归属，不会自动启动 Agent。
+Track 是 community 内用于协调一组相关工作的上层容器。每个 Track 有稳定 UUID、名称、负责人、开始日期、结束日期和 `planned / active / completed / canceled` 状态；归档是独立属性，只有 completed 或 canceled Track 可以归档。归档后不会从系统删除，仍可从 Archived 范围、详情深链或 Restore 操作找回。
+
+Task 是 community 内由人和 Agent 共用的通用工作项。Task 有稳定 UUID、单一负责人、状态、优先级、截止时间，以及可选的单一 Track、Project、Channel、来源消息关联；按负责人展示时，拖到另一列表示转派，而不是改变状态。把 Task 指派给 Agent 只表示责任归属，不会自动启动 Agent。
+
+一个 Task 最多归属一个 Track，但可以拥有多个 Tag。Track 用于表达有负责人和时间边界的工作归属，Tag 用于轻量、多维标记；Tasks 支持按 Track 分组或筛选，Tag 只提供 OR 筛选，不提供 Tag 分组。
 
 Task 的创建和修改保留实际操作者，当前状态由 Relay 签名并供 Desktop 与 CLI 查询。关联私密 Channel 的 Task 继续遵守该 Channel 的可见范围；Agent 的对话权限与“谁可以给它指派 Task”是两项独立设置。
 
@@ -46,6 +50,8 @@ Task 的创建和修改保留实际操作者，当前状态由 Relay 签名并�
 把 repository、issue、patch、review、status 与协作频道结合的工作面。Git smart HTTP 和 NIP-34 等事件让代码动作进入 Buzz 的身份与历史模型。
 
 NIP-34 Issue 是代码仓库中的问题，必须依附 repository；Task 是可独立存在的通用协作事项。Task 可以通过 Project 关联指向 NIP-34 repository，但不会因此变成 Issue，Issue 也不会自动成为 Task。
+
+Track 不复用 Project：Track 与代码仓库无关，Projects 仍是可关闭的 repository / issue / patch / review 工作面。关闭 Projects 不影响 Tracks，也不会隐藏 Task 的 Track 归属。
 
 ## Presence、Typing 与 Ephemeral event
 
@@ -63,11 +69,14 @@ NIP-34 Issue 是代码仓库中的问题，必须依附 repository；Task 是可
 - `crates/buzz-core/src/kind.rs`
 - `crates/buzz-core/src/tenant.rs`
 - `crates/buzz-core/src/task.rs`
+- `crates/buzz-core/src/track.rs`
 - `crates/buzz-core/src/channel.rs`
 - `crates/buzz-relay/src/handlers/`
 - `crates/buzz-workflow/`
 - `crates/buzz-relay/src/handlers/command_executor.rs`
 - `crates/buzz-cli/src/commands/tasks.rs`
+- `crates/buzz-cli/src/commands/tracks.rs`
 - `desktop/src/features/tasks/`
+- `desktop/src/features/tracks/`
 - `ARCHITECTURE.md`
 - `AGENTS.md`

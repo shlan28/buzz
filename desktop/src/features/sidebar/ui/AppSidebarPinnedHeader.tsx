@@ -5,6 +5,7 @@ import {
   FolderGit2,
   Inbox,
   ListTodo,
+  Route,
   Zap,
 } from "lucide-react";
 
@@ -29,6 +30,7 @@ type SidebarSelectedView =
   | "pulse"
   | "projects"
   | "tasks"
+  | "tracks"
   | "calendar";
 
 type AppSidebarPinnedHeaderProps = {
@@ -52,6 +54,7 @@ type AppSidebarPrimaryMenuProps = {
   onSelectHome: () => void;
   onSelectProjects: () => void;
   onSelectTasks: () => void;
+  onSelectTracks: () => void;
   onSelectPulse: () => void;
   onSelectWorkflows: () => void;
   selectedView: SidebarSelectedView;
@@ -99,6 +102,7 @@ export function AppSidebarPrimaryMenu({
   onSelectHome,
   onSelectProjects,
   onSelectTasks,
+  onSelectTracks,
   onSelectPulse,
   onSelectWorkflows,
   selectedView,
@@ -181,6 +185,18 @@ export function AppSidebarPrimaryMenu({
           >
             <ListTodo className="h-4 w-4" />
             <SidebarMenuLabel>Tasks</SidebarMenuLabel>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            data-testid="open-tracks-view"
+            isActive={selectedView === "tracks"}
+            onClick={onSelectTracks}
+            tooltip="Tracks"
+            type="button"
+          >
+            <Route className="h-4 w-4" />
+            <SidebarMenuLabel>Tracks</SidebarMenuLabel>
           </SidebarMenuButton>
         </SidebarMenuItem>
         <SidebarMenuItem>

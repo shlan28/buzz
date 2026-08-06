@@ -23,8 +23,9 @@ use std::time::Duration;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use buzz_sdk::{
-    build_task_create, build_task_delete, nip_oa, TaskCreateInput, TaskDeleteInput, TaskPriority,
-    TaskStatus,
+    build_task_create, build_task_delete, build_task_mutate, build_track_create,
+    build_track_mutate, nip_oa, TaskCreateInput, TaskDeleteInput, TaskMutateInput, TaskPriority,
+    TaskStatus, TrackCreateInput, TrackMutateInput, TrackStatus,
 };
 use buzz_test_client::{BuzzTestClient, RelayMessage, TestClientError};
 use nostr::{Alphabet, EventBuilder, Filter, Keys, Kind, SingleLetterTag, Tag};
@@ -236,6 +237,177 @@ async fn query_task_state(
     events
 }
 
+async fn query_track_state(
+    client: &mut BuzzTestClient,
+    track_id: Uuid,
+    name: &str,
+) -> Vec<nostr::Event> {
+    let sid = sub_id(name);
+    let id = track_id.to_string();
+    let filter = Filter::new()
+        .kind(Kind::Custom(buzz_core::kind::KIND_TRACK_STATE as u16))
+        .custom_tags(SingleLetterTag::lowercase(Alphabet::D), [id.as_str()]);
+    client
+        .subscribe(&sid, vec![filter])
+        .await
+        .expect("subscribe to Track state");
+    let events = client
+        .collect_until_eose(&sid, Duration::from_secs(5))
+        .await
+        .expect("collect Track state");
+    client
+        .close_subscription(&sid)
+        .await
+        .expect("close Track subscription");
+    events
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_track_archive_restore_and_task_reference() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let keys = test_owner_keys();
+    seed_relay_owner(&keys).await;
+    let mut client = BuzzTestClient::connect(&relay_url(), &keys)
+        .await
+        .expect("owner connects");
+    let track_id = Uuid::new_v4();
+    let create = build_track_create(&TrackCreateInput {
+        id: track_id,
+        name: format!("track-e2e-{track_id}"),
+        description: "Track lifecycle integration".into(),
+        owner: keys.public_key().to_hex(),
+        start_date: "2026-08-01".into(),
+        end_date: "2026-08-31".into(),
+        status: TrackStatus::Completed,
+    })
+    .expect("build Track create")
+    .sign_with_keys(&keys)
+    .expect("sign Track create");
+    let ok = client
+        .send_event(create)
+        .await
+        .expect("submit Track create");
+    assert!(ok.accepted, "Track create rejected: {}", ok.message);
+
+    let states = query_track_state(&mut client, track_id, "track-created").await;
+    assert_eq!(states.len(), 1);
+    let archive = build_track_mutate(&TrackMutateInput {
+        id: track_id,
+        previous_event: states[0].id.to_hex(),
+        archived: Some(true),
+        ..TrackMutateInput::default()
+    })
+    .expect("build archive")
+    .sign_with_keys(&keys)
+    .expect("sign archive");
+    let ok = client.send_event(archive).await.expect("submit archive");
+    assert!(ok.accepted, "Track archive rejected: {}", ok.message);
+
+    let states = query_track_state(&mut client, track_id, "track-archived").await;
+    assert!(states[0]
+        .tags
+        .iter()
+        .any(|tag| tag.as_slice() == ["archived", "true"]));
+    let restore = build_track_mutate(&TrackMutateInput {
+        id: track_id,
+        previous_event: states[0].id.to_hex(),
+        archived: Some(false),
+        ..TrackMutateInput::default()
+    })
+    .expect("build restore")
+    .sign_with_keys(&keys)
+    .expect("sign restore");
+    let ok = client.send_event(restore).await.expect("submit restore");
+    assert!(ok.accepted, "Track restore rejected: {}", ok.message);
+
+    let task_id = Uuid::new_v4();
+    let task = build_task_create(&TaskCreateInput {
+        id: task_id,
+        title: format!("track-task-e2e-{task_id}"),
+        description: String::new(),
+        assignee: None,
+        status: TaskStatus::Todo,
+        priority: TaskPriority::None,
+        due: None,
+        labels: Vec::new(),
+        project: None,
+        track: Some(track_id),
+        channel: None,
+        source_event: None,
+    })
+    .expect("build linked task")
+    .sign_with_keys(&keys)
+    .expect("sign linked task");
+    let ok = client.send_event(task).await.expect("submit linked task");
+    assert!(ok.accepted, "linked task rejected: {}", ok.message);
+    let task_states = query_task_state(&mut client, task_id, "track-task").await;
+    assert!(task_states[0]
+        .tags
+        .iter()
+        .any(|tag| { tag.as_slice() == ["t", format!("track-id:{track_id}").as_str()] }));
+
+    let task_update = build_task_mutate(&TaskMutateInput {
+        id: task_id,
+        previous_event: task_states[0].id.to_hex(),
+        title: Some("updated without a Track patch".into()),
+        ..TaskMutateInput::default()
+    })
+    .expect("build task update")
+    .sign_with_keys(&keys)
+    .expect("sign task update");
+    let ok = client
+        .send_event(task_update)
+        .await
+        .expect("submit task update");
+    assert!(ok.accepted, "task update rejected: {}", ok.message);
+    let task_states = query_task_state(&mut client, task_id, "track-task-updated").await;
+    assert!(task_states[0]
+        .tags
+        .iter()
+        .any(|tag| { tag.as_slice() == ["t", format!("track-id:{track_id}").as_str()] }));
+
+    let states = query_track_state(&mut client, track_id, "track-restored").await;
+    let archive_again = build_track_mutate(&TrackMutateInput {
+        id: track_id,
+        previous_event: states[0].id.to_hex(),
+        archived: Some(true),
+        ..TrackMutateInput::default()
+    })
+    .expect("build second archive")
+    .sign_with_keys(&keys)
+    .expect("sign second archive");
+    let ok = client
+        .send_event(archive_again)
+        .await
+        .expect("submit second archive");
+    assert!(ok.accepted, "second archive rejected: {}", ok.message);
+
+    let rejected_task_id = Uuid::new_v4();
+    let rejected_task = build_task_create(&TaskCreateInput {
+        id: rejected_task_id,
+        title: "must not join archived Track".into(),
+        description: String::new(),
+        assignee: None,
+        status: TaskStatus::Todo,
+        priority: TaskPriority::None,
+        due: None,
+        labels: Vec::new(),
+        project: None,
+        track: Some(track_id),
+        channel: None,
+        source_event: None,
+    })
+    .expect("build rejected linked task")
+    .sign_with_keys(&keys)
+    .expect("sign rejected linked task");
+    let ok = client
+        .send_event(rejected_task)
+        .await
+        .expect("submit rejected linked task");
+    assert!(!ok.accepted, "archived Track unexpectedly accepted a task");
+}
+
 #[tokio::test]
 #[ignore]
 async fn test_task_creator_delete_hides_state_and_blocks_same_id_recreation() {
@@ -256,6 +428,7 @@ async fn test_task_creator_delete_hides_state_and_blocks_same_id_recreation() {
         due: None,
         labels: vec!["delete-e2e".into()],
         project: None,
+        track: None,
         channel: None,
         source_event: None,
     };

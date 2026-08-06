@@ -118,6 +118,29 @@ export function useAppNavigation() {
     [commitNavigation],
   );
 
+  const goTracks = React.useCallback(
+    (behavior?: NavigationBehavior) =>
+      commitNavigation(
+        {
+          to: "/tracks",
+        },
+        behavior,
+      ),
+    [commitNavigation],
+  );
+
+  const goTrack = React.useCallback(
+    (trackId: string, behavior?: NavigationBehavior) =>
+      commitNavigation(
+        {
+          to: "/tracks/$trackId",
+          params: { trackId },
+        },
+        behavior,
+      ),
+    [commitNavigation],
+  );
+
   const goProject = React.useCallback(
     (
       projectId: string,
@@ -332,6 +355,8 @@ export function useAppNavigation() {
     goProject,
     goProjects,
     goTasks,
+    goTrack,
+    goTracks,
     goPulse,
     goSettings,
     goWorkflow,

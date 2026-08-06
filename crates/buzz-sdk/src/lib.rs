@@ -21,6 +21,7 @@ pub use builders::*;
 /// Re-export kind constants so consumers don't need buzz-core directly.
 pub use buzz_core::kind;
 pub use buzz_core::task::{TaskPriority, TaskStatus};
+pub use buzz_core::track::TrackStatus;
 
 /// Complete input for a task create command.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,6 +44,8 @@ pub struct TaskCreateInput {
     pub labels: Vec<String>,
     /// Optional NIP-34 repository coordinate.
     pub project: Option<String>,
+    /// Optional Buzz Track UUID. Independent from the NIP-34 repository coordinate.
+    pub track: Option<uuid::Uuid>,
     /// Optional channel UUID.
     pub channel: Option<uuid::Uuid>,
     /// Optional source message event ID.
@@ -72,11 +75,55 @@ pub struct TaskMutateInput {
     pub labels: Option<Vec<String>>,
     /// Replacement project; `Some(None)` clears it.
     pub project: Option<Option<String>>,
+    /// Replacement Track; `Some(None)` clears it.
+    pub track: Option<Option<uuid::Uuid>>,
     /// Replacement channel; `Some(None)` clears it.
     pub channel: Option<Option<uuid::Uuid>>,
     /// Replacement source event; `Some(None)` clears it.
     pub source_event: Option<Option<String>>,
     /// Archive or restore the task.
+    pub archived: Option<bool>,
+}
+
+/// Complete input for a Track create command.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackCreateInput {
+    /// Stable client-generated UUID.
+    pub id: uuid::Uuid,
+    /// Human-readable Track name.
+    pub name: String,
+    /// Markdown description.
+    pub description: String,
+    /// Responsible Person or Agent public key in hexadecimal.
+    pub owner: String,
+    /// Required date-only start in `YYYY-MM-DD` form.
+    pub start_date: String,
+    /// Required date-only target end in `YYYY-MM-DD` form.
+    pub end_date: String,
+    /// Initial lifecycle state.
+    pub status: TrackStatus,
+}
+
+/// Explicit changes for a Track mutation command.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TrackMutateInput {
+    /// Stable Track UUID.
+    pub id: uuid::Uuid,
+    /// Current Track State event ID used for optimistic concurrency.
+    pub previous_event: String,
+    /// Replacement name.
+    pub name: Option<String>,
+    /// Replacement description; `Some(None)` clears it.
+    pub description: Option<Option<String>>,
+    /// Replacement owner public key.
+    pub owner: Option<String>,
+    /// Replacement start date.
+    pub start_date: Option<String>,
+    /// Replacement end date.
+    pub end_date: Option<String>,
+    /// Replacement lifecycle state.
+    pub status: Option<TrackStatus>,
+    /// Archive or restore the Track.
     pub archived: Option<bool>,
 }
 

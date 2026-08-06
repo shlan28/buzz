@@ -1,5 +1,6 @@
 // biome-ignore format: keep compact to stay within file size limit
 import * as React from "react";
+import type { AppView } from "@/app/AppShell.helpers";
 import { FeatureGate } from "@/shared/features";
 import { SidebarDndContext } from "@/features/sidebar/ui/SidebarDnd";
 
@@ -98,16 +99,7 @@ type AppSidebarProps = {
   selfPresenceStatus: PresenceStatus;
   errorMessage?: string;
   selectedChannelId: string | null;
-  selectedView:
-    | "home"
-    | "channel"
-    | "messages"
-    | "agents"
-    | "workflows"
-    | "pulse"
-    | "projects"
-    | "tasks"
-    | "calendar";
+  selectedView: AppView;
   unreadChannelCounts: ReadonlyMap<string, number>;
   unreadChannelIds: ReadonlySet<string>;
   communities: Community[];
@@ -148,6 +140,7 @@ type AppSidebarProps = {
   onSelectCalendar: () => void;
   onSelectProjects: () => void;
   onSelectTasks: () => void;
+  onSelectTracks: () => void;
   onSelectPulse: () => void;
   onSelectWorkflows: () => void;
   onSelectHome: () => void;
@@ -214,6 +207,7 @@ export function AppSidebar({
   onSelectCalendar,
   onSelectProjects,
   onSelectTasks,
+  onSelectTracks,
   onSelectPulse,
   onSelectWorkflows,
   onSelectHome,
@@ -614,6 +608,7 @@ export function AppSidebar({
                 onSelectHome={onSelectHome}
                 onSelectProjects={onSelectProjects}
                 onSelectTasks={onSelectTasks}
+                onSelectTracks={onSelectTracks}
                 onSelectPulse={onSelectPulse}
                 onSelectWorkflows={onSelectWorkflows}
                 selectedView={selectedView}

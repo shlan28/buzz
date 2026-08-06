@@ -103,8 +103,426 @@ pub async fn handle_command(
         KIND_TASK_EXECUTION_REQUEST | KIND_TASK_EXECUTION_UPDATE => {
             handle_task_execution(tenant, state, &event, &auth).await
         }
+        KIND_TRACK_CREATE | KIND_TRACK_MUTATE => {
+            handle_track_command(tenant, state, &event, &auth).await
+        }
         _ => Err(IngestError::Rejected(format!(
             "unknown command kind: {kind}"
+        ))),
+    }
+}
+
+async fn handle_track_command(
+    tenant: &TenantContext,
+    state: &Arc<AppState>,
+    command: &Event,
+    auth: &IngestAuth,
+) -> Result<IngestResult, IngestError> {
+    let track_id = buzz_core::track::track_id(command)
+        .map_err(|error| IngestError::Rejected(format!("invalid: {error}")))?;
+    let is_create = command.kind.as_u16() as u32 == KIND_TRACK_CREATE;
+    let track_id_tags = command
+        .tags
+        .iter()
+        .filter(|tag| {
+            let parts = tag.as_slice();
+            parts.len() == 2 && parts[0] == "t" && parts[1] == format!("track-id:{track_id}")
+        })
+        .count();
+    if track_id_tags != 1 {
+        return Err(IngestError::Rejected(
+            "invalid: track command requires exactly one track id".into(),
+        ));
+    }
+    let mut query = buzz_db::EventQuery::for_community(tenant.community());
+    query.kinds = Some(vec![KIND_TRACK_STATE as i32]);
+    query.d_tag = Some(track_id.to_string());
+    query.limit = Some(1);
+    let current = state
+        .db
+        .query_events(&query)
+        .await
+        .map_err(|error| IngestError::Internal(format!("error: query Track state: {error}")))?
+        .into_iter()
+        .next();
+    if is_create && current.is_some() {
+        return Err(IngestError::Rejected(
+            "conflict: track already exists".into(),
+        ));
+    }
+    if !is_create && current.is_none() {
+        return Err(IngestError::Rejected(
+            "conflict: track does not exist".into(),
+        ));
+    }
+
+    let actor = auth.pubkey().to_bytes().to_vec();
+    let actor_hex = hex::encode(&actor);
+    if let Some(existing) = &current {
+        let creator = extract_tag(&existing.event, "creator");
+        let owner = extract_tag(&existing.event, "p");
+        let actor_is_admin = state
+            .db
+            .get_relay_member(tenant.community(), &actor_hex)
+            .await
+            .map_err(|error| IngestError::Internal(format!("error: read community role: {error}")))?
+            .is_some_and(|member| matches!(member.role.as_str(), "owner" | "admin"));
+        if creator.as_deref() != Some(actor_hex.as_str())
+            && owner.as_deref() != Some(actor_hex.as_str())
+            && !actor_is_admin
+        {
+            return Err(IngestError::AuthFailed(
+                "restricted: track may only be edited by its creator, owner, or community administrator"
+                    .into(),
+            ));
+        }
+    }
+
+    let expected = if is_create {
+        None
+    } else {
+        let previous_count = command
+            .tags
+            .iter()
+            .filter(|tag| {
+                let parts = tag.as_slice();
+                parts.len() == 2 && parts[0] == "previous"
+            })
+            .count();
+        if previous_count != 1 {
+            return Err(IngestError::Rejected(
+                "invalid: mutate requires exactly one previous event id".into(),
+            ));
+        }
+        let previous = extract_tag(command, "previous").ok_or_else(|| {
+            IngestError::Rejected("invalid: mutate requires a previous event id".into())
+        })?;
+        let decoded = hex::decode(&previous).map_err(|_| {
+            IngestError::Rejected("invalid: previous must be a hex event id".into())
+        })?;
+        if decoded.len() != 32 {
+            return Err(IngestError::Rejected(
+                "invalid: previous must be a 32-byte event id".into(),
+            ));
+        }
+        let refs: Vec<String> = command
+            .tags
+            .iter()
+            .filter_map(|tag| {
+                let parts = tag.as_slice();
+                (parts.len() == 4 && parts[0] == "e" && parts[3] == "previous")
+                    .then(|| parts[1].to_string())
+            })
+            .collect();
+        if refs.len() != 1 || refs[0] != previous {
+            return Err(IngestError::Rejected(
+                "invalid: track previous references do not match".into(),
+            ));
+        }
+        Some(decoded)
+    };
+
+    let mut raw_tags: Vec<Vec<String>> = current.as_ref().map_or_else(Vec::new, |existing| {
+        existing
+            .event
+            .tags
+            .iter()
+            .map(|tag| tag.as_slice().iter().map(ToString::to_string).collect())
+            .filter(|parts: &Vec<String>| {
+                !matches!(
+                    parts.first().map(String::as_str),
+                    Some("source_event" | "last_editor")
+                )
+            })
+            .collect()
+    });
+    let mut content = current.as_ref().map_or_else(
+        || command.content.clone(),
+        |existing| existing.event.content.clone(),
+    );
+    if is_create {
+        raw_tags = command
+            .tags
+            .iter()
+            .map(|tag| tag.as_slice().iter().map(ToString::to_string).collect())
+            .collect();
+        raw_tags.push(vec!["creator".into(), actor_hex.clone()]);
+        raw_tags.push(vec![
+            "created_at".into(),
+            command.created_at.as_secs().to_string(),
+        ]);
+    } else {
+        let current_archived = extract_tag(
+            &current
+                .as_ref()
+                .ok_or_else(|| IngestError::Rejected("conflict: track does not exist".into()))?
+                .event,
+            "archived",
+        )
+        .as_deref()
+            == Some("true");
+        let patch_keys = ["title", "p", "start_date", "end_date"];
+        let has_non_restore_patch = patch_keys
+            .iter()
+            .any(|key| extract_tag(command, key).is_some())
+            || command.tags.iter().any(|tag| {
+                let parts = tag.as_slice();
+                (parts.len() == 2 && parts[0] == "t" && parts[1].starts_with("track-status:"))
+                    || parts == ["set", "description"]
+                    || parts == ["clear", "description"]
+            });
+        let incoming_archived = extract_tag(command, "archived");
+        if current_archived
+            && (incoming_archived.as_deref() != Some("false") || has_non_restore_patch)
+        {
+            return Err(IngestError::Rejected(
+                "invalid: archived tracks must be restored before editing".into(),
+            ));
+        }
+        if incoming_archived.as_deref() == Some("true") {
+            let current_status = current
+                .as_ref()
+                .and_then(|existing| {
+                    existing.event.tags.iter().find_map(|tag| {
+                        let parts = tag.as_slice();
+                        (parts.len() == 2 && parts[0] == "t")
+                            .then(|| parts[1].strip_prefix("track-status:"))
+                            .flatten()
+                    })
+                })
+                .and_then(|value| value.parse::<buzz_core::track::TrackStatus>().ok());
+            if !current_status.is_some_and(buzz_core::track::TrackStatus::can_archive) {
+                return Err(IngestError::Rejected(
+                    "invalid: only completed or canceled tracks may be archived".into(),
+                ));
+            }
+        }
+        let has_patch = has_non_restore_patch || incoming_archived.is_some();
+        if !has_patch {
+            return Err(IngestError::Rejected(
+                "invalid: track mutation must change at least one field".into(),
+            ));
+        }
+        let replace = |tags: &mut Vec<Vec<String>>, key: &str, incoming: Vec<Vec<String>>| {
+            tags.retain(|parts| parts.first().is_none_or(|value| value != key));
+            tags.extend(incoming);
+        };
+        for key in ["title", "p", "start_date", "end_date", "archived"] {
+            let incoming: Vec<Vec<String>> = command
+                .tags
+                .iter()
+                .map(|tag| tag.as_slice())
+                .filter(|parts| parts.first().is_some_and(|value| value == key))
+                .map(|parts| parts.iter().map(ToString::to_string).collect())
+                .collect();
+            if !incoming.is_empty() {
+                replace(&mut raw_tags, key, incoming);
+            }
+        }
+        let incoming_status: Vec<Vec<String>> = command
+            .tags
+            .iter()
+            .map(|tag| tag.as_slice())
+            .filter(|parts| {
+                parts.len() == 2 && parts[0] == "t" && parts[1].starts_with("track-status:")
+            })
+            .map(|parts| parts.iter().map(ToString::to_string).collect())
+            .collect();
+        if !incoming_status.is_empty() {
+            raw_tags.retain(|parts| {
+                !(parts.len() == 2 && parts[0] == "t" && parts[1].starts_with("track-status:"))
+            });
+            raw_tags.extend(incoming_status);
+        }
+        if command
+            .tags
+            .iter()
+            .any(|tag| tag.as_slice() == ["set", "description"])
+        {
+            content.clone_from(&command.content);
+        }
+        if command
+            .tags
+            .iter()
+            .any(|tag| tag.as_slice() == ["clear", "description"])
+        {
+            content.clear();
+        }
+    }
+    raw_tags.retain(|parts| {
+        parts.first().is_none_or(|value| {
+            !matches!(
+                value.as_str(),
+                "d" | "previous" | "action" | "clear" | "set"
+            )
+        }) && parts.first().is_none_or(|value| value != "h")
+            && !(parts.len() == 2 && parts[0] == "t" && parts[1].starts_with("track-id:"))
+    });
+    raw_tags.push(vec!["d".into(), track_id.to_string()]);
+    raw_tags.push(vec!["last_editor".into(), actor_hex]);
+    raw_tags.push(vec!["source_event".into(), command.id.to_hex()]);
+
+    let values = |name: &str| {
+        raw_tags
+            .iter()
+            .filter(|parts| parts.len() >= 2 && parts[0] == name)
+            .map(|parts| parts[1].clone())
+            .collect::<Vec<_>>()
+    };
+    let titles = values("title");
+    let owners = values("p");
+    let starts = values("start_date");
+    let ends = values("end_date");
+    let archived_values = values("archived");
+    let statuses = raw_tags
+        .iter()
+        .filter_map(|parts| {
+            (parts.len() == 2 && parts[0] == "t")
+                .then(|| {
+                    parts[1]
+                        .strip_prefix("track-status:")
+                        .map(ToString::to_string)
+                })
+                .flatten()
+        })
+        .collect::<Vec<_>>();
+    if titles.len() != 1
+        || owners.len() != 1
+        || starts.len() != 1
+        || ends.len() != 1
+        || statuses.len() != 1
+        || archived_values.len() != 1
+    {
+        return Err(IngestError::Rejected(
+            "invalid: track requires one name, owner, date range, status, and archived value"
+                .into(),
+        ));
+    }
+    buzz_core::track::validate_name(&titles[0])
+        .map_err(|error| IngestError::Rejected(format!("invalid: {error}")))?;
+    if content.len() > buzz_core::track::TRACK_DESCRIPTION_MAX_BYTES {
+        return Err(IngestError::Rejected(
+            "invalid: track description exceeds 65536 bytes".into(),
+        ));
+    }
+    buzz_core::track::validate_owner(&owners[0])
+        .map_err(|error| IngestError::Rejected(format!("invalid: {error}")))?;
+    buzz_core::track::validate_date_range(&starts[0], &ends[0])
+        .map_err(|error| IngestError::Rejected(format!("invalid: {error}")))?;
+    let track_status = statuses[0]
+        .parse::<buzz_core::track::TrackStatus>()
+        .map_err(|error| IngestError::Rejected(format!("invalid: {error}")))?;
+    let archived = match archived_values[0].as_str() {
+        "true" => true,
+        "false" => false,
+        _ => {
+            return Err(IngestError::Rejected(
+                "invalid: track archived must be true or false".into(),
+            ))
+        }
+    };
+    if is_create && archived {
+        return Err(IngestError::Rejected(
+            "invalid: a new track cannot be archived".into(),
+        ));
+    }
+    buzz_core::track::validate_archive(track_status, archived)
+        .map_err(|error| IngestError::Rejected(format!("invalid: {error}")))?;
+
+    let owner_changed = is_create
+        || current
+            .as_ref()
+            .and_then(|existing| extract_tag(&existing.event, "p"))
+            .as_deref()
+            != Some(owners[0].as_str());
+    if owner_changed {
+        let owner = decode_pubkey(&owners[0])?;
+        if state
+            .db
+            .is_archived(tenant.community(), &owners[0])
+            .await
+            .map_err(|error| {
+                IngestError::Internal(format!("error: read archived identity: {error}"))
+            })?
+        {
+            return Err(IngestError::Rejected(
+                "invalid: archived identities cannot own a track".into(),
+            ));
+        }
+        let relay_member = state
+            .db
+            .get_relay_member(tenant.community(), &owners[0])
+            .await
+            .map_err(|error| {
+                IngestError::Internal(format!("error: read owner membership: {error}"))
+            })?;
+        let agent = state
+            .db
+            .get_task_assignment_policy(tenant.community(), &owner)
+            .await
+            .map_err(|error| {
+                IngestError::Internal(format!("error: read owner identity: {error}"))
+            })?;
+        if relay_member.is_none()
+            && !agent.as_ref().is_some_and(|(_, agent_owner, _)| {
+                agent_owner.is_some() || !state.config.require_relay_membership
+            })
+        {
+            return Err(IngestError::Rejected(
+                "invalid: track owner is not a current community identity".into(),
+            ));
+        }
+    }
+
+    let tags = raw_tags
+        .into_iter()
+        .map(|parts| {
+            Tag::parse(parts)
+                .map_err(|error| IngestError::Rejected(format!("invalid: track tag: {error}")))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let state_event = EventBuilder::new(Kind::Custom(KIND_TRACK_STATE as u16), content)
+        .tags(tags)
+        .sign_with_keys(&state.relay_keypair)
+        .map_err(|error| IngestError::Internal(format!("error: sign Track state: {error}")))?;
+    let result = state
+        .db
+        .apply_track_events(
+            tenant.community(),
+            track_id,
+            expected.as_deref(),
+            command,
+            &state_event,
+        )
+        .await;
+    match result {
+        Ok(buzz_db::tracks::ApplyTrackResult::Applied) => {
+            if let Err(error) = state
+                .pubsub
+                .publish_event(tenant, EventTopic::Global, &state_event)
+                .await
+            {
+                warn!(track_id = %track_id, "Track state committed but live publish failed: {error}");
+            }
+            Ok(IngestResult {
+                event_id: command.id.to_hex(),
+                accepted: true,
+                message: format!(
+                    "response:{}",
+                    serde_json::json!({"track_id": track_id, "state_event_id": state_event.id.to_hex()})
+                ),
+            })
+        }
+        Ok(buzz_db::tracks::ApplyTrackResult::Duplicate) => Ok(IngestResult {
+            event_id: command.id.to_hex(),
+            accepted: true,
+            message: "duplicate: already processed".into(),
+        }),
+        Err(DbError::Conflict(message)) => {
+            Err(IngestError::Rejected(format!("conflict: {message}")))
+        }
+        Err(error) => Err(IngestError::Internal(format!(
+            "error: persist Track: {error}"
         ))),
     }
 }
@@ -710,6 +1128,21 @@ async fn handle_task_command(
                 raw_tags.extend(incoming);
             }
         }
+        let incoming_track: Vec<Vec<String>> = command
+            .tags
+            .iter()
+            .map(|tag| tag.as_slice())
+            .filter(|parts| {
+                parts.len() == 2 && parts[0] == "t" && parts[1].starts_with("track-id:")
+            })
+            .map(|parts| parts.iter().map(ToString::to_string).collect())
+            .collect();
+        if !incoming_track.is_empty() || clears.iter().any(|value| value == "track") {
+            raw_tags.retain(|parts| {
+                !(parts.len() == 2 && parts[0] == "t" && parts[1].starts_with("track-id:"))
+            });
+            raw_tags.extend(incoming_track);
+        }
         if command
             .tags
             .iter()
@@ -765,6 +1198,8 @@ async fn handle_task_command(
     };
     let statuses = namespaced("task-status:");
     let priorities = namespaced("task-priority:");
+    let track_ids = namespaced("track-id:");
+    let labels = namespaced("label:");
     if statuses.len() != 1
         || statuses[0].parse::<buzz_core::task::TaskStatus>().is_err()
         || priorities.len() != 1
@@ -775,6 +1210,55 @@ async fn handle_task_command(
         return Err(IngestError::Rejected(
             "invalid: task requires one valid status and priority".into(),
         ));
+    }
+    if track_ids.len() > 1 {
+        return Err(IngestError::Rejected(
+            "invalid: task may belong to at most one track".into(),
+        ));
+    }
+    let mut unique_labels = std::collections::HashSet::new();
+    if labels.iter().any(|label| {
+        label.trim().is_empty() || label.len() > 64 || !unique_labels.insert(label.as_str())
+    }) {
+        return Err(IngestError::Rejected(
+            "invalid: task labels must be unique and contain 1..=64 bytes".into(),
+        ));
+    }
+    if let Some(track_id_value) = track_ids.first() {
+        let track_id = Uuid::parse_str(track_id_value)
+            .map_err(|_| IngestError::Rejected("invalid: task track id must be a UUID".into()))?;
+        let current_track_id = current.as_ref().and_then(|existing| {
+            existing.event.tags.iter().find_map(|tag| {
+                let parts = tag.as_slice();
+                (parts.len() == 2 && parts[0] == "t")
+                    .then(|| parts[1].strip_prefix("track-id:"))
+                    .flatten()
+                    .and_then(|value| Uuid::parse_str(value).ok())
+            })
+        });
+        if is_create || current_track_id != Some(track_id) {
+            let mut track_query = buzz_db::EventQuery::for_community(tenant.community());
+            track_query.kinds = Some(vec![KIND_TRACK_STATE as i32]);
+            track_query.d_tag = Some(track_id.to_string());
+            track_query.limit = Some(1);
+            let track = state
+                .db
+                .query_events(&track_query)
+                .await
+                .map_err(|error| {
+                    IngestError::Internal(format!("error: query Track reference: {error}"))
+                })?
+                .into_iter()
+                .next()
+                .ok_or_else(|| {
+                    IngestError::Rejected("invalid: task Track does not exist".into())
+                })?;
+            if extract_tag(&track.event, "archived").as_deref() == Some("true") {
+                return Err(IngestError::Rejected(
+                    "invalid: archived Tracks cannot receive tasks".into(),
+                ));
+            }
+        }
     }
     if let Some(due) = raw_tags
         .iter()
