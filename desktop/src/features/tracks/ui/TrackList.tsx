@@ -1,17 +1,11 @@
 import {
   Archive,
   CalendarDays,
-  MoreHorizontal,
+  Pencil,
   RotateCcw,
   UserRound,
 } from "lucide-react";
 import { Button } from "@/shared/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/shared/ui/dropdown-menu";
 import { Progress } from "@/shared/ui/progress";
 import { cn } from "@/shared/lib/cn";
 import { visibleTrackProgress } from "../lib/trackProgress";
@@ -75,14 +69,17 @@ export function TrackList({
   );
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5">
-      <div className="mx-auto max-w-6xl divide-y divide-border overflow-hidden rounded-xl border border-border bg-background">
+      <div
+        className="w-full divide-y divide-border overflow-hidden rounded-xl border border-border bg-background"
+        data-testid="track-list-view"
+      >
         {tracks.map((track) => {
           const progress = visibleTrackProgress(track.id, tasks);
           const owner =
             ownerLabels.get(track.owner.toLowerCase()) ?? "Unknown owner";
           return (
             <div
-              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 hover:bg-muted/40 md:grid-cols-[minmax(0,1fr)_minmax(8rem,0.5fr)_minmax(10rem,0.7fr)_minmax(9rem,0.7fr)_auto]"
+              className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 px-4 py-3 hover:bg-muted/40 md:grid-cols-[minmax(0,1fr)_auto_minmax(8rem,0.5fr)_minmax(10rem,0.7fr)_minmax(9rem,0.7fr)_auto]"
               data-testid={`track-row-${track.id}`}
               key={track.id}
             >
@@ -113,7 +110,7 @@ export function TrackList({
                   {progress.completed}/{progress.total} visible
                 </span>
               </div>
-              <div className="justify-self-end">
+              <div className="flex items-center justify-self-end">
                 {track.archived && track.canManage ? (
                   <Button
                     disabled={pending}
@@ -125,30 +122,29 @@ export function TrackList({
                     Restore
                   </Button>
                 ) : track.canManage ? (
-                  <DropdownMenu modal={false}>
-                    <DropdownMenuTrigger asChild>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      disabled={pending}
+                      onClick={() => onEdit(track)}
+                      size="sm"
+                      variant="ghost"
+                    >
+                      <Pencil className="h-4 w-4" />
+                      Edit track
+                    </Button>
+                    {track.status === "completed" ||
+                    track.status === "canceled" ? (
                       <Button
-                        aria-label={`Actions for ${track.name}`}
                         disabled={pending}
-                        size="icon"
+                        onClick={() => onArchive(track)}
+                        size="sm"
                         variant="ghost"
                       >
-                        <MoreHorizontal className="h-4 w-4" />
+                        <Archive className="h-4 w-4" />
+                        Archive
                       </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onSelect={() => onEdit(track)}>
-                        Edit track
-                      </DropdownMenuItem>
-                      {track.status === "completed" ||
-                      track.status === "canceled" ? (
-                        <DropdownMenuItem onSelect={() => onArchive(track)}>
-                          <Archive className="h-4 w-4" />
-                          Archive track
-                        </DropdownMenuItem>
-                      ) : null}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                    ) : null}
+                  </div>
                 ) : (
                   <span className="text-xs text-muted-foreground">
                     Read only

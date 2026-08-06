@@ -127,6 +127,44 @@ test("Tracks scopes keep archived work recoverable", async ({ page }) => {
   ).toBeVisible();
 });
 
+test("Tracks and Tasks lists fill the content width with direct Track actions", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 2048, height: 1200 });
+  await installTracks(page);
+  await page.goto("/#/tracks");
+
+  const tracksScreen = page.getByTestId("tracks-screen");
+  const trackList = page.getByTestId("track-list-view");
+  const editTrack = page.getByRole("button", { name: "Edit track" });
+  await expect(editTrack).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Actions for Desktop launch" }),
+  ).toHaveCount(0);
+
+  const tracksScreenBox = await tracksScreen.boundingBox();
+  const trackListBox = await trackList.boundingBox();
+  const editTrackBox = await editTrack.boundingBox();
+  expect(tracksScreenBox).not.toBeNull();
+  expect(trackListBox).not.toBeNull();
+  expect(editTrackBox).not.toBeNull();
+  expect(trackListBox?.width).toBeGreaterThanOrEqual(
+    (tracksScreenBox?.width ?? 0) - 42,
+  );
+  expect(editTrackBox?.x).toBeGreaterThan(
+    (trackListBox?.x ?? 0) + (trackListBox?.width ?? 0) * 0.85,
+  );
+
+  await page.goto("/#/tasks?view=list");
+  const tasksScreenBox = await page.getByTestId("tasks-screen").boundingBox();
+  const taskListBox = await page.getByTestId("task-list-view").boundingBox();
+  expect(tasksScreenBox).not.toBeNull();
+  expect(taskListBox).not.toBeNull();
+  expect(taskListBox?.width).toBeGreaterThanOrEqual(
+    (tasksScreenBox?.width ?? 0) - 42,
+  );
+});
+
 test("Track detail shows its tasks and opens a filtered Tasks view", async ({
   page,
 }) => {

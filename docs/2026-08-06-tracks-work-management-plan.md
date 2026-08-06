@@ -1,5 +1,5 @@
 > 更新日期：2026-08-06
-> 更新说明：完成 Track 成员、私有可见性与 Task 权限继承实现；Track 仅对 creator、owner、显式成员及代表 owner 行动的托管 Agent 可见，只有 owner 与 owner 名下 Agent 可以管理 Track，关联 Task 还必须通过 Track 可见性检查。
+> 更新说明：完成 Tracks 与 Tasks 列表宽度及 Track 行尾操作修正；列表在页面内容区内占满宽度，Track 操作固定在独立的最右列并直接展示，不再使用省略号菜单。
 
 # Buzz Tracks 工作管理方案
 
@@ -342,6 +342,34 @@ Tracks 列表与详情必须覆盖：
 - 窄窗口下折叠次要列，保留名称、状态、owner 和进度；
 - 浅色、深色以及 Desktop Cmd +/- 缩放。
 
+### 4.7 列表宽度与行尾操作修正
+
+根据 2026-08-06 Desktop 实机截图，Tracks 与 Tasks 的列表容器虽然处于宽屏页面中，但分别被 `max-w-6xl` 与 `max-w-5xl` 限制，导致表格两侧留下过多空白，信息列被不必要地压缩。修正后遵循以下规则：
+
+- Tracks 与 Tasks 的列表容器在各自滚动内容区内使用 `w-full`，占满页面内容宽度；
+- 保留页面现有 `px-5` / `p-5` 内容边距，使表格边线与顶部工具栏的内容边界对齐，不贴住窗口边缘；
+- 不设置固定最大宽度，宽屏时把新增空间优先分配给标题、描述与 Track 名称，状态、负责人、日期、进度和操作列保持稳定；
+- 窄窗口继续沿用响应式降级：隐藏次要元数据、允许主信息列收缩，不引入水平滚动作为默认交互；
+- Tracks 的操作列固定为网格最右一列，使用 `justify-self-end`，不得跟随标题或描述内容移动；
+- Current Track 只有一个可用操作时，直接显示文字按钮 `Edit track`，不再使用 `…` 菜单；
+- Completed / Canceled Track 同时存在 Edit 与 Archive 时，两个操作都直接显示在行末；Archived Track 继续直接显示 Restore；
+- 只读 Track 继续在最右侧显示 `Read only`，保证不同权限下操作列位置一致；
+- 行本身仍可点击进入详情，行尾操作必须阻止触发打开详情，避免 Edit / Archive 与整行导航冲突。
+
+目标布局：
+
+```text
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ Track title + description │ Status │ Owner │ Dates │ Progress │ [Edit track] │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ Task title + Track / Tags       │ Status │ Assignee │ Due date │ Priority    │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+验收时使用与反馈截图接近的宽屏窗口，并额外覆盖窄窗口。宽屏下列表左右边线应与页面内容区对齐；Track 操作必须位于整行最右侧；Tasks 标题列应获得明显更多空间。
+
 ## 5. 数据与协议设计
 
 ### 5.1 独立事件，不复用 NIP-34
@@ -672,6 +700,13 @@ buzz tasks list ... [--track <uuid>]
 - [x] `wiki/modules.md`：登记 Track ACL 的 Relay 与客户端证据入口。
 - [x] `docs/2026-08-06-tracks-work-management-plan.md`：记录 Track 成员与权限补充方案及逐文件实施状态。
 
+### Desktop 列表布局修正（已实现）
+
+- [x] `docs/2026-08-06-tracks-work-management-plan.md`：记录 Tracks / Tasks 满宽布局与 Track 直接行尾操作方案。
+- [x] `desktop/src/features/tracks/ui/TrackList.tsx`：移除列表最大宽度，保持内容区满宽，并将 Edit / Archive / Restore 改为最右侧直接操作。
+- [x] `desktop/src/features/tasks/ui/TaskListView.tsx`：移除列表最大宽度，使 Task 列表占满内容区并把新增空间分配给标题列。
+- [x] `desktop/tests/e2e/tracks.spec.ts`：增加 Tracks / Tasks 宽屏满宽和 Track 行尾直接操作的回归断言及截图验证。
+
 ## 11. 实施前确认项
 
 - [x] 确认 Track 作为一级侧栏入口，位于 Tasks 之后。
@@ -684,3 +719,4 @@ buzz tasks list ... [--track <uuid>]
 - [x] 确认 Track 不是 community 全员可见，仅 creator、owner、显式 members 与 owner 名下 Agent 可见。
 - [x] 确认已有 Track 只允许 owner 与 owner 名下 Agent 管理；creator、members、管理员和其他成员均不可操作。
 - [x] 确认关联 Task 继承 Track 可见性；Task 仅在现有权限与 Track ACL 均通过时可见。
+- [x] 确认 Tracks / Tasks 列表在页面内容区内占满宽度，并把 Track 的直接操作固定在行末。

@@ -29,7 +29,7 @@ export function TaskListView({
   return (
     <div className="min-h-0 flex-1 overflow-y-auto p-5">
       <div
-        className="mx-auto max-w-5xl divide-y divide-border overflow-hidden rounded-xl border border-border"
+        className="w-full divide-y divide-border overflow-hidden rounded-xl border border-border"
         data-testid="task-list-view"
       >
         {tasks.map((task) => {
