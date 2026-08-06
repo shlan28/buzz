@@ -3890,6 +3890,15 @@ mod agent_draft_prompt_tests {
     }
 
     #[test]
+    fn shared_base_prompt_teaches_local_markdown_delivery_paths() {
+        let prompt = include_str!("base_prompt.md");
+        assert!(prompt.contains("exact `.md` path as inline code"));
+        assert!(prompt.contains("`RESEARCH/REPORT.md`"));
+        assert!(prompt.contains("sentence punctuation outside the backticks"));
+        assert!(prompt.contains("without giving its actual path"));
+    }
+
+    #[test]
     fn shared_base_prompt_teaches_private_calendar_contract() {
         let prompt = include_str!("base_prompt.md");
         assert!(prompt.contains("buzz calendar"));

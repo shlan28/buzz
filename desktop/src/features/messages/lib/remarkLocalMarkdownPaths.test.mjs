@@ -78,6 +78,34 @@ test("detects relative and home Markdown candidates in prose", () => {
   );
 });
 
+test("keeps Chinese sentence punctuation outside Markdown paths", () => {
+  assert.deepEqual(
+    localPaths(
+      parse(
+        "报告：RESEARCH/REPORT.md。下一份：OUTBOX/NEXT.md、最后：PLANS/LAST.md",
+      ),
+    ),
+    ["RESEARCH/REPORT.md", "OUTBOX/NEXT.md", "PLANS/LAST.md"],
+  );
+});
+
+test("recognizes Markdown paths wrapped in Chinese punctuation", () => {
+  assert.deepEqual(
+    localPaths(
+      parse(
+        "请看“RESEARCH/QUOTED.md”、‘OUTBOX/SINGLE.md’、《PLANS/BOOK.md》、（GUIDES/PAREN.md）和【WORK_LOGS/BRACKET.md】",
+      ),
+    ),
+    [
+      "RESEARCH/QUOTED.md",
+      "OUTBOX/SINGLE.md",
+      "PLANS/BOOK.md",
+      "GUIDES/PAREN.md",
+      "WORK_LOGS/BRACKET.md",
+    ],
+  );
+});
+
 test("does not detect parent traversal or URL Markdown paths", () => {
   assert.deepEqual(
     localPaths(parse("Skip ../secret.md and https://example.com/readme.md.")),
