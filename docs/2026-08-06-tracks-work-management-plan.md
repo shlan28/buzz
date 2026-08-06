@@ -1,5 +1,5 @@
 > 更新日期：2026-08-06
-> 更新说明：完成 Task Assignee 与 Track Owner / Member 身份选择器的视觉统一；保留 Task 特有的 Unassigned、Agent assignment policy、不可分配原因和紧凑模式，并抽取共享身份摘要组件。
+> 更新说明：完成 Track 详情页直接创建 Task；创建时固定关联当前 Track，沿用 Task 创建权限，并覆盖归档、失败与列表刷新状态。
 
 # Buzz Tracks 工作管理方案
 
@@ -241,6 +241,17 @@ Tracks
 ```
 
 Track 详情复用现有 TaskBoardView / TaskListView 的视觉语言，但数据范围固定为当前 Track。详情顶部只展示 Track 元数据和从当前用户可见 Tasks 派生的进度，不建立第二套任务卡片。
+
+Track 详情右上角提供 `+ Task`，让用户不离开当前工作上下文即可添加所属 Task：
+
+- 点击后复用现有 Create Task Dialog，不建立第二套创建表单；
+- Track 字段预设为当前 Track，并在本入口中锁定，避免用户从 Track 详情误把 Task 创建到其他 Track；
+- `+ Task` 使用既有 Task 创建权限，不额外要求 `track.canManage`。能够读取当前 Track 且能够创建 Task 的 creator、owner、member 或 owner Agent 都可以使用；
+- Relay 继续校验操作者对 Track 的读取权，以及 Track 是否属于当前 community、是否未归档；客户端不复制或放宽授权规则；
+- 创建成功后关闭 Dialog，新 Task 立即出现在当前 Board / List 中，并更新可见任务进度；
+- 创建失败时保留已填写内容，在 Dialog 内展示可恢复错误；
+- 已归档 Track 不显示 `+ Task`，因为归档 Track 不能接受新的 Task 关联；
+- `View tasks` 继续保留，用于打开全局 Tasks 页面并应用当前 Track 筛选，与就地创建入口职责不同。
 
 打开已归档 Track 的深链时仍显示详情，不返回 404。详情顶部增加清晰提示：
 
@@ -768,6 +779,13 @@ buzz tasks list ... [--track <uuid>]
 ### E2E 与文档
 
 - [x] `desktop/tests/e2e/tracks.spec.ts`：覆盖范围切换、创建、详情、Task 归属、Archive、Undo、Restore、深链和截图状态。
+
+### Track 详情直接创建 Task（已实现）
+
+- [x] `docs/2026-08-06-tracks-work-management-plan.md`：定义 Track 详情创建入口、权限、固定归属、归档限制、失败恢复和创建后刷新行为。
+- [x] `desktop/src/features/tasks/ui/CreateTaskDialog.tsx`：支持由调用方提供初始 Track，并在 Track 详情入口锁定 Track 字段，同时保持全局 Tasks 创建行为不变。
+- [x] `desktop/src/features/tracks/ui/TrackDetailScreen.tsx`：增加 `+ Task`、创建状态和错误处理，成功后就地展示新 Task，归档时隐藏入口。
+- [x] `desktop/tests/e2e/tracks.spec.ts`：覆盖详情页直接创建、当前 Track 固定归属、创建后列表与进度更新，以及归档 Track 不显示入口。
 - [x] `desktop/tests/helpers/bridge.ts`：为 Tracks E2E 暴露 Track State fixture。
 - [x] `desktop/src/testing/e2eBridge.ts`：模拟 Track 查询、创建、更新、归档与恢复事件流。
 - [x] `desktop/playwright.config.ts`：将 Tracks E2E 注册进 smoke 项目。
@@ -855,3 +873,4 @@ buzz tasks list ... [--track <uuid>]
 - [x] 确认 Track Owner / Member 对齐 Task Assignee 的 Community 身份过滤，按“名称与身份类型 + 短 ID”展示，并修复长列表滚动。
 - [x] 确认 Track Create / Mutate 允许 Owner 指向当前签名者，保留业务所需的 `p` self-tag，Relay 必填字段规则保持不变。
 - [x] 确认 Task Assignee 采用与 Track Owner / Member 相同的身份摘要样式，同时保留 Unassigned、Agent assignment policy、不可分配原因和 compact 模式。
+- [x] 确认 Track 详情页增加 `+ Task`；沿用现有 Task 创建权限、固定关联当前 Track，并在 Track 归档时隐藏入口。

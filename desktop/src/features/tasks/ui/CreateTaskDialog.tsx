@@ -29,6 +29,8 @@ export function CreateTaskDialog({
   assignees,
   tracks,
   tagSuggestions,
+  initialTrackId = null,
+  trackLocked = false,
   open,
   pending,
   error,
@@ -38,16 +40,20 @@ export function CreateTaskDialog({
   assignees: TaskAssignee[];
   tracks: TaskTrackOption[];
   tagSuggestions: string[];
+  initialTrackId?: string | null;
+  trackLocked?: boolean;
   open: boolean;
   pending: boolean;
   error?: string;
   onClose: () => void;
   onSave: (draft: TaskDraft) => void;
 }) {
-  const [draft, setDraft] = React.useState<TaskDraft>(() => blankDraft());
+  const [draft, setDraft] = React.useState<TaskDraft>(() =>
+    blankDraft(initialTrackId),
+  );
   React.useEffect(() => {
-    if (!open) setDraft(blankDraft());
-  }, [open]);
+    if (!open) setDraft(blankDraft(initialTrackId));
+  }, [initialTrackId, open]);
   return (
     <Dialog
       open={open}
@@ -133,6 +139,7 @@ export function CreateTaskDialog({
             </label>
           </div>
           <TaskTrackSelect
+            disabled={trackLocked}
             tracks={tracks}
             value={draft.trackId}
             onChange={(trackId) => setDraft({ ...draft, trackId })}
@@ -160,7 +167,7 @@ export function CreateTaskDialog({
   );
 }
 
-function blankDraft(): TaskDraft {
+function blankDraft(trackId: string | null): TaskDraft {
   return {
     id: crypto.randomUUID(),
     title: "",
@@ -170,7 +177,7 @@ function blankDraft(): TaskDraft {
     priority: "none",
     dueDate: null,
     labels: [],
-    trackId: null,
+    trackId,
   };
 }
 function SelectField({

@@ -6,6 +6,7 @@ import {
   LayoutGrid,
   List,
   Pencil,
+  Plus,
   RotateCcw,
   UsersRound,
   UserRound,
@@ -13,6 +14,7 @@ import {
 import { toast } from "sonner";
 import { useTasks } from "@/features/tasks/hooks";
 import { buildTaskStatusColumns } from "@/features/tasks/lib/taskBoard";
+import { CreateTaskDialog } from "@/features/tasks/ui/CreateTaskDialog";
 import { TaskBoardView } from "@/features/tasks/ui/TaskBoardView";
 import { TaskListView } from "@/features/tasks/ui/TaskListView";
 import { Button } from "@/shared/ui/button";
@@ -29,7 +31,9 @@ export function TrackDetailScreen({ trackId }: { trackId: string }) {
   const tasksQuery = useTasks();
   const [view, setView] = React.useState<"board" | "list">("board");
   const [editing, setEditing] = React.useState(false);
+  const [creatingTask, setCreatingTask] = React.useState(false);
   const [mutationError, setMutationError] = React.useState<string>();
+  const [taskMutationError, setTaskMutationError] = React.useState<string>();
   const track = tracksQuery.tracks.find((item) => item.id === trackId);
   const tasks = React.useMemo(
     () =>
@@ -58,6 +62,19 @@ export function TrackDetailScreen({ trackId }: { trackId: string }) {
         ]),
       ),
     [tracksQuery.owners],
+  );
+  const trackOptions = React.useMemo(
+    () =>
+      tracksQuery.tracks.map((item) => ({
+        id: item.id,
+        name: item.name,
+        archived: item.archived,
+      })),
+    [tracksQuery.tracks],
+  );
+  const tagSuggestions = React.useMemo(
+    () => [...new Set(tasksQuery.tasks.flatMap((task) => task.labels))].sort(),
+    [tasksQuery.tasks],
   );
 
   if (tracksQuery.isLoading || tasksQuery.isLoading) {
@@ -163,6 +180,19 @@ export function TrackDetailScreen({ trackId }: { trackId: string }) {
             >
               <Pencil className="h-4 w-4" />
               Edit
+            </Button>
+          ) : null}
+          {!track.archived ? (
+            <Button
+              aria-label="Add task to track"
+              onClick={() => {
+                setTaskMutationError(undefined);
+                setCreatingTask(true);
+              }}
+              size="sm"
+            >
+              <Plus className="h-4 w-4" />
+              Task
             </Button>
           ) : null}
           <Button
@@ -314,6 +344,29 @@ export function TrackDetailScreen({ trackId }: { trackId: string }) {
         owners={tracksQuery.owners}
         pending={tracksQuery.update.isPending}
         track={track}
+      />
+      <CreateTaskDialog
+        assignees={tasksQuery.assignees}
+        error={taskMutationError}
+        initialTrackId={track.id}
+        onClose={() => setCreatingTask(false)}
+        onSave={(draft) => {
+          setTaskMutationError(undefined);
+          tasksQuery.create.mutate(draft, {
+            onSuccess: () => setCreatingTask(false),
+            onError: (error) =>
+              setTaskMutationError(
+                error instanceof Error
+                  ? error.message
+                  : "The task could not be created.",
+              ),
+          });
+        }}
+        open={creatingTask}
+        pending={tasksQuery.create.isPending}
+        tagSuggestions={tagSuggestions}
+        trackLocked
+        tracks={trackOptions}
       />
     </div>
   );

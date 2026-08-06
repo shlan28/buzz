@@ -70,10 +70,14 @@ function taskState(): RelayEvent {
   };
 }
 
-async function installTracks(page: Parameters<typeof installMockBridge>[0]) {
+async function installTracks(
+  page: Parameters<typeof installMockBridge>[0],
+  taskPublishErrors?: (string | null)[],
+) {
   await installMockBridge(page, {
     relaySelf: RELAY_SELF,
     taskEvents: [taskState()],
+    taskPublishErrors,
     trackEvents: [
       trackState({
         id: ACTIVE_TRACK,
@@ -185,6 +189,40 @@ test("Track detail shows its tasks and opens a filtered Tasks view", async ({
   ).toBeVisible();
 });
 
+test("Track detail creates a task in the current Track", async ({ page }) => {
+  await installTracks(page, ["temporary: task could not be stored", null]);
+  await page.goto(`/#/tracks/${ACTIVE_TRACK}`);
+
+  await expect(page.getByTestId("track-detail-screen")).toContainText(
+    "0/1 visible tasks completed",
+  );
+  await page.getByRole("button", { name: "Add task to track" }).click();
+
+  const dialog = page.getByTestId("create-task-dialog");
+  const track = dialog.getByLabel("Track");
+  await expect(track).toHaveValue(ACTIVE_TRACK);
+  await expect(track).toBeDisabled();
+  await dialog.getByLabel("Title").fill("Ship desktop release");
+  await dialog.getByRole("button", { name: "Create task" }).click();
+
+  await expect(dialog).toContainText("temporary: task could not be stored");
+  await expect(dialog.getByLabel("Title")).toHaveValue("Ship desktop release");
+  await dialog.getByRole("button", { name: "Create task" }).click();
+
+  await expect(dialog).toHaveCount(0);
+  await expect(
+    page.getByText("Ship desktop release", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByTestId("track-detail-screen")).toContainText(
+    "0/2 visible tasks completed",
+  );
+
+  await page.goto(`/#/tracks/${ARCHIVED_TRACK}`);
+  await expect(
+    page.getByRole("button", { name: "Add task to track" }),
+  ).toHaveCount(0);
+});
+
 test("Track members can read details and linked tasks but cannot manage the Track", async ({
   page,
 }) => {
@@ -212,6 +250,9 @@ test("Track members can read details and linked tasks but cannot manage the Trac
     "Read only",
   );
   await expect(page.getByRole("button", { name: "Edit" })).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Add task to track" }),
+  ).toBeVisible();
   await expect(
     page.getByText("Prepare launch checklist", { exact: true }),
   ).toBeVisible();
