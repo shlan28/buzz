@@ -6,6 +6,7 @@
 
 import { Route as rootRouteImport } from "./routes/root";
 import { Route as workflowsRouteImport } from "./routes/workflows";
+import { Route as tracksRouteImport } from "./routes/tracks";
 import { Route as tasksRouteImport } from "./routes/tasks";
 import { Route as settingsRouteImport } from "./routes/settings";
 import { Route as remindersRouteImport } from "./routes/reminders";
@@ -15,6 +16,7 @@ import { Route as calendarRouteImport } from "./routes/calendar";
 import { Route as agentsRouteImport } from "./routes/agents";
 import { Route as indexRouteImport } from "./routes/index";
 import { Route as workflowsDotworkflowIdRouteImport } from "./routes/workflows.$workflowId";
+import { Route as tracksDottrackIdRouteImport } from "./routes/tracks.$trackId";
 import { Route as projectsDotprojectIdRouteImport } from "./routes/projects.$projectId";
 import { Route as messagesDotnewRouteImport } from "./routes/messages.new";
 import { Route as channelsDotchannelIdRouteImport } from "./routes/channels.$channelId";
@@ -23,6 +25,11 @@ import { Route as channelsDotchannelIdDotpostsDotpostIdRouteImport } from "./rou
 const workflowsRoute = workflowsRouteImport.update({
   id: "/workflows",
   path: "/workflows",
+  getParentRoute: () => rootRouteImport,
+} as any);
+const tracksRoute = tracksRouteImport.update({
+  id: "/tracks",
+  path: "/tracks",
   getParentRoute: () => rootRouteImport,
 } as any);
 const tasksRoute = tasksRouteImport.update({
@@ -70,6 +77,11 @@ const workflowsDotworkflowIdRoute = workflowsDotworkflowIdRouteImport.update({
   path: "/workflows/$workflowId",
   getParentRoute: () => rootRouteImport,
 } as any);
+const tracksDottrackIdRoute = tracksDottrackIdRouteImport.update({
+  id: "/tracks/$trackId",
+  path: "/tracks/$trackId",
+  getParentRoute: () => rootRouteImport,
+} as any);
 const projectsDotprojectIdRoute = projectsDotprojectIdRouteImport.update({
   id: "/projects/$projectId",
   path: "/projects/$projectId",
@@ -101,10 +113,12 @@ export interface FileRoutesByFullPath {
   "/reminders": typeof remindersRoute;
   "/settings": typeof settingsRoute;
   "/tasks": typeof tasksRoute;
+  "/tracks": typeof tracksRoute;
   "/workflows": typeof workflowsRoute;
   "/channels/$channelId": typeof channelsDotchannelIdRoute;
   "/messages/new": typeof messagesDotnewRoute;
   "/projects/$projectId": typeof projectsDotprojectIdRoute;
+  "/tracks/$trackId": typeof tracksDottrackIdRoute;
   "/workflows/$workflowId": typeof workflowsDotworkflowIdRoute;
   "/channels/$channelId/posts/$postId": typeof channelsDotchannelIdDotpostsDotpostIdRoute;
 }
@@ -117,10 +131,12 @@ export interface FileRoutesByTo {
   "/reminders": typeof remindersRoute;
   "/settings": typeof settingsRoute;
   "/tasks": typeof tasksRoute;
+  "/tracks": typeof tracksRoute;
   "/workflows": typeof workflowsRoute;
   "/channels/$channelId": typeof channelsDotchannelIdRoute;
   "/messages/new": typeof messagesDotnewRoute;
   "/projects/$projectId": typeof projectsDotprojectIdRoute;
+  "/tracks/$trackId": typeof tracksDottrackIdRoute;
   "/workflows/$workflowId": typeof workflowsDotworkflowIdRoute;
   "/channels/$channelId/posts/$postId": typeof channelsDotchannelIdDotpostsDotpostIdRoute;
 }
@@ -134,10 +150,12 @@ export interface FileRoutesById {
   "/reminders": typeof remindersRoute;
   "/settings": typeof settingsRoute;
   "/tasks": typeof tasksRoute;
+  "/tracks": typeof tracksRoute;
   "/workflows": typeof workflowsRoute;
   "/channels/$channelId": typeof channelsDotchannelIdRoute;
   "/messages/new": typeof messagesDotnewRoute;
   "/projects/$projectId": typeof projectsDotprojectIdRoute;
+  "/tracks/$trackId": typeof tracksDottrackIdRoute;
   "/workflows/$workflowId": typeof workflowsDotworkflowIdRoute;
   "/channels/$channelId/posts/$postId": typeof channelsDotchannelIdDotpostsDotpostIdRoute;
 }
@@ -152,10 +170,12 @@ export interface FileRouteTypes {
     | "/reminders"
     | "/settings"
     | "/tasks"
+    | "/tracks"
     | "/workflows"
     | "/channels/$channelId"
     | "/messages/new"
     | "/projects/$projectId"
+    | "/tracks/$trackId"
     | "/workflows/$workflowId"
     | "/channels/$channelId/posts/$postId";
   fileRoutesByTo: FileRoutesByTo;
@@ -168,10 +188,12 @@ export interface FileRouteTypes {
     | "/reminders"
     | "/settings"
     | "/tasks"
+    | "/tracks"
     | "/workflows"
     | "/channels/$channelId"
     | "/messages/new"
     | "/projects/$projectId"
+    | "/tracks/$trackId"
     | "/workflows/$workflowId"
     | "/channels/$channelId/posts/$postId";
   id:
@@ -184,10 +206,12 @@ export interface FileRouteTypes {
     | "/reminders"
     | "/settings"
     | "/tasks"
+    | "/tracks"
     | "/workflows"
     | "/channels/$channelId"
     | "/messages/new"
     | "/projects/$projectId"
+    | "/tracks/$trackId"
     | "/workflows/$workflowId"
     | "/channels/$channelId/posts/$postId";
   fileRoutesById: FileRoutesById;
@@ -201,10 +225,12 @@ export interface RootRouteChildren {
   remindersRoute: typeof remindersRoute;
   settingsRoute: typeof settingsRoute;
   tasksRoute: typeof tasksRoute;
+  tracksRoute: typeof tracksRoute;
   workflowsRoute: typeof workflowsRoute;
   channelsDotchannelIdRoute: typeof channelsDotchannelIdRoute;
   messagesDotnewRoute: typeof messagesDotnewRoute;
   projectsDotprojectIdRoute: typeof projectsDotprojectIdRoute;
+  tracksDottrackIdRoute: typeof tracksDottrackIdRoute;
   workflowsDotworkflowIdRoute: typeof workflowsDotworkflowIdRoute;
   channelsDotchannelIdDotpostsDotpostIdRoute: typeof channelsDotchannelIdDotpostsDotpostIdRoute;
 }
@@ -216,6 +242,13 @@ declare module "@tanstack/react-router" {
       path: "/workflows";
       fullPath: "/workflows";
       preLoaderRoute: typeof workflowsRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/tracks": {
+      id: "/tracks";
+      path: "/tracks";
+      fullPath: "/tracks";
+      preLoaderRoute: typeof tracksRouteImport;
       parentRoute: typeof rootRouteImport;
     };
     "/tasks": {
@@ -281,6 +314,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof workflowsDotworkflowIdRouteImport;
       parentRoute: typeof rootRouteImport;
     };
+    "/tracks/$trackId": {
+      id: "/tracks/$trackId";
+      path: "/tracks/$trackId";
+      fullPath: "/tracks/$trackId";
+      preLoaderRoute: typeof tracksDottrackIdRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
     "/projects/$projectId": {
       id: "/projects/$projectId";
       path: "/projects/$projectId";
@@ -321,10 +361,12 @@ const rootRouteChildren: RootRouteChildren = {
   remindersRoute: remindersRoute,
   settingsRoute: settingsRoute,
   tasksRoute: tasksRoute,
+  tracksRoute: tracksRoute,
   workflowsRoute: workflowsRoute,
   channelsDotchannelIdRoute: channelsDotchannelIdRoute,
   messagesDotnewRoute: messagesDotnewRoute,
   projectsDotprojectIdRoute: projectsDotprojectIdRoute,
+  tracksDottrackIdRoute: tracksDottrackIdRoute,
   workflowsDotworkflowIdRoute: workflowsDotworkflowIdRoute,
   channelsDotchannelIdDotpostsDotpostIdRoute:
     channelsDotchannelIdDotpostsDotpostIdRoute,

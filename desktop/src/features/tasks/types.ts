@@ -7,7 +7,7 @@ export type TaskStatus =
 
 export type TaskPriority = "none" | "low" | "medium" | "high" | "urgent";
 
-export type TaskBoardGroup = "assignee" | "status";
+export type TaskBoardGroup = "assignee" | "status" | "track";
 
 export type Task = {
   id: string;
@@ -19,6 +19,7 @@ export type Task = {
   priority: TaskPriority;
   dueDate: number | null;
   labels: string[];
+  trackId: string | null;
   project: string | null;
   channelId: string | null;
   creator: string;
@@ -30,7 +31,14 @@ export type Task = {
 
 export type TaskDraft = Pick<
   Task,
-  "title" | "description" | "assignee" | "status" | "priority" | "dueDate"
+  | "title"
+  | "description"
+  | "assignee"
+  | "status"
+  | "priority"
+  | "dueDate"
+  | "labels"
+  | "trackId"
 > & { id: string };
 
 export type TaskPatch = Partial<TaskDraft> & { archived?: boolean };
@@ -60,9 +68,19 @@ export type TaskExecution = {
 export type TaskAssignee = {
   pubkey: string | null;
   label: string;
+  selectorLabel: string;
+  shortId: string | null;
   kind: "unassigned" | "person" | "agent";
+  isCurrent: boolean;
+  isNameLoading: boolean;
   canAssign?: boolean;
   unavailableReason?: string;
+};
+
+export type TaskTrackOption = {
+  id: string;
+  name: string;
+  archived: boolean;
 };
 
 export type TaskFilters = {
@@ -71,6 +89,7 @@ export type TaskFilters = {
   showDone: boolean;
   showEmptyAssignees: boolean;
   labels: ReadonlySet<string>;
+  tracks: ReadonlySet<string>;
   projects: ReadonlySet<string>;
   channels: ReadonlySet<string>;
 };

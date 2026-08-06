@@ -13,11 +13,13 @@ export function TaskCard({
   assignee,
   onOpen,
   execution,
+  trackName,
 }: {
   task: Task;
   assignee?: TaskAssignee;
   onOpen: () => void;
   execution?: TaskExecution;
+  trackName?: string;
 }) {
   const overdue = task.status !== "done" && isDueTimestampOverdue(task.dueDate);
   return (
@@ -59,6 +61,15 @@ export function TaskCard({
             {execution.status}
           </span>
         ) : null}
+        {trackName ? (
+          <span className="rounded-md bg-muted px-1.5 py-0.5">{trackName}</span>
+        ) : null}
+        {task.labels.slice(0, 2).map((label) => (
+          <span className="rounded-md bg-muted px-1.5 py-0.5" key={label}>
+            {label}
+          </span>
+        ))}
+        {task.labels.length > 2 ? <span>+{task.labels.length - 2}</span> : null}
         {task.priority !== "none" ? (
           <span
             className={cn(

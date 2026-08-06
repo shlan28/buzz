@@ -1,0 +1,385 @@
+import { expect, test } from "@playwright/test";
+import type { RelayEvent } from "../../src/shared/api/types";
+import { installMockBridge, TEST_IDENTITIES } from "../helpers/bridge";
+
+const RELAY_SELF = "12".repeat(32);
+const VIEWER = "deadbeef".repeat(8);
+const TYLER = TEST_IDENTITIES.tyler.pubkey;
+const ALICE = TEST_IDENTITIES.alice.pubkey;
+const BOB = TEST_IDENTITIES.bob.pubkey;
+const CHARLIE = TEST_IDENTITIES.charlie.pubkey;
+const ACTIVE_TRACK = "e4b9fdaf-f1e8-4d36-8bc4-a32435536335";
+const COMPLETED_TRACK = "f56cff16-aea2-4985-8441-aec87fb2525e";
+const ARCHIVED_TRACK = "6d616e78-d75c-455f-92e1-b3f635cf3038";
+
+function trackState(input: {
+  id: string;
+  eventId: string;
+  name: string;
+  status: "planned" | "active" | "completed" | "canceled";
+  archived?: boolean;
+  createdAt?: number;
+  owner?: string;
+  creator?: string;
+  members?: string[];
+}): RelayEvent {
+  const createdAt = input.createdAt ?? 1_785_547_800;
+  return {
+    id: input.eventId,
+    pubkey: RELAY_SELF,
+    created_at: createdAt,
+    kind: 30_510,
+    tags: [
+      ["d", input.id],
+      ["title", input.name],
+      ["p", input.owner ?? VIEWER],
+      ...(input.members ?? []).map((member) => ["member", member]),
+      ["start_date", "2026-08-01"],
+      ["end_date", "2026-09-30"],
+      ["t", `track-status:${input.status}`],
+      ["archived", String(input.archived ?? false)],
+      ["creator", input.creator ?? VIEWER],
+      ["last_editor", input.owner ?? VIEWER],
+      ["created_at", String(createdAt)],
+    ],
+    content: `${input.name} description`,
+    sig: "mocksig".repeat(20).slice(0, 128),
+  };
+}
+
+function taskState(): RelayEvent {
+  return {
+    id: "41".repeat(32),
+    pubkey: RELAY_SELF,
+    created_at: 1_785_547_900,
+    kind: 30_500,
+    tags: [
+      ["d", "48499a3a-4e63-4e3e-a6d2-ad82450c0cc4"],
+      ["title", "Prepare launch checklist"],
+      ["t", "task-status:todo"],
+      ["t", "task-priority:high"],
+      ["t", `track-id:${ACTIVE_TRACK}`],
+      ["t", "label:launch"],
+      ["creator", TYLER],
+      ["last_editor", TYLER],
+      ["source_event", "42".repeat(32)],
+      ["created_at", "1785547900"],
+    ],
+    content: "Coordinate the release steps.",
+    sig: "mocksig".repeat(20).slice(0, 128),
+  };
+}
+
+async function installTracks(
+  page: Parameters<typeof installMockBridge>[0],
+  taskPublishErrors?: (string | null)[],
+) {
+  await installMockBridge(page, {
+    relaySelf: RELAY_SELF,
+    taskEvents: [taskState()],
+    taskPublishErrors,
+    trackEvents: [
+      trackState({
+        id: ACTIVE_TRACK,
+        eventId: "31".repeat(32),
+        name: "Desktop launch",
+        status: "active",
+      }),
+      trackState({
+        id: COMPLETED_TRACK,
+        eventId: "32".repeat(32),
+        name: "Relay hardening",
+        status: "completed",
+      }),
+      trackState({
+        id: ARCHIVED_TRACK,
+        eventId: "33".repeat(32),
+        name: "Archived research",
+        status: "canceled",
+        archived: true,
+      }),
+    ],
+  });
+}
+
+test("Tracks scopes keep archived work recoverable", async ({ page }) => {
+  await installTracks(page);
+  await page.goto("/#/tracks");
+
+  await expect(page.getByText("Desktop launch", { exact: true })).toBeVisible();
+  await expect(page.getByText("Relay hardening", { exact: true })).toHaveCount(
+    0,
+  );
+
+  await page.getByRole("tab", { name: "Completed" }).click();
+  await expect(
+    page.getByText("Relay hardening", { exact: true }),
+  ).toBeVisible();
+
+  await page.getByRole("tab", { name: "Archived" }).click();
+  await expect(
+    page.getByText("Archived research", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Restore" }).click();
+  await expect(
+    page.getByText("No archived tracks", { exact: true }),
+  ).toBeVisible();
+
+  await page.getByRole("tab", { name: "Completed" }).click();
+  await expect(
+    page.getByText("Archived research", { exact: true }),
+  ).toBeVisible();
+});
+
+test("Tracks and Tasks lists fill the content width with direct Track actions", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 2048, height: 1200 });
+  await installTracks(page);
+  await page.goto("/#/tracks");
+
+  const tracksScreen = page.getByTestId("tracks-screen");
+  const trackList = page.getByTestId("track-list-view");
+  const editTrack = page.getByRole("button", { name: "Edit track" });
+  await expect(editTrack).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Actions for Desktop launch" }),
+  ).toHaveCount(0);
+
+  const tracksScreenBox = await tracksScreen.boundingBox();
+  const trackListBox = await trackList.boundingBox();
+  const editTrackBox = await editTrack.boundingBox();
+  expect(tracksScreenBox).not.toBeNull();
+  expect(trackListBox).not.toBeNull();
+  expect(editTrackBox).not.toBeNull();
+  expect(trackListBox?.width).toBeGreaterThanOrEqual(
+    (tracksScreenBox?.width ?? 0) - 42,
+  );
+  expect(editTrackBox?.x).toBeGreaterThan(
+    (trackListBox?.x ?? 0) + (trackListBox?.width ?? 0) * 0.85,
+  );
+
+  await page.goto("/#/tasks?view=list");
+  const tasksScreenBox = await page.getByTestId("tasks-screen").boundingBox();
+  const taskListBox = await page.getByTestId("task-list-view").boundingBox();
+  expect(tasksScreenBox).not.toBeNull();
+  expect(taskListBox).not.toBeNull();
+  expect(taskListBox?.width).toBeGreaterThanOrEqual(
+    (tasksScreenBox?.width ?? 0) - 42,
+  );
+});
+
+test("Track detail shows its tasks and opens a filtered Tasks view", async ({
+  page,
+}) => {
+  await installTracks(page);
+  await page.goto(`/#/tracks/${ACTIVE_TRACK}`);
+
+  await expect(page.getByTestId("track-detail-screen")).toContainText(
+    "Desktop launch",
+  );
+  await expect(
+    page.getByText("Prepare launch checklist", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "View tasks" }).click();
+  await expect(page).toHaveURL(new RegExp(`track=${ACTIVE_TRACK}`));
+  await expect(page.getByLabel("Filter by track")).toHaveValue(ACTIVE_TRACK);
+  await expect(
+    page.getByText("Prepare launch checklist", { exact: true }),
+  ).toBeVisible();
+});
+
+test("Track detail creates a task in the current Track", async ({ page }) => {
+  await installTracks(page, ["temporary: task could not be stored", null]);
+  await page.goto(`/#/tracks/${ACTIVE_TRACK}`);
+
+  await expect(page.getByTestId("track-detail-screen")).toContainText(
+    "0/1 visible tasks completed",
+  );
+  await page.getByRole("button", { name: "Add task to track" }).click();
+
+  const dialog = page.getByTestId("create-task-dialog");
+  const track = dialog.getByLabel("Track");
+  await expect(track).toHaveValue(ACTIVE_TRACK);
+  await expect(track).toBeDisabled();
+  await dialog.getByLabel("Title").fill("Ship desktop release");
+  await dialog.getByRole("button", { name: "Create task" }).click();
+
+  await expect(dialog).toContainText("temporary: task could not be stored");
+  await expect(dialog.getByLabel("Title")).toHaveValue("Ship desktop release");
+  await dialog.getByRole("button", { name: "Create task" }).click();
+
+  await expect(dialog).toHaveCount(0);
+  await expect(
+    page.getByText("Ship desktop release", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByTestId("track-detail-screen")).toContainText(
+    "0/2 visible tasks completed",
+  );
+
+  await page.goto(`/#/tracks/${ARCHIVED_TRACK}`);
+  await expect(
+    page.getByRole("button", { name: "Add task to track" }),
+  ).toHaveCount(0);
+});
+
+test("Track members can read details and linked tasks but cannot manage the Track", async ({
+  page,
+}) => {
+  await installMockBridge(page, {
+    relaySelf: RELAY_SELF,
+    taskEvents: [taskState()],
+    trackEvents: [
+      trackState({
+        id: ACTIVE_TRACK,
+        eventId: "51".repeat(32),
+        name: "Member-visible launch",
+        status: "active",
+        owner: ALICE,
+        creator: BOB,
+        members: [VIEWER],
+      }),
+    ],
+  });
+  await page.goto(`/#/tracks/${ACTIVE_TRACK}`);
+
+  await expect(page.getByTestId("track-detail-screen")).toContainText(
+    "Member-visible launch",
+  );
+  await expect(page.getByTestId("track-detail-screen")).toContainText(
+    "Read only",
+  );
+  await expect(page.getByRole("button", { name: "Edit" })).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Add task to track" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Prepare launch checklist", { exact: true }),
+  ).toBeVisible();
+});
+
+test("creator access is read-only when ownership was assigned elsewhere", async ({
+  page,
+}) => {
+  await installMockBridge(page, {
+    relaySelf: RELAY_SELF,
+    trackEvents: [
+      trackState({
+        id: ACTIVE_TRACK,
+        eventId: "52".repeat(32),
+        name: "Creator handoff",
+        status: "planned",
+        owner: ALICE,
+        creator: VIEWER,
+      }),
+    ],
+  });
+  await page.goto(`/#/tracks/${ACTIVE_TRACK}`);
+
+  await expect(
+    page.getByText("Creator handoff", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("Read only", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Edit" })).toHaveCount(0);
+});
+
+test("unrelated identities cannot discover a Track or its linked tasks", async ({
+  page,
+}) => {
+  await installMockBridge(page, {
+    relaySelf: RELAY_SELF,
+    taskEvents: [taskState()],
+    trackEvents: [
+      trackState({
+        id: ACTIVE_TRACK,
+        eventId: "53".repeat(32),
+        name: "Private launch",
+        status: "active",
+        owner: ALICE,
+        creator: BOB,
+        members: [CHARLIE],
+      }),
+    ],
+  });
+
+  await page.goto("/#/tracks");
+  await expect(page.getByText("Private launch", { exact: true })).toHaveCount(
+    0,
+  );
+  await page.goto(`/#/tracks/${ACTIVE_TRACK}`);
+  await expect(
+    page.getByText("Track not found", { exact: true }),
+  ).toBeVisible();
+  await page.goto("/#/tasks");
+  await expect(
+    page.getByText("Prepare launch checklist", { exact: true }),
+  ).toHaveCount(0);
+  await expect(page.getByText("Restricted track", { exact: true })).toHaveCount(
+    0,
+  );
+});
+
+test("owner Agent inherits management UI from its owner", async ({ page }) => {
+  await installMockBridge(page, {
+    relaySelf: RELAY_SELF,
+    searchProfiles: [
+      {
+        pubkey: VIEWER,
+        displayName: "Owner Agent",
+        ownerPubkey: ALICE,
+        isAgent: true,
+      },
+    ],
+    trackEvents: [
+      trackState({
+        id: ACTIVE_TRACK,
+        eventId: "54".repeat(32),
+        name: "Delegated operations",
+        status: "active",
+        owner: ALICE,
+        creator: BOB,
+      }),
+    ],
+  });
+  await page.goto(`/#/tracks/${ACTIVE_TRACK}`);
+
+  await expect(page.getByRole("button", { name: "Edit" })).toBeVisible();
+  await page.getByRole("button", { name: "Edit" }).click();
+  await expect(page.getByTestId("track-editor-dialog")).toBeVisible();
+  await expect(page.getByLabel("Add track members")).toBeEnabled();
+});
+
+test("Track editor saves a deduplicated multi-member selection", async ({
+  page,
+}) => {
+  await installTracks(page);
+  await page.goto(`/#/tracks/${ACTIVE_TRACK}`);
+  await page.getByRole("button", { name: "Edit" }).click();
+  await expect(page.getByLabel("Select track owner")).toContainText("You");
+  await expect(page.getByLabel("Select track owner")).toContainText("User");
+  await expect(page.getByLabel("Select track owner")).toContainText(
+    "deadbeef…beef",
+  );
+  await page.getByLabel("Add track members").click();
+  const memberMenu = page.getByRole("menu");
+  const alice = page.getByRole("menuitemcheckbox", {
+    name: /alice, Agent, 953d3363…001f/i,
+  });
+  const bob = page.getByRole("menuitemcheckbox", {
+    name: /bob, User, bb22a529…f260/i,
+  });
+  await expect(alice).toBeVisible();
+  await expect(bob).toBeVisible();
+  await memberMenu.dispatchEvent("wheel", { deltaY: 160 });
+  await expect(memberMenu).toBeVisible();
+  await alice.click();
+  await bob.click();
+  await expect(memberMenu).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("track-member-chips")).toContainText("alice");
+  await expect(page.getByTestId("track-member-chips")).toContainText("bob");
+  await page.getByRole("button", { name: "Save changes" }).click();
+
+  await expect(page.getByTestId("track-members")).toContainText("alice");
+  await expect(page.getByTestId("track-members")).toContainText("bob");
+});

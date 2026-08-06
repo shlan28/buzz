@@ -109,6 +109,16 @@ pub const KIND_TASK_EXECUTION_UPDATE: u32 = 42504;
 /// Buzz Tasks: relay-derived current execution state (NIP-33, keyed by execution UUID).
 pub const KIND_TASK_EXECUTION_STATE: u32 = 30501;
 
+/// Buzz Tracks: relay-derived current Track state (NIP-33, keyed by `d`).
+pub const KIND_TRACK_STATE: u32 = 30510;
+/// Buzz Tracks: actor-signed create command.
+pub const KIND_TRACK_CREATE: u32 = 42510;
+/// Buzz Tracks: actor-signed mutation command.
+pub const KIND_TRACK_MUTATE: u32 = 42511;
+
+/// All Buzz Tracks event kinds.
+pub const TRACK_KINDS: &[u32] = &[KIND_TRACK_CREATE, KIND_TRACK_MUTATE, KIND_TRACK_STATE];
+
 /// All Buzz Tasks event kinds.
 pub const TASK_KINDS: &[u32] = &[
     KIND_TASK_CREATE,
@@ -634,6 +644,9 @@ pub const ALL_KINDS: &[u32] = &[
     KIND_TASK_EXECUTION_REQUEST,
     KIND_TASK_EXECUTION_UPDATE,
     KIND_TASK_EXECUTION_STATE,
+    KIND_TRACK_STATE,
+    KIND_TRACK_CREATE,
+    KIND_TRACK_MUTATE,
     KIND_AGENT_ENGRAM,
     KIND_EVENT_REMINDER,
     KIND_PERSONA,
@@ -808,6 +821,8 @@ pub const fn is_command_kind(kind: u32) -> bool {
             | KIND_TASK_DELETE
             | KIND_TASK_EXECUTION_REQUEST
             | KIND_TASK_EXECUTION_UPDATE
+            | KIND_TRACK_CREATE
+            | KIND_TRACK_MUTATE
     )
 }
 
@@ -824,6 +839,7 @@ pub const fn is_relay_only_kind(kind: u32) -> bool {
             | KIND_WINDOW_BOUNDS
             | KIND_TASK_STATE
             | KIND_TASK_EXECUTION_STATE
+            | KIND_TRACK_STATE
     )
 }
 
@@ -847,6 +863,7 @@ const _: () = assert!(is_parameterized_replaceable(KIND_MANAGED_AGENT)); // 3017
 const _: () = assert!(is_parameterized_replaceable(KIND_WORKFLOW_DEF)); // 30620 ∈ 30000–39999
 const _: () = assert!(is_parameterized_replaceable(KIND_TASK_STATE)); // 30500 ∈ 30000–39999
 const _: () = assert!(is_parameterized_replaceable(KIND_TASK_EXECUTION_STATE));
+const _: () = assert!(is_parameterized_replaceable(KIND_TRACK_STATE));
 const _: () = assert!(is_parameterized_replaceable(KIND_EVENT_REMINDER)); // 30300 ∈ 30000–39999
 const _: () = assert!(is_parameterized_replaceable(KIND_DM_VISIBILITY)); // 30622 ∈ 30000–39999
 const _: () = assert!(is_parameterized_replaceable(KIND_THREAD_SUMMARY)); // 39005 ∈ 30000–39999
@@ -892,6 +909,15 @@ mod tests {
         for &k in ALL_KINDS {
             assert!(seen.insert(k), "duplicate kind value: {k}");
         }
+    }
+
+    #[test]
+    fn track_kinds_have_command_and_state_roles() {
+        assert!(is_command_kind(KIND_TRACK_CREATE));
+        assert!(is_command_kind(KIND_TRACK_MUTATE));
+        assert!(!is_command_kind(KIND_TRACK_STATE));
+        assert!(is_relay_only_kind(KIND_TRACK_STATE));
+        assert!(is_parameterized_replaceable(KIND_TRACK_STATE));
     }
 
     #[test]

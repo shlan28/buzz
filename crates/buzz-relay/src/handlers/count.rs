@@ -8,7 +8,8 @@ use tracing::warn;
 use crate::connection::{AuthState, ConnectionState};
 use crate::handlers::req::{
     event_visible_to_reader, filter_can_match_persona_shared_kinds,
-    filter_can_match_result_gated_kinds, result_gated_count_safe_for_pushdown,
+    filter_can_match_result_gated_kinds, filter_can_match_track_acl_kinds,
+    result_gated_count_safe_for_pushdown,
 };
 use crate::protocol::RelayMessage;
 use crate::state::AppState;
@@ -136,6 +137,7 @@ pub async fn handle_count(
         // reader's own pubkey.
         let needs_result_gated_filtering = filter_can_match_result_gated_kinds(filter)
             && !result_gated_count_safe_for_pushdown(filter, &authed_pubkey_hex);
+        let needs_track_acl_filtering = filter_can_match_track_acl_kinds(filter);
 
         if let Some(ch_id) = extract_channel_from_filter(filter) {
             // Filter targets a specific channel — verify access. Mirrors the WS
@@ -192,6 +194,7 @@ pub async fn handle_count(
                 && (!needs_author_only_filtering || author_is_self)
                 && !needs_result_gated_filtering
                 && !needs_persona_filtering
+                && !needs_track_acl_filtering
             {
                 match state.db.count_events_routed("count_req", &query).await {
                     Ok(n) => total += n as u64,
@@ -223,7 +226,14 @@ pub async fn handle_count(
                             {
                                 continue;
                             }
-                            if !event_visible_to_reader(&se.event, &pubkey_bytes) {
+                            if !event_visible_to_reader(
+                                &state,
+                                conn.tenant.community(),
+                                &se.event,
+                                &pubkey_bytes,
+                            )
+                            .await
+                            {
                                 continue;
                             }
                             total += 1;
@@ -265,6 +275,7 @@ pub async fn handle_count(
                 && (!needs_author_only_filtering || author_is_self)
                 && !needs_result_gated_filtering
                 && !needs_persona_filtering
+                && !needs_track_acl_filtering
             {
                 query.limit = None; // COUNT doesn't need a row limit
                 match state.db.count_events_routed("count_req", &query).await {
@@ -296,7 +307,14 @@ pub async fn handle_count(
                             {
                                 continue;
                             }
-                            if !event_visible_to_reader(&se.event, &pubkey_bytes) {
+                            if !event_visible_to_reader(
+                                &state,
+                                conn.tenant.community(),
+                                &se.event,
+                                &pubkey_bytes,
+                            )
+                            .await
+                            {
                                 continue;
                             }
                             total += 1;

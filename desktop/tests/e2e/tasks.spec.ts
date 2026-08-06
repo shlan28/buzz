@@ -337,7 +337,9 @@ test("creates a task and shows its Relay-confirmed state", async ({ page }) => {
     .getByLabel("Description")
     .fill("Confirm owner-only assignment behavior.");
   await dialog.getByLabel("Assignee").click();
-  await page.getByRole("menuitem", { name: "lu", exact: true }).click();
+  await page
+    .getByRole("menuitem", { name: /You, User, deadbeef…beef/i })
+    .click();
   await dialog.getByLabel("Priority").selectOption("urgent");
   await dialog.getByLabel("Due date").fill("2026-08-20");
   await dialog.getByRole("button", { name: "Create task" }).click();
@@ -358,7 +360,7 @@ test("creates a task and shows its Relay-confirmed state", async ({ page }) => {
   ).toHaveValue("2026-08-20");
   await expect(
     page.getByTestId("task-detail-panel").getByLabel("Assignee"),
-  ).toContainText("lu");
+  ).toContainText("You");
 });
 
 test("keyboard opens a task, edits text, and transfers its owner", async ({
@@ -387,7 +389,9 @@ test("keyboard opens a task, edits text, and transfers its owner", async ({
   ).toBeVisible();
 
   await panel.getByLabel("Assignee").click();
-  await page.getByRole("menuitem", { name: "bob", exact: true }).click();
+  await page
+    .getByRole("menuitem", { name: /bob, User, bb22a529…f260/i })
+    .click();
   await expect(panel.getByLabel("Assignee")).toContainText("bob");
 
   await panel.getByLabel("Due date").fill("2026-08-31");
@@ -414,8 +418,10 @@ test("assigning a task to the current user survives Relay confirmation", async (
   const panel = page.getByTestId("task-detail-panel");
   const assignee = panel.getByLabel("Assignee");
   await assignee.click();
-  await page.getByRole("menuitem", { name: "lu", exact: true }).click();
-  await expect(assignee).toContainText("lu");
+  await page
+    .getByRole("menuitem", { name: /You, User, deadbeef…beef/i })
+    .click();
+  await expect(assignee).toContainText("You");
 
   const mutation = await page.evaluate(() =>
     window.__BUZZ_E2E_SIGNED_EVENTS__?.findLast(
@@ -433,8 +439,10 @@ test("assigning a task to the current user survives Relay confirmation", async (
   await expect(panel.getByLabel("Assignee")).toBeEnabled();
   await page.waitForTimeout(500);
   await panel.getByLabel("Assignee").click();
-  await page.getByRole("menuitem", { name: "lu", exact: true }).click();
-  await expect(panel.getByLabel("Assignee")).toContainText("lu");
+  await page
+    .getByRole("menuitem", { name: /You, User, deadbeef…beef/i })
+    .click();
+  await expect(panel.getByLabel("Assignee")).toContainText("You");
 });
 
 test("board cards and list rows show task planning details", async ({
@@ -452,8 +460,10 @@ test("board cards and list rows show task planning details", async ({
     .click();
   const panel = page.getByTestId("task-detail-panel");
   await panel.getByLabel("Assignee").click();
-  await page.getByRole("menuitem", { name: "lu", exact: true }).click();
-  await expect(panel.getByLabel("Assignee")).toContainText("lu");
+  await page
+    .getByRole("menuitem", { name: /You, User, deadbeef…beef/i })
+    .click();
+  await expect(panel.getByLabel("Assignee")).toContainText("You");
   await panel.getByRole("button", { name: "Close task details" }).click();
   await expect(
     page
@@ -484,9 +494,23 @@ test("assignee options exclude Agent profiles outside current members", async ({
   const assignee = page.getByTestId("task-detail-panel").getByLabel("Assignee");
   await assignee.click();
   const menu = page.getByRole("menu");
+  await expect(
+    page.getByRole("menuitem", { name: /You, User, deadbeef…beef/i }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: /alice, Agent, 953d3363…001f/i }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: /bob, User, bb22a529…f260/i }),
+  ).toBeVisible();
+  await menu.dispatchEvent("wheel", { deltaY: 160 });
+  await expect(menu).toBeVisible();
   await expect(menu).toContainText("Unassigned");
-  await expect(menu).toContainText("alice · Agent");
+  await expect(menu).toContainText("alice");
+  await expect(menu).toContainText("Agent");
+  await expect(menu).toContainText("953d3363…001f");
   await expect(menu).toContainText("bob");
+  await expect(menu).toContainText("bb22a529…f260");
   await expect(menu).not.toContainText("charlie");
 });
 

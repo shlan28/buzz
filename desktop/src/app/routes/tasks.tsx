@@ -13,7 +13,8 @@ export const Route = createFileRoute("/tasks")({
   ): {
     task?: string;
     view?: "board" | "list";
-    group?: "assignee" | "status";
+    group?: "assignee" | "status" | "track";
+    track?: string;
   } => ({
     task:
       typeof search.task === "string" && search.task.length > 0
@@ -24,8 +25,14 @@ export const Route = createFileRoute("/tasks")({
         ? search.view
         : undefined,
     group:
-      search.group === "assignee" || search.group === "status"
+      search.group === "assignee" ||
+      search.group === "status" ||
+      search.group === "track"
         ? search.group
+        : undefined,
+    track:
+      typeof search.track === "string" && search.track.length > 0
+        ? search.track
         : undefined,
   }),
   component: TasksRoute,

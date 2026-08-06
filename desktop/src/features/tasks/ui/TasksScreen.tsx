@@ -6,15 +6,19 @@ import { Input } from "@/shared/ui/input";
 import {
   buildTaskColumns,
   buildTaskStatusColumns,
+  buildTaskTrackColumns,
   filterTasks,
 } from "../lib/taskBoard";
 import { useTasks } from "../hooks";
+import { useTracks } from "@/features/tracks/hooks";
 import type { TaskBoardGroup, TaskFilters } from "../types";
 import { CreateTaskDialog } from "./CreateTaskDialog";
 import { TaskDetailPanel } from "./TaskDetailPanel";
 import { TaskBoardView } from "./TaskBoardView";
 import { TaskFilterSelect } from "./TaskFilterSelect";
 import { TaskListView } from "./TaskListView";
+import { TaskTagFilter } from "./TaskTagFilter";
+import { TaskTrackFilter } from "./TaskTrackFilter";
 
 export function TasksScreen() {
   const location = useLocation();
@@ -23,9 +27,11 @@ export function TasksScreen() {
     task?: string;
     view?: "board" | "list";
     group?: TaskBoardGroup;
+    track?: string;
   };
   const routeTaskId = routeSearch.task ?? null;
   const tasks = useTasks();
+  const tracks = useTracks();
   const view = routeSearch.view ?? "board";
   const groupBy = routeSearch.group ?? "assignee";
   const [filters, setFilters] = React.useState<TaskFilters>({
@@ -34,6 +40,7 @@ export function TasksScreen() {
     showDone: false,
     showEmptyAssignees: false,
     labels: new Set(),
+    tracks: routeSearch.track ? new Set([routeSearch.track]) : new Set(),
     projects: new Set(),
     channels: new Set(),
   });
@@ -51,22 +58,48 @@ export function TasksScreen() {
             filters.showEmptyAssignees,
             filters.showDone,
           )
-        : buildTaskColumns(
-            visible,
-            tasks.assignees,
-            tasks.currentPubkey,
-            filters.showEmptyAssignees,
-          ),
+        : groupBy === "track"
+          ? buildTaskTrackColumns(
+              visible,
+              tracks.tracks.map((track) => ({
+                id: track.id,
+                name: track.name,
+                archived: track.archived,
+              })),
+              filters.showEmptyAssignees,
+            )
+          : buildTaskColumns(
+              visible,
+              tasks.assignees,
+              tasks.currentPubkey,
+              filters.showEmptyAssignees,
+            ),
     [
       filters.showDone,
       filters.showEmptyAssignees,
       groupBy,
       tasks.assignees,
       tasks.currentPubkey,
+      tracks.tracks,
       visible,
     ],
   );
   const selected = tasks.tasks.find((task) => task.id === routeTaskId) ?? null;
+  const trackOptions = React.useMemo(
+    () =>
+      tracks.tracks.map((track) => ({
+        id: track.id,
+        name: track.name,
+        archived: track.archived,
+      })),
+    [tracks.tracks],
+  );
+  const trackNames = React.useMemo(
+    () => new Map(tracks.tracks.map((track) => [track.id, track.name])),
+    [tracks.tracks],
+  );
+  const selectedTrack =
+    filters.tracks.size === 1 ? [...filters.tracks][0] : null;
   const filterOptions = React.useMemo(
     () => ({
       labels: unique(tasks.tasks.flatMap((task) => task.labels)),
@@ -80,6 +113,7 @@ export function TasksScreen() {
       task: string | undefined;
       view: "board" | "list";
       group: TaskBoardGroup;
+      track: string | undefined;
     }>,
   ) =>
     void navigate({
@@ -88,6 +122,7 @@ export function TasksScreen() {
         ...(routeTaskId ? { task: routeTaskId } : {}),
         view,
         group: groupBy,
+        ...(routeSearch.track ? { track: routeSearch.track } : {}),
         ...patch,
       },
       replace: true,
@@ -107,7 +142,9 @@ export function TasksScreen() {
             {view === "board"
               ? groupBy === "status"
                 ? "Work grouped by status"
-                : "Work grouped by its current owner"
+                : groupBy === "track"
+                  ? "Work grouped by track"
+                  : "Work grouped by its current owner"
               : "All task details in one list"}
           </p>
         </div>
@@ -124,14 +161,25 @@ export function TasksScreen() {
             >
               <option value="assignee">Assignee</option>
               <option value="status">Status</option>
+              <option value="track">Track</option>
             </select>
           </label>
         ) : null}
-        <TaskFilterSelect
-          label="labels"
+        <TaskTagFilter
           selected={filters.labels}
           values={filterOptions.labels}
           onChange={(labels) => setFilters({ ...filters, labels })}
+        />
+        <TaskTrackFilter
+          selected={selectedTrack}
+          tracks={trackOptions}
+          onChange={(trackId) => {
+            setFilters({
+              ...filters,
+              tracks: trackId ? new Set([trackId]) : new Set(),
+            });
+            updateRoute({ track: trackId ?? undefined });
+          }}
         />
         <TaskFilterSelect
           label="projects"
@@ -255,6 +303,7 @@ export function TasksScreen() {
           columns={columns}
           executions={tasks.executions}
           groupBy={groupBy}
+          trackNames={trackNames}
           pending={tasks.update.isPending}
           onOpen={openTask}
           onReassign={(task, assignee) => {
@@ -271,6 +320,13 @@ export function TasksScreen() {
               { onError: (error) => setMutationError(message(error)) },
             );
           }}
+          onTrackChange={(task, trackId) => {
+            setMutationError(undefined);
+            tasks.update.mutate(
+              { task, patch: { trackId } },
+              { onError: (error) => setMutationError(message(error)) },
+            );
+          }}
         />
       ) : null}
       {!tasks.isLoading &&
@@ -280,12 +336,15 @@ export function TasksScreen() {
         <TaskListView
           assignees={tasks.assignees}
           executions={tasks.executions}
+          trackNames={trackNames}
           tasks={visible}
           onOpen={openTask}
         />
       ) : null}
       <CreateTaskDialog
         assignees={tasks.assignees}
+        tracks={trackOptions}
+        tagSuggestions={filterOptions.labels}
         error={mutationError}
         open={creating}
         pending={tasks.create.isPending}
@@ -301,6 +360,8 @@ export function TasksScreen() {
       {selected ? (
         <TaskDetailPanel
           assignees={tasks.assignees}
+          tracks={trackOptions}
+          tagSuggestions={filterOptions.labels}
           error={mutationError}
           pending={tasks.update.isPending}
           deletePending={tasks.deleteTask.isPending}

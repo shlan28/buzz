@@ -49,6 +49,8 @@ pub mod replica_fence;
 pub mod tasks;
 /// Thread metadata persistence.
 pub mod thread;
+/// Buzz Tracks persistence.
+pub mod tracks;
 /// Per-community usage rollup queries for Prometheus gauges.
 pub mod usage;
 /// User profile persistence.
@@ -1661,6 +1663,26 @@ impl Db {
             command,
             state,
             channel_id,
+        )
+        .await
+    }
+
+    /// Atomically store a Track command and its relay-derived state.
+    pub async fn apply_track_events(
+        &self,
+        community_id: CommunityId,
+        track_id: Uuid,
+        expected_state_id: Option<&[u8]>,
+        command: &nostr::Event,
+        state: &nostr::Event,
+    ) -> Result<tracks::ApplyTrackResult> {
+        tracks::apply_track_events(
+            &self.pool,
+            community_id,
+            track_id,
+            expected_state_id,
+            command,
+            state,
         )
         .await
     }

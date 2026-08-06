@@ -12,11 +12,13 @@ export function TaskListView({
   assignees,
   onOpen,
   executions,
+  trackNames,
 }: {
   tasks: Task[];
   assignees: TaskAssignee[];
   onOpen: (taskId: string) => void;
   executions: ReadonlyMap<string, TaskExecution>;
+  trackNames?: ReadonlyMap<string, string>;
 }) {
   const labels = new Map(
     assignees
@@ -27,7 +29,7 @@ export function TaskListView({
   return (
     <div className="min-h-0 flex-1 overflow-y-auto p-5">
       <div
-        className="mx-auto max-w-5xl divide-y divide-border overflow-hidden rounded-xl border border-border"
+        className="w-full divide-y divide-border overflow-hidden rounded-xl border border-border"
         data-testid="task-list-view"
       >
         {tasks.map((task) => {
@@ -46,6 +48,24 @@ export function TaskListView({
             >
               <span className="min-w-0 truncate text-sm font-medium">
                 {task.title}
+                {task.trackId && trackNames?.get(task.trackId) ? (
+                  <span className="ml-2 text-xs font-normal text-muted-foreground">
+                    {trackNames.get(task.trackId)}
+                  </span>
+                ) : null}
+                {task.labels.slice(0, 2).map((label) => (
+                  <span
+                    className="ml-1 rounded-md bg-muted px-1.5 py-0.5 text-xs font-normal text-muted-foreground"
+                    key={label}
+                  >
+                    {label}
+                  </span>
+                ))}
+                {task.labels.length > 2 ? (
+                  <span className="ml-1 text-xs font-normal text-muted-foreground">
+                    +{task.labels.length - 2}
+                  </span>
+                ) : null}
               </span>
               <span className="flex items-center gap-1.5">
                 <TaskStatusBadge status={task.status} />

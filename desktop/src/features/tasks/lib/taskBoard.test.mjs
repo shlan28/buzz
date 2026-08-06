@@ -16,6 +16,7 @@ const task = (id, assignee, status = "todo") => ({
   priority: "none",
   dueDate: null,
   labels: [],
+  trackId: null,
   project: null,
   channelId: null,
   creator: "creator",
@@ -52,6 +53,7 @@ test("filters archived and done tasks by default", () => {
       showDone: false,
       showEmptyAssignees: false,
       labels: new Set(),
+      tracks: new Set(),
       projects: new Set(),
       channels: new Set(),
     },
@@ -103,11 +105,32 @@ test("combines label, project, and channel filters", () => {
     showDone: true,
     showEmptyAssignees: false,
     labels: new Set(["launch"]),
+    tracks: new Set(),
     projects: new Set(["30617:owner:roadmap"]),
     channels: new Set(["planning"]),
   });
   assert.deepEqual(
     result.map((item) => item.id),
     ["matching"],
+  );
+});
+
+test("matches any selected tag", () => {
+  const desktop = { ...task("desktop", null), labels: ["desktop"] };
+  const urgent = { ...task("urgent", null), labels: ["p0"] };
+  const other = { ...task("other", null), labels: ["docs"] };
+  const result = filterTasks([desktop, urgent, other], {
+    query: "",
+    statuses: new Set(),
+    showDone: true,
+    showEmptyAssignees: false,
+    labels: new Set(["desktop", "p0"]),
+    tracks: new Set(),
+    projects: new Set(),
+    channels: new Set(),
+  });
+  assert.deepEqual(
+    result.map((item) => item.id),
+    ["desktop", "urgent"],
   );
 });

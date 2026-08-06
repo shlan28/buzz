@@ -86,6 +86,49 @@ just ci                   # run before any PR
 
 See CONTRIBUTING.md for full setup details and dependency requirements.
 
+### Local Achoverse Relay + Desktop Startup
+
+When working in this checkout, use the workspace's configured Achoverse relay
+startup flow instead of `just dev`. Keep Relay and Desktop in separate terminals
+so either process can be inspected or restarted independently.
+
+Terminal 1 — start the release Relay with the root `.env` (currently listening
+on `0.0.0.0:3200` and exposed through `wss://achoverse.xyz`):
+
+```bash
+cd /Users/lu/buzz
+. ./bin/activate-hermit
+just relay-release
+```
+
+Terminal 2 — start only Desktop and explicitly connect it to the same Relay:
+
+```bash
+cd /Users/lu/buzz
+. ./bin/activate-hermit
+BUZZ_RELAY_URL=wss://achoverse.xyz \
+BUZZ_DEV_INSTANCE_SLUG=dev \
+just desktop-standalone
+```
+
+`BUZZ_DEV_INSTANCE_SLUG=dev` reuses the expected local app data and Keychain
+identity. Managed agents are started by Desktop and inherit the active workspace
+Relay as `BUZZ_RELAY_URL`; do not start a separate agent process or configure an
+independent agent Relay.
+
+After startup, verify the public endpoint, local listener, and Desktop/agent
+processes:
+
+```bash
+curl --fail --silent --show-error https://achoverse.xyz/health
+lsof -nP -iTCP:3200 -sTCP:LISTEN
+ps aux | rg 'buzz-desktop|buzz-acp' | rg -v 'rg '
+```
+
+Start in Relay → Desktop order. See
+[`docs/2026-08-01-local-startup-and-relay-guide.md`](docs/2026-08-01-local-startup-and-relay-guide.md)
+for configuration details and troubleshooting.
+
 ---
 
 ## Development Branch Workflow

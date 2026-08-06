@@ -34,9 +34,9 @@ use buzz_core::kind::{
     KIND_STREAM_MESSAGE_EDIT, KIND_STREAM_MESSAGE_PINNED, KIND_STREAM_MESSAGE_SCHEDULED,
     KIND_STREAM_MESSAGE_V2, KIND_STREAM_REMINDER, KIND_TASK_CREATE, KIND_TASK_DELETE,
     KIND_TASK_EXECUTION_REQUEST, KIND_TASK_EXECUTION_UPDATE, KIND_TASK_MUTATE, KIND_TEAM,
-    KIND_TEXT_NOTE, KIND_USER_STATUS, KIND_WORKFLOW_DEF, KIND_WORKFLOW_TRIGGER,
-    RELAY_ADMIN_ADD_MEMBER, RELAY_ADMIN_CHANGE_ROLE, RELAY_ADMIN_REMOVE_MEMBER,
-    RELAY_ADMIN_SET_WORKSPACE_PROFILE,
+    KIND_TEXT_NOTE, KIND_TRACK_CREATE, KIND_TRACK_MUTATE, KIND_USER_STATUS, KIND_WORKFLOW_DEF,
+    KIND_WORKFLOW_TRIGGER, RELAY_ADMIN_ADD_MEMBER, RELAY_ADMIN_CHANGE_ROLE,
+    RELAY_ADMIN_REMOVE_MEMBER, RELAY_ADMIN_SET_WORKSPACE_PROFILE,
 };
 use buzz_core::tenant::TenantContext;
 use buzz_core::verification::verify_event;
@@ -322,7 +322,9 @@ fn required_scope_for_kind(kind: u32, event: &Event) -> Result<Scope, &'static s
         | KIND_TASK_MUTATE
         | KIND_TASK_DELETE
         | KIND_TASK_EXECUTION_REQUEST
-        | KIND_TASK_EXECUTION_UPDATE => Ok(Scope::MessagesWrite),
+        | KIND_TASK_EXECUTION_UPDATE
+        | KIND_TRACK_CREATE
+        | KIND_TRACK_MUTATE => Ok(Scope::MessagesWrite),
         _ => Err("restricted: unknown event kind"),
     }
 }
@@ -474,6 +476,10 @@ pub(crate) fn is_global_only_kind(kind: u32) -> bool {
             // NIP-AM: agent turn metrics are owner-scoped global events.
             // Channel identity is encrypted inside the payload — no `h` tag.
             | KIND_AGENT_TURN_METRIC
+            // Tracks are community-global work containers. A stray `h` tag on
+            // a command must never narrow its authorization or persistence.
+            | KIND_TRACK_CREATE
+            | KIND_TRACK_MUTATE
             // NIP-PL leases are author-owned, addressable global state.
             | super::push_lease::KIND_PUSH_LEASE
     )
@@ -2986,12 +2992,22 @@ mod tests {
             KIND_MODERATION_TIMEOUT,
             KIND_MODERATION_UNTIMEOUT,
             KIND_MODERATION_RESOLVE_REPORT,
+            KIND_TRACK_CREATE,
+            KIND_TRACK_MUTATE,
         ] {
             assert_eq!(
                 required_scope_for_kind(kind, &dummy).unwrap(),
                 Scope::MessagesWrite,
                 "kind {kind} should require MessagesWrite scope"
             );
+        }
+    }
+
+    #[test]
+    fn track_commands_are_global_only() {
+        for kind in [KIND_TRACK_CREATE, KIND_TRACK_MUTATE] {
+            assert!(is_global_only_kind(kind));
+            assert!(!requires_h_channel_scope(kind));
         }
     }
 

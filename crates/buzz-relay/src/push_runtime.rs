@@ -159,7 +159,7 @@ async fn process_match_batch(state: &AppState, batch: buzz_db::push::ClaimedMatc
     let mut wakes: Vec<buzz_db::push::WakeRequest> = Vec::new();
     for job in &batch.jobs {
         let event_id = job.event.event.id.as_bytes().to_vec();
-        match match_job(job, &context) {
+        match match_job(state, community, job, &context).await {
             Ok(job_wakes) if job_wakes.is_empty() => completed.push(event_id),
             Ok(job_wakes) => {
                 pending.push((event_id, job.attempt));
@@ -217,7 +217,9 @@ async fn process_match_batch(state: &AppState, batch: buzz_db::push::ClaimedMatc
 
 /// Pure match evaluation: no DB access. Returns the wake requests this job
 /// owes, which the caller flushes set-wise for the whole batch.
-fn match_job(
+async fn match_job(
+    state: &AppState,
+    community: buzz_core::tenant::CommunityId,
     job: &buzz_db::push::BatchedMatch,
     context: &MatchContext,
 ) -> anyhow::Result<Vec<buzz_db::push::WakeRequest>> {
@@ -225,6 +227,16 @@ fn match_job(
     for lease in &context.leases {
         let author_hex = hex::encode(&lease.author);
         if !reader_authorized_for_event(&job.event.event, &author_hex) {
+            continue;
+        }
+        if !crate::handlers::req::event_visible_to_reader(
+            state,
+            community,
+            &job.event.event,
+            &lease.author,
+        )
+        .await
+        {
             continue;
         }
         if let Some(channel) = job.event.channel_id {

@@ -1,7 +1,7 @@
 # buzz-cli Live Testing Guide
 
-> Updated: 2026-08-04
-> Update: Added Agent Task execution, strict owner/self permission, online presence, and execution conflict checks.
+> Updated: 2026-08-06
+> Update: Added Tracks lifecycle coverage and Task Track assignment and Tag OR-filter checks.
 
 Manual testing runbook for verifying every CLI command against a local relay.
 An agent or developer follows this step by step, running each command and
@@ -60,6 +60,82 @@ Verify these negative and identity cases:
 - After delete, confirm `tasks get`, `tasks list`, and task history do not expose the task.
 - Re-run `tasks create` with the deleted task UUID; expect rejection so deleted tasks cannot revive.
 - Delete with an old State ID; expect exit code 5 and confirm the task still exists.
+
+## Tracks and Task organization smoke flow
+
+Create a Track with a stable UUID, then use the returned State ID for every
+mutation:
+
+```bash
+TRACK_ID="20eef02c-9be8-4055-a747-e348d5a405ad"
+MEMBER_ONE="<64-hex-community-member-pubkey>"
+MEMBER_TWO="<another-64-hex-community-member-pubkey>"
+buzz tracks create --id "$TRACK_ID" --name "Desktop foundations" \
+  --owner me --member "$MEMBER_ONE" --member "$MEMBER_TWO" \
+  --start-date 2026-08-01 --end-date 2026-08-30 | jq .
+buzz tracks get --id "$TRACK_ID" | jq -e \
+  '.id == "'"$TRACK_ID"'" and .status == "planned" and
+   (.archived | not) and (.members | length == 2)'
+buzz tracks list --scope current --owner me | jq -e \
+  'any(.id == "'"$TRACK_ID"'")'
+
+TRACK_HEAD="$(buzz tracks get --id "$TRACK_ID" | jq -r .state_event_id)"
+buzz tracks update --id "$TRACK_ID" --expected-event "$TRACK_HEAD" \
+  --status active --description "Reliable desktop delivery" \
+  --member "$MEMBER_ONE" | jq .
+buzz tracks get --id "$TRACK_ID" | jq -e \
+  '.members == ["'"$MEMBER_ONE"'"]'
+
+TRACK_HEAD="$(buzz tracks get --id "$TRACK_ID" | jq -r .state_event_id)"
+buzz tracks update --id "$TRACK_ID" --expected-event "$TRACK_HEAD" \
+  --clear-members | jq .
+buzz tracks get --id "$TRACK_ID" | jq -e '.members == []'
+```
+
+Assign Tasks to the Track and verify Tags remain independent, multi-valued
+filter attributes. Multiple `--label` values use OR semantics:
+
+```bash
+TASK_ID="10eef02c-9be8-4055-a747-e348d5a405ad"
+buzz tasks create --id "$TASK_ID" --title "Audit onboarding" \
+  --track "$TRACK_ID" --label desktop --label p0 | jq .
+buzz tasks get --id "$TASK_ID" | jq -e \
+  '.track_id == "'"$TRACK_ID"'" and (.labels | sort) == ["desktop", "p0"]'
+buzz tasks list --track "$TRACK_ID" --label desktop --label unrelated | jq -e \
+  'any(.id == "'"$TASK_ID"'")'
+
+TASK_HEAD="$(buzz tasks get --id "$TASK_ID" | jq -r .state_event_id)"
+buzz tasks update --id "$TASK_ID" --expected-event "$TASK_HEAD" --clear-track | jq .
+buzz tasks get --id "$TASK_ID" | jq -e '.track_id == null'
+```
+
+Only completed or canceled Tracks can be archived. Restore keeps the lifecycle
+status unchanged:
+
+```bash
+TRACK_HEAD="$(buzz tracks get --id "$TRACK_ID" | jq -r .state_event_id)"
+buzz tracks update --id "$TRACK_ID" --expected-event "$TRACK_HEAD" \
+  --status completed | jq .
+TRACK_HEAD="$(buzz tracks get --id "$TRACK_ID" | jq -r .state_event_id)"
+buzz tracks archive --id "$TRACK_ID" --expected-event "$TRACK_HEAD" | jq .
+buzz tracks list --scope archived | jq -e 'any(.id == "'"$TRACK_ID"'")'
+
+TRACK_HEAD="$(buzz tracks get --id "$TRACK_ID" | jq -r .state_event_id)"
+buzz tracks restore --id "$TRACK_ID" --expected-event "$TRACK_HEAD" | jq .
+buzz tracks get --id "$TRACK_ID" | jq -e \
+  '.status == "completed" and (.archived | not)'
+```
+
+Also verify invalid date order, an unknown or archived `--track`, malformed
+owner/member and Track UUIDs, stale `--expected-event` (exit 5), and the
+permission matrix below:
+
+- creator, owner, explicit members, and the owner's currently managed Agents can read the Track;
+- only the owner and Agents currently owned by that owner can update members or other Track fields, archive, or restore;
+- creator and explicit members are read-only unless they are also the current owner;
+- an unrelated community member, an unrelated member's Agent, and a community admin cannot discover the Track;
+- after owner transfer, the old owner's Agent loses management immediately and the new owner's Agent gains it;
+- a private-Channel Task remains hidden from a Track member without Channel access, and a caller unable to read the Track cannot discover an associated Task.
 
 ---
 

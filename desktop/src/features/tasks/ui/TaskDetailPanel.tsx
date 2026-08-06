@@ -21,6 +21,7 @@ import type {
   TaskPatch,
   TaskPriority,
   TaskStatus,
+  TaskTrackOption,
 } from "../types";
 import { TaskHistory } from "./TaskHistory";
 import {
@@ -29,10 +30,14 @@ import {
 } from "../lib/taskDates";
 import { TaskAssigneeSelect } from "./TaskAssigneeSelect";
 import { TaskExecutionControl } from "./TaskExecutionControl";
+import { TaskTagInput } from "./TaskTagInput";
+import { TaskTrackSelect } from "./TaskTrackSelect";
 
 export function TaskDetailPanel({
   task,
   assignees,
+  tracks,
+  tagSuggestions,
   pending,
   error,
   onClose,
@@ -50,6 +55,8 @@ export function TaskDetailPanel({
 }: {
   task: Task;
   assignees: TaskAssignee[];
+  tracks: TaskTrackOption[];
+  tagSuggestions: string[];
   pending: boolean;
   error?: string;
   onClose: () => void;
@@ -137,6 +144,18 @@ export function TaskDetailPanel({
           pending={pending}
           value={task.assignee}
           onChange={(assignee) => onUpdate({ assignee })}
+        />
+        <TaskTrackSelect
+          disabled={pending}
+          tracks={tracks}
+          value={task.trackId}
+          onChange={(trackId) => onUpdate({ trackId })}
+        />
+        <TaskTagInput
+          disabled={pending}
+          labels={task.labels}
+          suggestions={tagSuggestions}
+          onChange={(labels) => onUpdate({ labels })}
         />
         {canExecute && !task.archived ? (
           <TaskExecutionControl

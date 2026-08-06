@@ -1,11 +1,18 @@
-import type { Task, TaskAssignee, TaskFilters, TaskStatus } from "../types";
+import type {
+  Task,
+  TaskAssignee,
+  TaskFilters,
+  TaskStatus,
+  TaskTrackOption,
+} from "../types";
 
 export type TaskColumnModel = {
   id: string;
   label: string;
-  kind: TaskAssignee["kind"] | "status";
+  kind: TaskAssignee["kind"] | "status" | "track";
   pubkey: string | null;
   status?: TaskStatus;
+  trackId?: string | null;
   canAssign?: boolean;
   tasks: Task[];
 };
@@ -34,6 +41,8 @@ export function filterTasks(tasks: Task[], filters: TaskFilters) {
       (filters.statuses.size === 0 || filters.statuses.has(task.status)) &&
       (filters.labels.size === 0 ||
         task.labels.some((label) => filters.labels.has(label))) &&
+      (filters.tracks.size === 0 ||
+        (task.trackId !== null && filters.tracks.has(task.trackId))) &&
       (filters.projects.size === 0 ||
         (task.project !== null && filters.projects.has(task.project))) &&
       (filters.channels.size === 0 ||
@@ -42,6 +51,39 @@ export function filterTasks(tasks: Task[], filters: TaskFilters) {
         task.title.toLocaleLowerCase().includes(query) ||
         task.description.toLocaleLowerCase().includes(query)),
   );
+}
+
+export function buildTaskTrackColumns(
+  tasks: Task[],
+  tracks: TaskTrackOption[],
+  showEmpty: boolean,
+): TaskColumnModel[] {
+  const byTrack = new Map<string, Task[]>();
+  for (const task of tasks) {
+    const key = task.trackId ?? "";
+    byTrack.set(key, [...(byTrack.get(key) ?? []), task]);
+  }
+  const options: TaskTrackOption[] = [
+    { id: "", name: "No track", archived: false },
+    ...tracks.filter((track) => !track.archived),
+  ];
+  return options
+    .map((track) => ({
+      id: track.id || "no-track",
+      label: track.name,
+      kind: "track" as const,
+      pubkey: null,
+      trackId: track.id || null,
+      tasks: [...(byTrack.get(track.id) ?? [])].sort(
+        (a, b) =>
+          (STATUS_ORDER.get(a.status) ?? 9) -
+            (STATUS_ORDER.get(b.status) ?? 9) ||
+          (PRIORITY_ORDER.get(a.priority) ?? 9) -
+            (PRIORITY_ORDER.get(b.priority) ?? 9) ||
+          a.updatedAt - b.updatedAt,
+      ),
+    }))
+    .filter((column) => showEmpty || column.tasks.length > 0);
 }
 
 export function buildTaskColumns(

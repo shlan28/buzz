@@ -45,7 +45,11 @@ test("deduplicates the same pubkey across members and Agent sources", () => {
   assert.deepEqual(assignees[1], {
     pubkey: "AGENT",
     label: "Local Agent",
+    selectorLabel: "Local Agent",
+    shortId: "AGENT",
     kind: "agent",
+    isCurrent: false,
+    isNameLoading: false,
     canAssign: true,
     unavailableReason: undefined,
   });
@@ -110,7 +114,11 @@ test("keeps the current user assignable when stale Agent data shares their pubke
   assert.deepEqual(assignees[1], {
     pubkey: "viewer",
     label: "lu",
+    selectorLabel: "You",
+    shortId: "viewer",
     kind: "person",
+    isCurrent: true,
+    isNameLoading: false,
     canAssign: true,
     unavailableReason: undefined,
   });
@@ -143,4 +151,35 @@ test("matches the live community when an old local Agent remains only in member 
     [null, viewer, currentBumble],
   );
   assert.equal(assignees.filter(({ label }) => label === "Bumble").length, 1);
+});
+
+test("keeps unresolved members as skeleton rows while names first load", () => {
+  const assignees = buildTaskAssignees({
+    members: [member("pending-member")],
+    profiles: {},
+    managedAgents: [],
+    relayAgents: [],
+    viewerPubkey: "viewer",
+    namesLoading: true,
+  });
+
+  assert.equal(assignees[1].selectorLabel, "Unnamed member");
+  assert.equal(assignees[1].shortId, "pending-…mber");
+  assert.equal(assignees[1].isNameLoading, true);
+});
+
+test("shows a confirmed nameless profile as Unnamed member", () => {
+  const pubkey = "1234567890abcdef";
+  const assignees = buildTaskAssignees({
+    members: [member(pubkey)],
+    profiles: { [pubkey]: profile(null) },
+    managedAgents: [],
+    relayAgents: [],
+    viewerPubkey: "viewer",
+  });
+
+  assert.equal(assignees[1].label, "12345678…cdef");
+  assert.equal(assignees[1].selectorLabel, "Unnamed member");
+  assert.equal(assignees[1].shortId, "12345678…cdef");
+  assert.equal(assignees[1].isNameLoading, false);
 });

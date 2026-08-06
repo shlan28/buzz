@@ -138,9 +138,11 @@ fn sign_event_with_keys(
         buzz_core_pkg::kind::KIND_TASK_STATE
             | buzz_core_pkg::kind::KIND_TASK_CREATE
             | buzz_core_pkg::kind::KIND_TASK_MUTATE
+            | buzz_core_pkg::kind::KIND_TRACK_CREATE
+            | buzz_core_pkg::kind::KIND_TRACK_MUTATE
     ) {
-        // Task `p` tags identify the assignee, so assigning a task to its author
-        // is meaningful. Other event kinds keep nostr-sdk's default self-tag scrub.
+        // Work-item `p` tags identify an assignee or owner, so pointing them at
+        // the author is meaningful. Other kinds keep nostr-sdk's default scrub.
         builder = builder.allow_self_tagging();
     }
     if let Some(created_at) = created_at {
@@ -189,6 +191,29 @@ mod sign_event_tests {
             .unwrap();
 
             assert!(has_self_assignment(&event, &keys), "task kind {kind}");
+            assert!(event.verify_id());
+            assert!(event.verify_signature());
+        }
+    }
+
+    #[test]
+    fn track_commands_keep_author_as_owner_after_signing() {
+        let keys = Keys::generate();
+
+        for kind in [
+            buzz_core_pkg::kind::KIND_TRACK_CREATE,
+            buzz_core_pkg::kind::KIND_TRACK_MUTATE,
+        ] {
+            let event = sign_event_with_keys(
+                kind as u16,
+                String::new(),
+                None,
+                self_assignment_tag(&keys),
+                &keys,
+            )
+            .unwrap();
+
+            assert!(has_self_assignment(&event, &keys), "track kind {kind}");
             assert!(event.verify_id());
             assert!(event.verify_signature());
         }

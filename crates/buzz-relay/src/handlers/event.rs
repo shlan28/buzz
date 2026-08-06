@@ -204,6 +204,24 @@ pub async fn filter_fanout_by_access(
         matches
     };
 
+    // Apply the unified result gate per connection. In addition to the cheap
+    // author/persona checks above, this resolves current Track ACLs for Track
+    // events and Track-linked Task events. The lookup happens at delivery time
+    // so owner transfers, member replacement, and managed-Agent unlinking take
+    // effect without rewriting historical events.
+    let mut result_visible = Vec::with_capacity(matches.len());
+    for (conn_id, sub_id) in matches {
+        let Some(pubkey) = state.conn_manager.pubkey_for_conn(conn_id) else {
+            continue;
+        };
+        if super::req::event_visible_to_reader(state, community_id, &stored_event.event, &pubkey)
+            .await
+        {
+            result_visible.push((conn_id, sub_id));
+        }
+    }
+    let matches = result_visible;
+
     let Some(channel_id) = stored_event.channel_id else {
         return matches;
     };

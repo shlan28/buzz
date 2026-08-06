@@ -15,15 +15,22 @@ import type {
   TaskDraft,
   TaskPriority,
   TaskStatus,
+  TaskTrackOption,
 } from "../types";
 import {
   dueTimestampToLocalDate,
   localDateToDueTimestamp,
 } from "../lib/taskDates";
 import { TaskAssigneeSelect } from "./TaskAssigneeSelect";
+import { TaskTagInput } from "./TaskTagInput";
+import { TaskTrackSelect } from "./TaskTrackSelect";
 
 export function CreateTaskDialog({
   assignees,
+  tracks,
+  tagSuggestions,
+  initialTrackId = null,
+  trackLocked = false,
   open,
   pending,
   error,
@@ -31,16 +38,22 @@ export function CreateTaskDialog({
   onSave,
 }: {
   assignees: TaskAssignee[];
+  tracks: TaskTrackOption[];
+  tagSuggestions: string[];
+  initialTrackId?: string | null;
+  trackLocked?: boolean;
   open: boolean;
   pending: boolean;
   error?: string;
   onClose: () => void;
   onSave: (draft: TaskDraft) => void;
 }) {
-  const [draft, setDraft] = React.useState<TaskDraft>(() => blankDraft());
+  const [draft, setDraft] = React.useState<TaskDraft>(() =>
+    blankDraft(initialTrackId),
+  );
   React.useEffect(() => {
-    if (!open) setDraft(blankDraft());
-  }, [open]);
+    if (!open) setDraft(blankDraft(initialTrackId));
+  }, [initialTrackId, open]);
   return (
     <Dialog
       open={open}
@@ -125,6 +138,17 @@ export function CreateTaskDialog({
               />
             </label>
           </div>
+          <TaskTrackSelect
+            disabled={trackLocked}
+            tracks={tracks}
+            value={draft.trackId}
+            onChange={(trackId) => setDraft({ ...draft, trackId })}
+          />
+          <TaskTagInput
+            labels={draft.labels}
+            suggestions={tagSuggestions}
+            onChange={(labels) => setDraft({ ...draft, labels })}
+          />
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
         </div>
         <DialogFooter>
@@ -143,7 +167,7 @@ export function CreateTaskDialog({
   );
 }
 
-function blankDraft(): TaskDraft {
+function blankDraft(trackId: string | null): TaskDraft {
   return {
     id: crypto.randomUUID(),
     title: "",
@@ -152,6 +176,8 @@ function blankDraft(): TaskDraft {
     status: "todo",
     priority: "none",
     dueDate: null,
+    labels: [],
+    trackId,
   };
 }
 function SelectField({
