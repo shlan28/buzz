@@ -1,4 +1,4 @@
-import { LogIn } from "lucide-react";
+import { History, LogIn } from "lucide-react";
 import type * as React from "react";
 
 import { ChatHeader } from "@/features/chat/ui/ChatHeader";
@@ -40,6 +40,7 @@ type ChannelScreenHeaderProps = {
   onAddBotOpenChange?: (open: boolean) => void;
   onJoinChannel?: () => Promise<void>;
   onManageChannel: () => void;
+  onOpenAgentDmHistory?: () => void;
   onToggleMembers: () => void;
 };
 
@@ -60,6 +61,7 @@ export function ChannelScreenHeader({
   transparentChrome = false,
   onJoinChannel,
   onManageChannel,
+  onOpenAgentDmHistory,
   onToggleMembers,
 }: ChannelScreenHeaderProps) {
   const isGroupDm =
@@ -72,7 +74,7 @@ export function ChannelScreenHeader({
     !activeChannel.archivedAt &&
     onJoinChannel;
 
-  const actions = activeChannel ? (
+  const channelActions = activeChannel ? (
     showJoinButton ? (
       <Button
         disabled={isJoining}
@@ -95,6 +97,24 @@ export function ChannelScreenHeader({
       />
     )
   ) : null;
+  const actions =
+    channelActions || onOpenAgentDmHistory ? (
+      <div className="flex items-center gap-1">
+        {onOpenAgentDmHistory ? (
+          <Button
+            aria-label="查看历史"
+            className="h-8 px-2.5"
+            onClick={onOpenAgentDmHistory}
+            size="sm"
+            variant="outline"
+          >
+            <History />
+            查看历史
+          </Button>
+        ) : null}
+        {channelActions}
+      </div>
+    ) : null;
 
   if (!showHeaderContent) {
     return null;
