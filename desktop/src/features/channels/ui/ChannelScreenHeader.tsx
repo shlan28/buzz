@@ -103,11 +103,12 @@ export function ChannelScreenHeader({
         {onOpenAgentDmHistory ? (
           <Button
             aria-label="查看历史"
+            className="h-8 px-2.5"
             onClick={onOpenAgentDmHistory}
             size="sm"
-            variant="ghost"
+            variant="outline"
           >
-            <History className="mr-1.5 h-4 w-4" />
+            <History />
             查看历史
           </Button>
         ) : null}

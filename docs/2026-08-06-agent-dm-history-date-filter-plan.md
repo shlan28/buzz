@@ -1,7 +1,7 @@
 # Agent DM 历史查看与搜索弹窗方案
 
-> 更新日期：2026-08-06
-> 更新说明：完成独立的大尺寸只读历史弹窗实现；保留现有 DM 实时消息、缓存、滚动与分页逻辑，支持日期范围浏览和范围内简单全文搜索，并明确首版结果数量上限。
+> 更新日期：2026-08-07
+> 更新说明：完成独立的大尺寸只读历史弹窗实现；保留现有 DM 实时消息、缓存、滚动与分页逻辑，支持日期范围浏览和范围内简单全文搜索；统一“查看历史”与标题栏操作按钮的背景及图文间距。
 
 ## 1. 背景
 
@@ -401,7 +401,7 @@ E2E 使用 `pnpm build:e2e` 和 mock Tauri bridge；截图前调用共享 animat
 - [x] `desktop/src/features/channels/lib/agentDmHistory.test.mjs`：覆盖 Agent DM 识别、日期边界、非法范围和关键词归一化。
 - [x] `desktop/src/features/channels/useAgentDmHistoryDialog.tsx`：管理弹窗开关、表单草稿、已提交条件和 Channel 切换清理。
 - [x] `desktop/src/features/channels/ui/AgentDmHistoryDialog.tsx`：实现大尺寸只读弹窗、日期控件、搜索框、状态和结果布局。
-- [x] `desktop/src/features/channels/ui/ChannelScreenHeader.tsx`：仅在 Agent 一对一 DM 中挂载“查看历史”入口。
+- [x] `desktop/src/features/channels/ui/ChannelScreenHeader.tsx`：仅在 Agent 一对一 DM 中挂载“查看历史”入口，并与相邻标题栏按钮保持一致的白色背景、高度和图文间距。
 - [x] `desktop/src/features/channels/ui/ChannelScreen.tsx`：编排 Agent DM 识别和弹窗，不改主时间线查询。
 - [x] `desktop/src/shared/api/channelWindow.ts`：增加独立的历史范围请求。
 - [x] `desktop/src/features/messages/useAgentDmHistoryQuery.ts`：实现隔离的日期范围浏览与全文搜索查询 key。
