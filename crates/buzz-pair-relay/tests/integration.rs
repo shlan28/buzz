@@ -39,6 +39,13 @@ async fn start_relay() -> String {
     format!("ws://127.0.0.1:{}", addr.port())
 }
 
+async fn start_signer_relay() -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(run_server(listener, Arc::new(Relay::new_signer())));
+    format!("ws://127.0.0.1:{}", addr.port())
+}
+
 /// Connect a WebSocket client to the relay.
 async fn connect(url: &str) -> WS {
     let (ws, _) = connect_async(url).await.unwrap();
@@ -84,6 +91,42 @@ async fn assert_closed(ws: &mut WS) {
         Ok(Some(Err(_))) => {}                // protocol error / reset
         Ok(Some(Ok(other))) => panic!("expected close, got {:?}", other),
     }
+}
+
+#[tokio::test]
+async fn signer_listener_only_delivers_kind_24133_to_one_recipient() {
+    let url = start_signer_relay().await;
+    let mut subscriber = connect(&url).await;
+    send(
+        &mut subscriber,
+        &json!(["REQ", "signer", {"kinds": [24133], "#p": [P_A]}]),
+    )
+    .await;
+    assert_eq!(recv(&mut subscriber).await[0], "EOSE");
+
+    let (secret, pubkey) = gen_keypair();
+    let mut publisher = connect(&url).await;
+    let event = make_signed_event_for_kind(&secret, &pubkey, P_A, 1, 24133);
+    send(&mut publisher, &json!(["EVENT", event])).await;
+
+    let delivered = recv(&mut subscriber).await;
+    assert_eq!(delivered[0], "EVENT");
+    assert_eq!(delivered[2]["kind"], 24133);
+    assert_eq!(recv(&mut publisher).await[2], true);
+}
+
+#[tokio::test]
+async fn signer_listener_rejects_pairing_kind() {
+    let url = start_signer_relay().await;
+    let mut ws = connect(&url).await;
+    send(
+        &mut ws,
+        &json!(["REQ", "wrong", {"kinds": [24134], "#p": [P_A]}]),
+    )
+    .await;
+    let response = recv(&mut ws).await;
+    assert_eq!(response[0], "CLOSED");
+    assert!(response[2].as_str().unwrap_or_default().contains("24133"));
 }
 
 /// Generate a random keypair; returns `(SecretKey, pubkey_hex)`.
@@ -140,6 +183,16 @@ fn make_nip44_content() -> String {
 /// `nonce` is mixed into the content so callers can produce unique IDs from
 /// the same keypair without sleeping.
 fn make_signed_event(sk: &SecretKey, pubkey_hex: &str, p_hex: &str, nonce: u64) -> Value {
+    make_signed_event_for_kind(sk, pubkey_hex, p_hex, nonce, 24134)
+}
+
+fn make_signed_event_for_kind(
+    sk: &SecretKey,
+    pubkey_hex: &str,
+    p_hex: &str,
+    nonce: u64,
+    kind: u64,
+) -> Value {
     let secp = Secp256k1::new();
     let created_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -155,8 +208,6 @@ fn make_signed_event(sk: &SecretKey, pubkey_hex: &str, p_hex: &str, nonce: u64) 
     let content = base64_encode(&blob);
 
     let tags = json!([["p", p_hex]]);
-    let kind = 24134u64;
-
     // NIP-01 commitment: [0, pubkey, created_at, kind, tags, content]
     let commitment = json!([0, pubkey_hex, created_at, kind, tags, content]);
     let commitment_str = serde_json::to_string(&commitment).unwrap();
@@ -174,7 +225,7 @@ fn make_signed_event(sk: &SecretKey, pubkey_hex: &str, p_hex: &str, nonce: u64) 
     json!({
         "id":         id_hex,
         "pubkey":     pubkey_hex,
-        "kind":       24134,
+        "kind":       kind,
         "created_at": created_at,
         "content":    content,
         "sig":        sig_hex,

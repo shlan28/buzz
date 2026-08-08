@@ -61,6 +61,7 @@ pub(crate) const CONN_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_CONNS: u32 = 128;
 const CHANNEL_CAP: usize = 4;
 const KIND_PAIR: u64 = 24134;
+const KIND_SIGNER: u64 = 24133;
 /// Max WebSocket frame/message size. NIP-AB handshake payloads are small
 /// (ephemeral pubkeys + encrypted session data), well under 4 KiB.
 const MAX_FRAME: usize = 4096;
@@ -88,6 +89,33 @@ const ENTRY_TTL: Duration = Duration::from_secs(300);
 /// Freshness window in seconds (±).
 const FRESHNESS_SECS: i64 = 120;
 
+#[derive(Clone, Copy)]
+struct RelayPolicy {
+    kind: u64,
+    conn_timeout: Duration,
+    max_frame: usize,
+    max_events_per_conn: u32,
+    max_delivered_per_p: u32,
+}
+
+impl RelayPolicy {
+    const PAIRING: Self = Self {
+        kind: KIND_PAIR,
+        conn_timeout: CONN_TIMEOUT,
+        max_frame: MAX_FRAME,
+        max_events_per_conn: MAX_EVENTS_PER_CONN,
+        max_delivered_per_p: MAX_DELIVERED_PER_P,
+    };
+
+    const SIGNER: Self = Self {
+        kind: KIND_SIGNER,
+        conn_timeout: Duration::from_secs(24 * 60 * 60),
+        max_frame: 16 * 1024,
+        max_events_per_conn: 2_000,
+        max_delivered_per_p: 4_000,
+    };
+}
+
 enum OutMsg {
     Text(String),
     Pong(Vec<u8>),
@@ -102,6 +130,7 @@ struct Sub {
 }
 
 pub struct Relay {
+    policy: RelayPolicy,
     subs: Mutex<Vec<Sub>>,
     conn_count: AtomicU32,
     next_conn_id: AtomicU64,
@@ -119,7 +148,17 @@ impl Default for Relay {
 
 impl Relay {
     pub fn new() -> Self {
+        Self::with_policy(RelayPolicy::PAIRING)
+    }
+
+    /// Create an isolated long-lived relay for encrypted NIP-46 traffic.
+    pub fn new_signer() -> Self {
+        Self::with_policy(RelayPolicy::SIGNER)
+    }
+
+    fn with_policy(policy: RelayPolicy) -> Self {
         Self {
+            policy,
             subs: Mutex::new(Vec::new()),
             conn_count: AtomicU32::new(0),
             next_conn_id: AtomicU64::new(0),
@@ -178,7 +217,7 @@ impl Relay {
         delivered.retain(|_, (_, ts)| ts.elapsed() < ENTRY_TTL);
 
         let count = delivered.get(p_value).map(|(c, _)| *c).unwrap_or(0);
-        if count >= MAX_DELIVERED_PER_P {
+        if count >= self.policy.max_delivered_per_p {
             return Err("recipient session budget exhausted");
         }
         // Fail closed if still at capacity after eviction and key is new.
@@ -309,7 +348,7 @@ fn decode_hex32(s: &str) -> Option<[u8; 32]> {
 }
 
 /// Validate a REQ filter. Returns `Ok(p_value)` or `Err(reason)`.
-fn validate_filter(filter: &Value) -> Result<[u8; 32], &'static str> {
+fn validate_filter(filter: &Value, expected_kind: u64) -> Result<[u8; 32], &'static str> {
     let obj = filter.as_object().ok_or("filter must be an object")?;
     for key in obj.keys() {
         match key.as_str() {
@@ -319,8 +358,12 @@ fn validate_filter(filter: &Value) -> Result<[u8; 32], &'static str> {
     }
     if let Some(kinds) = obj.get("kinds") {
         let arr = kinds.as_array().ok_or("kinds must be an array")?;
-        if arr.len() != 1 || arr[0].as_u64() != Some(KIND_PAIR) {
-            return Err("kinds must be [24134]");
+        if arr.len() != 1 || arr[0].as_u64() != Some(expected_kind) {
+            return Err(if expected_kind == KIND_PAIR {
+                "kinds must be [24134]"
+            } else {
+                "kinds must be [24133]"
+            });
         }
     }
     let p_arr = obj
@@ -415,7 +458,10 @@ fn validate_nip44_content(content: &str) -> Result<(), &'static str> {
 /// - Strict tag shape: exactly `[["p", "<64-hex>"]]` (tightening #3)
 /// - NIP-44 content validation (tightening #5)
 /// - Freshness window on `created_at` (tightening #6)
-fn validate_event(ev: &Value) -> Result<(String, [u8; 32], [u8; 32]), &'static str> {
+fn validate_event(
+    ev: &Value,
+    expected_kind: u64,
+) -> Result<(String, [u8; 32], [u8; 32]), &'static str> {
     let obj = ev.as_object().ok_or("event must be an object")?;
 
     // Tightening #4: reject extra top-level fields.
@@ -447,8 +493,12 @@ fn validate_event(ev: &Value) -> Result<(String, [u8; 32], [u8; 32]), &'static s
     if !is_lower_hex(pubkey, 64) {
         return Err("pubkey must be 64 lowercase hex chars");
     }
-    if obj.get("kind").and_then(|v| v.as_u64()) != Some(KIND_PAIR) {
-        return Err("kind must be 24134");
+    if obj.get("kind").and_then(|v| v.as_u64()) != Some(expected_kind) {
+        return Err(if expected_kind == KIND_PAIR {
+            "kind must be 24134"
+        } else {
+            "kind must be 24133"
+        });
     }
 
     // Tightening #6: freshness window.
@@ -633,7 +683,7 @@ async fn handle_conn(relay: Arc<Relay>, conn_id: u64, stream: WebSocketStream<To
     let mut sub_id: Option<String> = None;
     // Tightening #1: hard session cap — counts all valid+sig-verified EVENT attempts.
     let mut events_attempted: u32 = 0;
-    let deadline = tokio::time::sleep(CONN_TIMEOUT);
+    let deadline = tokio::time::sleep(relay.policy.conn_timeout);
     tokio::pin!(deadline);
 
     'conn: loop {
@@ -729,7 +779,7 @@ async fn handle_conn(relay: Arc<Relay>, conn_id: u64, stream: WebSocketStream<To
                             )));
                             continue;
                         }
-                        let p_value = match validate_filter(&arr[2]) {
+                        let p_value = match validate_filter(&arr[2], relay.policy.kind) {
                             Ok(p) => p,
                             Err(reason) => {
                                 let _ = tx.try_send(OutMsg::Text(make_closed(
@@ -781,7 +831,7 @@ async fn handle_conn(relay: Arc<Relay>, conn_id: u64, stream: WebSocketStream<To
                             continue;
                         }
                         // Tightening #1: hard session cap check.
-                        if events_attempted >= MAX_EVENTS_PER_CONN {
+                        if events_attempted >= relay.policy.max_events_per_conn {
                             let safe_id = safe_event_id(&arr[1]);
                             let _ = tx.try_send(OutMsg::Text(make_ok(
                                 &safe_id,
@@ -798,7 +848,7 @@ async fn handle_conn(relay: Arc<Relay>, conn_id: u64, stream: WebSocketStream<To
                             )));
                             continue;
                         }
-                        match validate_event(&arr[1]) {
+                        match validate_event(&arr[1], relay.policy.kind) {
                             Ok((event_id, id_bytes, p_value)) => {
                                 // Tightening #8: Schnorr signature verification BEFORE dedup.
                                 if let Err(reason) = verify_event_sig(&arr[1]) {
@@ -969,8 +1019,8 @@ async fn http_service(
             Ok(upgraded) => {
                 let io = TokioIo::new(upgraded);
                 let mut ws_config = WebSocketConfig::default();
-                ws_config.max_frame_size = Some(MAX_FRAME);
-                ws_config.max_message_size = Some(MAX_FRAME);
+                ws_config.max_frame_size = Some(relay_clone.policy.max_frame);
+                ws_config.max_message_size = Some(relay_clone.policy.max_frame);
                 let stream =
                     WebSocketStream::from_raw_socket(io, Role::Server, Some(ws_config)).await;
                 handle_conn(relay_clone, conn_id, stream).await;

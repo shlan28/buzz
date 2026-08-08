@@ -22,6 +22,25 @@ async fn main() {
             std::process::exit(1);
         }
     };
-    let relay = Arc::new(Relay::new());
-    run_server(listener, relay).await;
+    let signer_addr_raw = std::env::var("BUZZ_SIGNER_RELAY_BIND_ADDR")
+        .unwrap_or_else(|_| "127.0.0.1:5001".to_string());
+    let signer_addr: SocketAddr = match signer_addr_raw.parse() {
+        Ok(addr) => addr,
+        Err(e) => {
+            eprintln!("fatal: invalid BUZZ_SIGNER_RELAY_BIND_ADDR {signer_addr_raw:?}: {e}");
+            std::process::exit(1);
+        }
+    };
+    let signer_listener = match TcpListener::bind(signer_addr).await {
+        Ok(listener) => listener,
+        Err(e) => {
+            eprintln!("fatal: failed to bind {signer_addr}: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    tokio::join!(
+        run_server(listener, Arc::new(Relay::new())),
+        run_server(signer_listener, Arc::new(Relay::new_signer())),
+    );
 }

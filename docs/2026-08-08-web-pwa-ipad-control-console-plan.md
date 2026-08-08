@@ -1,7 +1,7 @@
 # Buzz Web/PWA iPad 控制台方案
 
 > 更新日期：2026-08-08
-> 更新说明：开始实现 Desktop Web Pair 模式；补充 PairingSession 设备公钥读取、Desktop Mobile/Web 模式选择和 bunker payload 生成文件，明确 signer route 上线前不重新打包。
+> 更新说明：开始实现 Desktop Web Pair 模式与 Remote Signer；Remote Signer 改为复用 buzz-pair-relay 的安全单播核心、使用独立 5001 监听器和 `/signer` 路由，与短时 Pair 端口隔离。
 
 ## 一、产品结论
 
@@ -657,9 +657,9 @@ Task Progress:
 - [x] `desktop/src/features/settings/ui/MobilePairingCard.tsx`：增加 Web Pair 选择、复制链接和安全说明。
 - [ ] `desktop/src-tauri/src/commands/remote_signer.rs`：实现设备授权、kind/tag policy、签名和撤销。
 - [ ] `desktop/src/features/settings/PairedWebDevices.tsx`：展示权限、在线状态、最后使用和撤销。
-- [ ] `crates/buzz-relay/src/api/remote_signer.rs`：提供仅转发 `24133`、无持久化、严格单播的 signer WebSocket route。
-- [ ] `crates/buzz-relay/src/api/mod.rs`：注册 Remote Signer route。
-- [ ] `crates/buzz-test-client/tests/e2e_remote_signer.rs`：覆盖 secret、重放、错误接收方、撤销、限流、无持久化和跨社区隔离。
+- [x] `crates/buzz-pair-relay/src/lib.rs`：参数化安全单播策略，分别承载 24134 Pair 与 24133 signer。
+- [x] `crates/buzz-pair-relay/src/main.rs`：增加独立 Remote Signer 监听器。
+- [x] `crates/buzz-pair-relay/tests/integration.rs`：覆盖 signer 定向单播与错误 kind 隔离，并复用已有订阅、限流和背压回归。
 
 ### Phase 3：Relay Session 与共享领域
 
