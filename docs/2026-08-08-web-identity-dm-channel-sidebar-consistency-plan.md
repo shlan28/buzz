@@ -1,5 +1,5 @@
 > 更新日期：2026-08-08
-> 更新说明：在已部署的身份、DM 和实时消息修复基础上，补充 Agent 头像、消息 Markdown、安全内容面板、导航图标，以及 Task 卡片完整信息、视觉层级、Track 筛选和 Assignee/Status/Track 分组一致性要求。
+> 更新说明：在已部署的身份、DM 和实时消息修复基础上，补充 Agent/User 默认头像身份色、消息 Markdown、安全内容面板、导航图标，以及 Task 卡片完整信息、视觉层级、Track 筛选和 Assignee/Status/Track 分组一致性要求。
 
 # Web 身份、DM、Channel 与 Sidebar 一致性修复方案
 
@@ -147,6 +147,12 @@ Web 卡片目前只有标题、可选描述、全部 labels 和 priority，缺�
 
 Web 已解析 status、priority、assignee、due、trackId 和 labels，但还没有把 Track id 映射为名称，也没有为 task assignee 补齐 profile lookup；kind `30501` task execution state 也尚未进入 Web 工作数据。因此本轮需要补齐数据投影后再复刻卡片，不能用公钥截断或写死占位冒充 Desktop 信息。执行状态必须只接受 Relay 签发的最新 replaceable state，不能信任任意作者伪造的 kind `30501`。
 
+### 1.15 Agent 与 User 默认头像缺少身份区分
+
+Web 统一头像组件当前无论身份都使用 `bg-muted`，Agent 和普通 User 在没有 profile picture 或图片加载失败时完全相同。Desktop 通用 `UserAvatar` 已提供 accent/secondary 两套 fallback：Agent 身份列表通常使用 primary 强调色，普通用户使用 secondary。
+
+Web 将身份色规则统一为：真实头像优先且不染色；默认头像中 Agent 使用 `bg-primary text-primary-foreground`，普通 User（包括当前用户）使用 `bg-secondary text-secondary-foreground`。`isAgent` 必须来自已有的 profile/NIP-OA 验证投影，不能根据名称、DM 类型或是否回复消息猜测。图片加载失败后仍保持对应身份色；Sidebar DM、消息行、mention 候选、Task assignee 和当前用户资料卡必须消费同一组件规则。
+
 ## 二、产品目标
 
 - Sidebar profile 显示当前 Buzz 用户真实名字与头像；
@@ -164,6 +170,7 @@ Web 已解析 status、priority、assignee、due、trackId 和 labels，但还�
 - Tasks 使用 `ListTodo`、Tracks 使用 `Route`，尺寸和导航状态与 Desktop 一致。
 - Task Board 的列背景、卡片边框、阴影和 hover 层级与 Desktop 一致；可按 Track 筛选 Board 与 List，并按 Assignee、Status、Track 分组。
 - Task 卡片完整显示 Desktop 的描述、状态、执行状态、Track、标签计数、优先级、到期日和 assignee 信息。
+- 无真实头像时 Agent 使用 primary 默认头像、普通 User 使用 secondary，所有页面保持一致。
 
 ## 三、统一数据模型
 
@@ -271,6 +278,9 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - Board 默认按 Assignee 分组，包含 `Unassigned`，并遵循 Desktop 的当前用户、任务数和名称排序规则。
 - `Group by` 支持 Assignee、Status、Track，选择写入 URL `group`；刷新、前进后退及 List/Board 切换后保持。
 - 默认隐藏无任务分组；`Show empty groups` 开启后显示完整 assignee/status/track 列，非法 group 参数安全回退 Assignee。
+- 有真实 picture 时 Agent/User 均原样显示图片；没有图片或加载失败时，Agent 使用 primary、User 使用 secondary。
+- Sidebar DM、消息行、mention、Task assignee 和个人资料卡对同一 pubkey 的默认头像颜色必须一致。
+- `isAgent=false` 或身份未验证时保守按普通 User 呈现，不能通过名称或所在 DM 推断为 Agent。
 
 ## 七、Todo List
 
@@ -287,7 +297,7 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - [ ] `web/src/features/messages/messageGrouping.ts`：移植 Desktop 连续消息与日期分组边界，不再使用 Web 的 5 分钟简化判断。
 - [ ] `web/src/features/messages/MessageRow.tsx`：按 Desktop DOM/class 渲染头像、作者、时间、正文和连续消息状态。
 - [x] `web/src/features/messages/MessageMarkdown.tsx`：使用现有 Markdown 依赖实现安全协议、GFM 与 Desktop 正文组件映射。
-- [x] `web/src/shared/ui/ProfileAvatar.tsx`：提供 profile 图片、首字母回退、加载失败和无障碍名称的统一头像组件。
+- [ ] `web/src/shared/ui/ProfileAvatar.tsx`：在已有图片/首字母回退上增加经过验证的 Agent primary 与 User secondary 默认身份色。
 - [ ] `web/src/features/messages/DayDivider.tsx`：按 Desktop 时间格式与布局渲染日期分隔。
 - [x] `web/src/features/messages/channelMessageSession.ts`：实现当前 Channel 的实时订阅、验签、断线重连和事件触发 catch-up。
 - [ ] `web/src/features/messages/useChannelMessages.ts`：合并初始快照、发送回显与实时回复，并在 channel id 变化时切换订阅。
@@ -296,10 +306,10 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - [x] `web/src/shared/hooks/useWorkConsoleData.ts`：改为模块级共享请求与 last-good snapshot，路由切换不再闪空。
 - [ ] `web/src/app/routes/app.tsx`：新增持久 `/app` 父布局与 Outlet，Pair/Settings 处理明确边界。
 - [ ] `web/src/shared/ui/DesktopParityAppShell.tsx`：支持持久 Outlet 与 Settings sidebar，而不在业务页重复挂载。
-- [x] `web/src/features/sidebar/WebAppSidebar.tsx`：按 Desktop 规则显示 DM 头像/群组人数，并把 Tasks、Tracks 图标分别统一为 `ListTodo`、`Route`。
+- [ ] `web/src/features/sidebar/WebAppSidebar.tsx`：保留已完成的 DM 头像和导航图标，并向 DM/当前用户头像传递真实 `isAgent` 身份。
 - [ ] `web/src/features/settings/SettingsPage.tsx`：保留已完成的真实用户 profile，并让 Settings 主内容区域使用统一内容面板背景语义。
 - [ ] `web/src/features/inbox/InboxPage.tsx`：移除页面级 Shell，消费共享 Provider。
-- [ ] `web/src/features/channels/ChannelsPage.tsx`：接入统一头像与 MessageMarkdown，并在后续持久父布局中移除页面级 Shell。
+- [ ] `web/src/features/channels/ChannelsPage.tsx`：保留统一头像与 Markdown，并向消息行和 mention 候选传递真实 `isAgent` 身份。
 - [ ] `web/src/features/calendar/CalendarPage.tsx`：移除页面级 Shell、保留 Sidebar，并让 Calendar 画布和事件详情使用统一内容面板背景语义。
 - [ ] `web/src/features/tasks/TasksPage.tsx`：复刻 Desktop 列/卡片视觉层级，增加 Track 筛选、Assignee/Status/Track 分组、空列开关及 URL search 同步。
 - [ ] `web/src/features/tasks/types.ts`：对齐 Desktop Task priority、due timestamp 与 TaskExecution 类型，使用明确 null 语义。
@@ -309,7 +319,8 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - [ ] `web/src/features/tracks/TracksPage.tsx`：移除页面级 Shell、保留 Sidebar，并让 Track 列表与右侧详情使用统一内容面板背景语义。
 - [x] `web/src/shared/styles/globals.css`：增加 Desktop Light 白色内容面板和 Dark 暖黑画布语义，并补齐消息 Markdown 排版规则。
 - [x] `web/tests/e2e/domain-codecs.spec.ts`：覆盖 profile、Agent DM label、最新 profile 和稳定消息排序。
-- [ ] `web/tests/e2e/task-presentation.spec.ts`：覆盖完整卡片字段、Agent assignee、三种分组、列排序、空列开关、URL 恢复、Track 筛选和 execution 防伪。
+- [ ] `web/tests/e2e/task-presentation.spec.ts`：覆盖完整卡片字段、Agent assignee 默认色、三种分组、列排序、URL 恢复、Track 筛选和 execution 防伪。
+- [ ] `web/tests/e2e/avatar-identity.spec.ts`：覆盖 Agent/User 默认色、真实图片优先、图片失败回退及跨 Sidebar/消息/mention 的一致性。
 - [ ] `web/tests/e2e/work-console.spec.ts`：在现有身份、消息呈现测试上补充 Task 卡片边框/hover、Track 筛选、空状态、URL 恢复及 Board/List 一致性。
 - [ ] `web/tests/e2e/message-mentions.spec.ts`：覆盖 Channel `@Agent` 候选、键盘/触控选择、p tag、同名歧义和 DM 自动 recipient。
 - [ ] `web/tests/e2e/message-timeline.spec.ts`：用乱序、同秒、reply、delete、edit、reaction fixture 对照 Desktop 投影与 row 顺序。
@@ -334,6 +345,7 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - Tasks 与 Tracks 的 Sidebar 图标、尺寸、激活态和折叠态与 Desktop 一致；
 - Task 卡片边框、阴影、列背景与 Desktop 一致；Track 筛选及 Assignee/Status/Track 分组在 Board、List、刷新和浏览器历史中行为一致；
 - Task 卡片在相同 fixture 下与 Desktop 显示相同的信息集合、顺序、状态颜色和缺省规则；
+- 无真实头像时 Agent 与 User 可通过一致的 primary/secondary 默认头像视觉区分，且身份判断不依赖名称猜测；
 - 完整 Chrome、iPad 横屏、iPad 竖屏 E2E 与视觉回归通过后再部署。
 
 ## 九、建设性建议
