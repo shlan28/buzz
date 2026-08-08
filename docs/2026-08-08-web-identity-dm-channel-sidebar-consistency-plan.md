@@ -254,4 +254,7 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - Chrome、iPad 横屏、iPad 竖屏完整矩阵共 59 项通过；
 - 已覆盖真实 profile label、generic DM Agent label、消息 event-id 去重、`created_at + id` 稳定排序和 `@Agent` 交互；
 - 当前 Channel 通过经过 NIP-42 AUTH 的 `#h` 实时订阅触发回复 catch-up，断线采用 500ms–5s 有界重连；
-- 部署号与 commit 在生产发布后补充。
+- 实现 commit：`c1b15e023 fix(web): align conversations with desktop data`；
+- Cloudflare Pages 部署：`9eaf7013`；
+- 单次部署与生产域名均确认加载 `index-DaHiymgG.js`；
+- Desktop 与 Pair/Signer sidecar 保持运行，发布过程未重启或清除现有 Pair。
