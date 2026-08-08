@@ -1,5 +1,5 @@
 > 更新日期：2026-08-09
-> 更新说明：完成 Web Inbox 响应式列表/详情、真实用户与 Agent 身份、Markdown 正文、会话跳转和公网部署；文件预览保持排除。
+> 更新说明：在已部署的 Inbox 详情基础上，补充 Agent 头像字母、Desktop 会话聚合分类和 Markdown 文字缩略二次修复方案；文件预览保持排除。
 
 # Web Inbox 详情、身份与 Markdown 补齐方案
 
@@ -138,3 +138,78 @@ Web 当前数据层只取得 Channel/DM 消息，没有 Desktop 完整的 mentio
 - Chrome、iPad 横屏、iPad 竖屏完整 Playwright 矩阵 90/90 通过。
 - Inbox detail Light/Dark 视觉基线已生成并复跑通过。
 - Cloudflare Pages 部署：`bd3d5951`；公网加载 `index-CklqprAl.js` 与 `index-80fqSw8x.css`。
+
+## 十三、二次问题核查
+
+### 13.1 Agent 头像只有背景色
+
+`ProfileAvatar` 只在 `avatarUrl` 缺失或图片加载失败时显示 initials。当前部分 Agent profile 返回的是能够成功加载的纯色 SVG 占位图，因此浏览器认为头像图片有效，字母 fallback 被整张不透明图片覆盖。
+
+本次不能简单删除全部 Agent 图片，否则真实自定义头像也会丢失。应明确区分“可展示的真实头像”和“默认纯色占位头像”：默认占位图使用 Agent primary 背景加名称 initials；真实照片或图像继续优先展示。
+
+### 13.2 Inbox 列表分类错误
+
+当前 Web 将最近 100 条消息逐条映射成 100 个 Inbox 条目，因此同一 Hermes DM 的历史消息会占据大量列表行。这与 Desktop 的会话级 Inbox 完全不同。
+
+Desktop 的关键规则是：
+
+- DM 按 Channel 聚合为一个稳定会话；
+- Channel reply 按 thread root 聚合；
+- 顶层独立活动保留独立会话；
+- 使用最新活动决定排序，但用稳定 `conversationId` 维持选择；
+- 类型文字根据语义显示 `DM from <name>`、`Mentioned in #channel`、`Needs action in #channel`、`Thread in #channel`、`Agent update in #channel` 或 `Channel update in #channel`；
+- 一个会话的预览使用代表消息内容，不把每一条上下文消息都变成列表分类。
+
+Web 当前只拉取消息事件，没有 Desktop 完整的 needs-action/project/reminder feed。本次将对 Web 已有消息准确实现 DM、Mention、Thread、Agent update、Channel update 五类；没有权威事件来源的 Needs action、Project、Reminder 不伪造。
+
+### 13.3 文字缩略不符合 Desktop
+
+当前 `markdownPreview()` 用正则删除 Markdown 标记后显示纯文本，既会损失强调和 mention 语义，也可能把代码块压成难读的一行。
+
+Desktop 列表使用非交互 Markdown 预览，并在固定高度内裁切。本次 Web 应复用安全 Markdown 渲染规则，增加 compact/non-interactive 预览模式：保留强调、行内代码、mention 名称和自然段语义；隐藏图片、表格等不适合列表的块级内容；以两行/固定高度裁切，不允许链接在列表中抢走整行点击。
+
+## 十四、二次修复数据规则
+
+- Web `Message` 保留原始 `kind` 与 `tags`，不得只保留 content。
+- DM `conversationId = dm:{channelId}`。
+- 有 NIP-10 root tag 的回复 `conversationId = thread:{channelId}:{rootId}`。
+- 只有 reply/parent、没有显式 root 时，使用 parent id 作为稳定 thread key。
+- 顶层 Channel 消息 `conversationId = message:{eventId}`。
+- 每组按 `createdAt + id` 排序；最新消息作为列表代表，完整组作为详情上下文。
+- 分类优先级：DM > Mention > Thread > Agent update > Channel update。
+- Mention 只能由当前 user pubkey 的 `p` tag 判断，不能靠正文 `@名字` 猜测。
+- Agent update 只能由验证后的 `profile.isAgent` 或明确 Agent message kind 判断。
+- 列表行显示代表消息发送者的名称与头像，但类型位置文字按聚合会话计算。
+- URL `?item=` 改为稳定 `conversationId`；兼容旧 event id 链接并迁移到所属会话。
+
+## 十五、二次修复 Todo List
+
+- [ ] `web/src/features/channels/types.ts`：为 Message 保留只读 `kind` 与 `tags`。
+- [ ] `web/src/features/channels/eventCodec.ts`：把已验签事件的 kind/tags 投影到 Message。
+- [ ] `web/src/shared/ui/ProfileAvatar.tsx`：支持识别默认占位头像并回退 initials，不影响真实自定义头像。
+- [ ] `web/src/features/messages/MessageMarkdown.tsx`：增加 Inbox 使用的 compact、non-interactive 安全预览模式。
+- [ ] `web/src/features/inbox/inboxProjection.ts`：按 DM/Thread/顶层活动聚合稳定会话，生成 Desktop 对齐的五类文字、代表消息和上下文。
+- [ ] `web/src/features/inbox/InboxListPane.tsx`：显示分类文字、非交互 Markdown 缩略、聚合时间和 Agent initials。
+- [ ] `web/src/features/inbox/InboxDetailPane.tsx`：消费聚合上下文和稳定 conversation id，不再把整个 Channel 历史误当单条 Inbox 详情。
+- [ ] `web/src/features/inbox/InboxPage.tsx`：让 `?item=` 保存稳定 conversation id，并兼容旧 event id。
+- [ ] `web/tests/helpers/desktopParityFixtures.ts`：增加 DM 历史、mention、thread、Agent update、普通 Channel 和纯色占位头像 fixture。
+- [ ] `web/tests/e2e/domain-codecs.spec.ts`：覆盖 Message kind/tags 保留与 NIP-10 root/parent 解析。
+- [ ] `web/tests/e2e/inbox-projection.spec.ts`：覆盖五类分类、会话聚合、稳定排序、旧 event id 解析和 Markdown 缩略。
+- [ ] `web/tests/e2e/work-console.spec.ts`：覆盖 Agent initials、真实头像优先、聚合行数、分类文字、选择与详情上下文。
+- [ ] `web/tests/e2e/desktop-parity.visual.spec.ts`：更新 Inbox Light/Dark 列表分类和文字缩略基线。
+- [ ] `docs/2026-08-08-web-inbox-detail-profile-markdown-plan.md`：记录二次修复测试、commit 和部署号。
+
+## 十六、二次修复验收标准
+
+- 纯色默认 Agent 头像显示名称 initials，不再只有背景色；真实自定义头像仍显示图片。
+- 同一个 DM 的 30 条历史消息只生成一个 Inbox 会话行。
+- Mention、Thread、Agent update、Channel update 显示与 Desktop 一致的类型文字。
+- 列表不再统一显示 `in <channel>`，而是显示完整语义标签。
+- 文字缩略保留安全 Markdown 的强调和行内代码，限制为两行且不能点击内部链接。
+- 点击聚合条目后，详情只展示该 DM 或 thread 的正确上下文。
+- URL 使用稳定 conversation id，刷新和新消息到达后选择不漂移。
+- Chrome、iPad 横屏、iPad 竖屏完整矩阵和 Inbox Light/Dark 视觉回归通过后再部署。
+
+## 十七、二次确认门
+
+鹿鹿子大王确认以上二次修复后，再修改 Web 代码、测试、提交并部署。
