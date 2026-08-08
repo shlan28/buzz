@@ -1,7 +1,7 @@
 # Buzz Web/PWA iPad 控制台方案
 
 > 更新日期：2026-08-08
-> 更新说明：开始实现 Desktop Web Pair 模式与 Remote Signer；Remote Signer 改为复用 buzz-pair-relay 的安全单播核心、使用独立 5001 监听器和 `/signer` 路由，与短时 Pair 端口隔离。追加 SAS 互操作修复：Web 必须使用原始 secp256k1 ECDH X 坐标派生 SAS，不能误用已经过 `nip44-v2` HKDF-Extract 的 conversation key。
+> 更新说明：开始实现 Desktop Web Pair 模式与 Remote Signer；Remote Signer 改为复用 buzz-pair-relay 的安全单播核心、使用独立 5001 监听器和 `/signer` 路由，与短时 Pair 端口隔离。追加 SAS 互操作修复：Web 必须使用原始 secp256k1 ECDH X 坐标派生 SAS，不能误用已经过 `nip44-v2` HKDF-Extract 的 conversation key。追加 signer ready 时序修复：Desktop 必须等到 5001 订阅完成后才把 bunker payload 交给 Web，避免首个 NIP-46 `connect` 请求在无存储单播 relay 中丢失。
 
 ## 一、产品结论
 
@@ -655,11 +655,11 @@ Task Progress:
 - [ ] `web/src/shared/api/signer.ts`：统一 NIP-07、NIP-46 和无 signer 状态，不允许 nsec fallback。
 - [x] `web/src/shared/storage/deviceCredentials.ts`：在 IndexedDB 保存可撤销 device key 和已验证 signer 连接。
 - [ ] `web/src/features/settings/PairedDeviceSettings.tsx`：展示本 Web 设备和清除操作。
-- [x] `desktop/src-tauri/src/commands/pairing.rs`：增加 NIP-46 signer Pair payload，不再为 Web 发送 nsec。
+- [x] `desktop/src-tauri/src/commands/pairing.rs`：在发送 bunker payload 前等待 Remote Signer 订阅 ready，超时则中止配对。
 - [x] `crates/buzz-core/src/pairing/session.rs`：向 Desktop Pair source 暴露已验证 target 设备公钥。
 - [x] `desktop/src/shared/api/tauri.ts`：为 Pair 命令增加 Mobile/Web 模式类型。
 - [x] `desktop/src/features/settings/ui/MobilePairingCard.tsx`：增加 Web Pair 选择、复制链接和安全说明。
-- [x] `desktop/src-tauri/src/commands/remote_signer.rs`：实现设备授权、首版 AUTH 签名 policy 和运行时撤销。
+- [x] `desktop/src-tauri/src/commands/remote_signer.rs`：订阅 signer relay 并收到 EOSE 后才回传 ready，同时覆盖 ready/超时测试。
 - [x] `desktop/src-tauri/src/commands/mod.rs`：导出 Remote Signer 命令与受管状态。
 - [x] `desktop/src-tauri/src/lib.rs`：注册 Remote Signer 受管状态和撤销命令。
 - [ ] `desktop/src/features/settings/PairedWebDevices.tsx`：展示权限、在线状态、最后使用和撤销。

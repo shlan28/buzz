@@ -217,14 +217,17 @@ pub async fn confirm_pairing_sas(
         let guard = pairing.session.lock().await;
         guard.as_ref().and_then(PairingSession::peer_pubkey)
     };
-    if let Some(authorization) = pairing.web_signer.lock().map_err(|e| e.to_string())?.take() {
+    let web_signer_authorization = pairing.web_signer.lock().map_err(|e| e.to_string())?.take();
+    if let Some(authorization) = web_signer_authorization {
         let client_pubkey = client_pubkey.ok_or("paired Web device has no verified public key")?;
-        remote_signer.authorize(
-            state.signing_keys()?,
-            authorization.relay_url,
-            client_pubkey,
-            authorization.secret,
-        )?;
+        remote_signer
+            .authorize(
+                state.signing_keys()?,
+                authorization.relay_url,
+                client_pubkey,
+                authorization.secret,
+            )
+            .await?;
     }
 
     tx.send(sas_confirm_json)

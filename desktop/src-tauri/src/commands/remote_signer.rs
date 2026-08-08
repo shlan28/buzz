@@ -3,12 +3,14 @@ use std::sync::Mutex;
 use futures_util::{SinkExt, StreamExt};
 use nostr::{nips::nip44, Event, EventBuilder, JsonUtil, Keys, Kind, PublicKey, Tag, Timestamp};
 use serde::{Deserialize, Serialize};
+use tokio::sync::oneshot;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use tokio_util::sync::CancellationToken;
 use zeroize::Zeroizing;
 
 const KIND_NOSTR_CONNECT: u16 = 24_133;
 const ALLOWED_SIGN_KINDS: &[u16] = &[22_242, 27_235];
+const SIGNER_READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 struct SignerTask {
     cancel: CancellationToken,
@@ -27,29 +29,36 @@ impl RemoteSignerHandle {
         }
     }
 
-    pub fn authorize(
+    pub async fn authorize(
         &self,
         keys: Keys,
         relay_url: String,
         client_pubkey: PublicKey,
         secret: Zeroizing<String>,
     ) -> Result<(), String> {
-        let mut task = self.task.lock().map_err(|error| error.to_string())?;
-        if let Some(previous) = task.take() {
-            previous.cancel.cancel();
-        }
-
         let cancel = CancellationToken::new();
-        *task = Some(SignerTask {
-            cancel: cancel.clone(),
-        });
+        {
+            let mut task = self.task.lock().map_err(|error| error.to_string())?;
+            if let Some(previous) = task.take() {
+                previous.cancel.cancel();
+            }
+            *task = Some(SignerTask {
+                cancel: cancel.clone(),
+            });
+        }
+        let (ready_tx, ready_rx) = oneshot::channel();
         tauri::async_runtime::spawn(remote_signer_task(
             keys,
             relay_url,
             client_pubkey,
             secret,
-            cancel,
+            cancel.clone(),
+            ready_tx,
         ));
+        if let Err(error) = await_signer_ready(ready_rx, SIGNER_READY_TIMEOUT).await {
+            cancel.cancel();
+            return Err(error);
+        }
         Ok(())
     }
 
@@ -99,9 +108,17 @@ async fn remote_signer_task(
     client_pubkey: PublicKey,
     secret: Zeroizing<String>,
     cancel: CancellationToken,
+    ready_tx: oneshot::Sender<()>,
 ) {
-    if let Err(error) =
-        remote_signer_task_inner(&keys, &relay_url, client_pubkey, secret.as_str(), &cancel).await
+    if let Err(error) = remote_signer_task_inner(
+        &keys,
+        &relay_url,
+        client_pubkey,
+        secret.as_str(),
+        &cancel,
+        ready_tx,
+    )
+    .await
     {
         tracing::warn!(%error, "remote signer stopped");
     }
@@ -113,6 +130,7 @@ async fn remote_signer_task_inner(
     client_pubkey: PublicKey,
     secret: &str,
     cancel: &CancellationToken,
+    ready_tx: oneshot::Sender<()>,
 ) -> Result<(), String> {
     let (socket, _) = connect_async(relay_url)
         .await
@@ -128,6 +146,11 @@ async fn remote_signer_task_inner(
         .send(Message::Text(subscription.to_string().into()))
         .await
         .map_err(|error| format!("remote signer subscribe failed: {error}"))?;
+
+    wait_for_signer_eose(&mut read, cancel).await?;
+    ready_tx
+        .send(())
+        .map_err(|_| "remote signer ready receiver closed".to_string())?;
 
     let mut connected = false;
     loop {
@@ -171,6 +194,50 @@ async fn remote_signer_task_inner(
         }
     }
     Ok(())
+}
+
+async fn wait_for_signer_eose<R>(read: &mut R, cancel: &CancellationToken) -> Result<(), String>
+where
+    R: StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
+{
+    loop {
+        tokio::select! {
+            _ = cancel.cancelled() => return Err("remote signer cancelled before ready".into()),
+            message = read.next() => {
+                let Some(message) = message else {
+                    return Err("remote signer relay closed before ready".into());
+                };
+                let message = message
+                    .map_err(|error| format!("remote signer read before ready failed: {error}"))?;
+                if let Message::Text(text) = message {
+                    if is_signer_eose(text.as_str()) {
+                        return Ok(());
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn is_signer_eose(text: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(text)
+        .ok()
+        .and_then(|value| value.as_array().cloned())
+        .is_some_and(|frame| {
+            frame.first().and_then(serde_json::Value::as_str) == Some("EOSE")
+                && frame.get(1).and_then(serde_json::Value::as_str) == Some("remote-signer")
+        })
+}
+
+async fn await_signer_ready(
+    ready_rx: oneshot::Receiver<()>,
+    timeout: std::time::Duration,
+) -> Result<(), String> {
+    match tokio::time::timeout(timeout, ready_rx).await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(_)) => Err("remote signer stopped before its subscription was ready".into()),
+        Err(_) => Err("remote signer subscription timed out".into()),
+    }
 }
 
 fn parse_relay_event(text: &str) -> Option<Event> {
@@ -250,8 +317,33 @@ fn sign_event(keys: &Keys, event_json: Option<&String>) -> Result<String, String
 
 #[cfg(test)]
 mod tests {
-    use super::{handle_request, RpcRequest};
+    use std::time::Duration;
+
+    use super::{await_signer_ready, handle_request, is_signer_eose, RpcRequest};
     use nostr::Keys;
+    use tokio::sync::oneshot;
+
+    #[test]
+    fn only_accepts_eose_for_the_signer_subscription() {
+        assert!(is_signer_eose(r#"["EOSE","remote-signer"]"#));
+        assert!(!is_signer_eose(r#"["EOSE","other"]"#));
+        assert!(!is_signer_eose(r#"["NOTICE","remote-signer"]"#));
+    }
+
+    #[tokio::test]
+    async fn ready_wait_reports_success_and_timeout() {
+        let (ready_tx, ready_rx) = oneshot::channel();
+        ready_tx.send(()).expect("ready receiver remains open");
+        assert!(await_signer_ready(ready_rx, Duration::from_secs(1))
+            .await
+            .is_ok());
+
+        let (_pending_tx, pending_rx) = oneshot::channel();
+        let error = await_signer_ready(pending_rx, Duration::from_millis(1))
+            .await
+            .expect_err("pending signer must time out");
+        assert_eq!(error, "remote signer subscription timed out");
+    }
 
     #[test]
     fn connect_requires_matching_one_time_secret() {
