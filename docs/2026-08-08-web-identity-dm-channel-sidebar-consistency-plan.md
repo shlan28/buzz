@@ -1,5 +1,5 @@
 > 更新日期：2026-08-08
-> 更新说明：明确 Web 消息时间线不再使用自制聚合与排序，直接以 Desktop 的消息投影、稳定排序、日期分组和 MessageRow 结构为事实源。
+> 更新说明：在已部署的身份、DM 和实时消息修复基础上，补充 Agent 头像、消息 Markdown 安全渲染，以及浅色模式内容与右侧详情面板白色背景的一致性要求。
 
 # Web 身份、DM、Channel 与 Sidebar 一致性修复方案
 
@@ -91,6 +91,30 @@ Web 当前没有对消息排序，只按 `/query` 返回数组顺序展示；同
 
 这些 browser-safe 纯逻辑应提取到共享包或逐文件移植；不能直接从 Web 跨目录 import Desktop 的 Tauri hooks，但不能再次自行发明另一套规则。
 
+### 1.9 DM 与消息行没有使用 Agent 头像
+
+Web 已经查询并解析 kind `0.picture`，但 Sidebar 的 DM 仍固定显示状态图标，时间线与 `@` 候选仍显示文字缩写，数据没有进入最终呈现层。Desktop 的一对一 DM 使用另一位参与者的头像并叠加 presence 状态；消息行使用作者的 `avatarUrl`，仅在图片缺失或加载失败时回退到名称首字母。
+
+Web 必须统一使用 `profilesByPubkey[pubkey].avatarUrl`，并覆盖 Sidebar DM、Channel 顶栏、消息行和 mention 候选。群组 DM 保持 Desktop 的参与者数量图标规则，不能随意选择某一个 Agent 头像冒充整个群组。
+
+### 1.10 DM 与 Channel 正文没有 Markdown
+
+Web 当前使用纯 `<p>` 输出 `message.content`，所以标题、列表、引用、链接、行内代码、代码块和 GFM 表格都不会按 Desktop 消息样式呈现。Web 已安装 `react-markdown` 与 `remark-gfm`，本轮建立消息专用 `MessageMarkdown`，复刻 Desktop 的正文排版和链接行为。
+
+安全边界如下：
+
+- 不启用原始 HTML，避免 Relay 消息注入脚本或任意 DOM；
+- 链接只允许安全协议，外链使用新窗口和 `noopener noreferrer`；
+- 图片只允许明确支持的远程协议，并限制最大尺寸，加载失败不能破坏时间线；
+- 代码块、表格和长 URL 在 iPad 上横向滚动，不能撑宽整个内容面板；
+- `@mention`、Channel 链接、自定义 emoji 和附件增强后续按 Desktop 插件逐项移植，本轮不能宣称已经具备完整 Desktop Markdown 扩展能力。
+
+### 1.11 浅色内容与右侧详情面板背景错误
+
+Web 把 Catppuccin Latte 的灰色 `--background` 同时用作应用外层和内容卡片，导致主内容及 Task、Track、Calendar 等右侧详情区域呈灰色。Desktop 的 Buzz Light 视觉语义是：外层保留渐变和灰色层次，`data-buzz-content-surface` 及其内部详情画布为白色；Buzz Dark 继续使用 `--buzz-content-dark`，不能被强制改白。
+
+本轮增加独立的内容面板语义色，并让主 content surface、Task detail、Track detail、Calendar event detail 和 Settings 内容区域消费同一语义。Sidebar、hover、muted、卡片和深色主题不做全局漂白，避免丢失层级。
+
 ## 二、产品目标
 
 - Sidebar profile 显示当前 Buzz 用户真实名字与头像；
@@ -102,6 +126,9 @@ Web 当前没有对消息排序，只按 `/query` 返回数组顺序展示；同
 - Channel 与 DM 时间线显示真实用户/Agent 名称和头像；
 - 输入 `@` 出现当前 Channel 成员候选，选择 Agent 后正文保留可读名称且事件携带对应 `p` tag。
 - 消息发出后立即回显，Agent 回复无需手动刷新即可出现在当前 DM/Channel。
+- 一对一 DM、消息作者和 mention 候选显示 kind `0.picture` 头像，加载失败时稳定回退；
+- DM/Channel 正文支持安全 Markdown 与 GFM，排版和 Desktop 保持一致；
+- 浅色模式主内容和所有右侧详情区域为白色，深色模式保持 Desktop 暖黑内容画布。
 
 ## 三、统一数据模型
 
@@ -191,6 +218,12 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - deletion target 消失，edit/reaction 不作为普通正文行；
 - 日期分隔和连续消息分组与 Desktop 固定 fixture 的投影完全一致；
 - Web 与 Desktop 使用相同 fixture 时，时间线 row keys、row kinds、作者、时间和顺序逐项相等。
+- Agent profile 含 `picture` 时，DM Sidebar、消息行和 mention 候选都显示同一头像 URL；图片 404 时显示稳定首字母回退。
+- 群组 DM 显示参与者数量而不是错误使用首位参与者头像。
+- Markdown 覆盖标题、强调、列表、引用、链接、行内代码、代码块、表格与换行；原始 HTML 和危险协议不能生成可执行内容。
+- 超长代码、表格和 URL 在 iPad 竖屏中不造成页面级横向溢出。
+- 浅色模式 `content-surface`、Task detail、Track detail、Calendar detail 和 Settings 内容画布的计算背景为白色；Sidebar 仍保留原主题色。
+- 深色模式上述区域保持 Desktop 暖黑背景，不被白色规则覆盖。
 
 ## 七、Todo List
 
@@ -206,6 +239,8 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - [ ] `web/src/features/messages/messageProjection.ts`：移植 Desktop 去重、`created_at + id` 稳定排序、删除/edit/reaction 和 thread 顶层投影规则。
 - [ ] `web/src/features/messages/messageGrouping.ts`：移植 Desktop 连续消息与日期分组边界，不再使用 Web 的 5 分钟简化判断。
 - [ ] `web/src/features/messages/MessageRow.tsx`：按 Desktop DOM/class 渲染头像、作者、时间、正文和连续消息状态。
+- [ ] `web/src/features/messages/MessageMarkdown.tsx`：使用现有 Markdown 依赖实现安全协议、GFM 与 Desktop 正文组件映射。
+- [ ] `web/src/shared/ui/ProfileAvatar.tsx`：提供 profile 图片、首字母回退、加载失败和无障碍名称的统一头像组件。
 - [ ] `web/src/features/messages/DayDivider.tsx`：按 Desktop 时间格式与布局渲染日期分隔。
 - [x] `web/src/features/messages/channelMessageSession.ts`：实现当前 Channel 的实时订阅、验签、断线重连和事件触发 catch-up。
 - [ ] `web/src/features/messages/useChannelMessages.ts`：合并初始快照、发送回显与实时回复，并在 channel id 变化时切换订阅。
@@ -214,17 +249,20 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - [x] `web/src/shared/hooks/useWorkConsoleData.ts`：改为模块级共享请求与 last-good snapshot，路由切换不再闪空。
 - [ ] `web/src/app/routes/app.tsx`：新增持久 `/app` 父布局与 Outlet，Pair/Settings 处理明确边界。
 - [ ] `web/src/shared/ui/DesktopParityAppShell.tsx`：支持持久 Outlet 与 Settings sidebar，而不在业务页重复挂载。
-- [x] `web/src/features/sidebar/WebAppSidebar.tsx`：显示真实 user profile、DM displayName，并只渲染 sidebar projection。
-- [x] `web/src/features/settings/SettingsPage.tsx`：显示真实用户 profile，移除 `Buzz User` 占位。
+- [ ] `web/src/features/sidebar/WebAppSidebar.tsx`：在现有真实 profile 与 DM label 基础上，按 Desktop 规则显示一对一 DM 头像和群组人数图标。
+- [ ] `web/src/features/settings/SettingsPage.tsx`：保留已完成的真实用户 profile，并让 Settings 主内容区域使用统一内容面板背景语义。
 - [ ] `web/src/features/inbox/InboxPage.tsx`：移除页面级 Shell，消费共享 Provider。
-- [ ] `web/src/features/channels/ChannelsPage.tsx`：已接入真实作者、Desktop 分组窗口、日期分隔、实时回复和 `@Agent`；后续随持久父布局移除页面级 Shell。
-- [ ] `web/src/features/calendar/CalendarPage.tsx`：移除页面级 Shell，切页时保留 Sidebar。
-- [ ] `web/src/features/tasks/TasksPage.tsx`：移除页面级 Shell，切页时保留 Sidebar。
-- [ ] `web/src/features/tracks/TracksPage.tsx`：移除页面级 Shell，切页时保留 Sidebar。
+- [ ] `web/src/features/channels/ChannelsPage.tsx`：接入统一头像与 MessageMarkdown，并在后续持久父布局中移除页面级 Shell。
+- [ ] `web/src/features/calendar/CalendarPage.tsx`：移除页面级 Shell、保留 Sidebar，并让 Calendar 画布和事件详情使用统一内容面板背景语义。
+- [ ] `web/src/features/tasks/TasksPage.tsx`：移除页面级 Shell、保留 Sidebar，并让 Task 列表、看板与右侧详情使用统一内容面板背景语义。
+- [ ] `web/src/features/tracks/TracksPage.tsx`：移除页面级 Shell、保留 Sidebar，并让 Track 列表与右侧详情使用统一内容面板背景语义。
+- [ ] `web/src/shared/styles/globals.css`：增加 Desktop Light 白色内容面板和 Dark 暖黑画布语义，并补齐消息 Markdown 排版规则。
 - [x] `web/tests/e2e/domain-codecs.spec.ts`：覆盖 profile、Agent DM label、最新 profile 和稳定消息排序。
 - [x] `web/tests/e2e/work-console.spec.ts`：覆盖真实用户名、Agent DM 名称、`@Agent` 候选和 Sidebar 数据保留。
 - [ ] `web/tests/e2e/message-mentions.spec.ts`：覆盖 Channel `@Agent` 候选、键盘/触控选择、p tag、同名歧义和 DM 自动 recipient。
 - [ ] `web/tests/e2e/message-timeline.spec.ts`：用乱序、同秒、reply、delete、edit、reaction fixture 对照 Desktop 投影与 row 顺序。
+- [ ] `web/tests/e2e/message-presentation.spec.ts`：覆盖 Agent 头像、图片失败回退、Markdown/GFM、危险输入和 iPad 横向溢出。
+- [ ] `web/tests/e2e/desktop-parity.visual.spec.ts`：覆盖浅色白色详情面板、深色暖黑画布及 Sidebar 色彩不被污染。
 - [ ] `web/tests/helpers/desktopParityFixtures.ts`：增加 profile、未加入、已归档和隐藏 DM fixture。
 - [ ] `docs/2026-08-08-web-identity-dm-channel-sidebar-consistency-plan.md`：记录验证、部署号和 commit。
 
@@ -233,11 +271,14 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - Web profile 名称与 Desktop 当前用户一致；
 - Web DM 名称与 Desktop 同一个 DM 的名称一致；
 - Web Channel/DM 时间线中的 Agent 作者名称与 Desktop 一致；
+- Web 一对一 DM、消息行和 mention 候选中的 Agent 头像与 Desktop 使用同一 profile picture；
+- Web 消息 Markdown 的常用语法、代码与表格样式和 Desktop 一致，危险 HTML/协议不可执行；
 - Channel 中可以通过 `@` 候选准确提及 Agent，发布事件含正确 p tag；
 - 从 Web 发出 DM/Channel 消息后立即回显，Agent 延迟回复无需刷新自动出现；
 - DM/Channel 消息顺序、日期分组、连续消息聚合和顶层/thread 投影与 Desktop 一致；
 - Web Sidebar 的 Channel/DM id 集合与 Desktop 一致，而不只比较数量；
 - 六个标签连续切换时 Sidebar 内容始终可见且 DOM identity 不变；
+- 浅色模式主内容及右侧详情为白色、深色模式保持暖黑，Sidebar 和层级色不受影响；
 - 完整 Chrome、iPad 横屏、iPad 竖屏 E2E 与视觉回归通过后再部署。
 
 ## 九、建设性建议
