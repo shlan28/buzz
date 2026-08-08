@@ -6,7 +6,7 @@ import { AsyncStateView } from "@/shared/ui/AsyncStateView";
 import { DesktopParityAppShell } from "@/shared/ui/DesktopParityAppShell";
 import { InboxDetailPane } from "./InboxDetailPane";
 import { InboxListPane } from "./InboxListPane";
-import { buildInboxEntries } from "./inboxProjection";
+import { buildInboxEntries, resolveInboxEntry } from "./inboxProjection";
 
 export function InboxPage() {
   const navigate = useNavigate();
@@ -18,8 +18,7 @@ export function InboxPage() {
     () => (state.status === "ready" ? buildInboxEntries(state.data) : []),
     [state],
   );
-  const selected =
-    entries.find((entry) => entry.id === selectedId) ?? entries[0];
+  const selected = resolveInboxEntry(entries, selectedId) ?? entries[0];
 
   useEffect(() => {
     const sync = () =>
@@ -37,6 +36,15 @@ export function InboxPage() {
     else url.searchParams.delete("item");
     window.history.pushState(window.history.state, "", url);
   };
+
+  useEffect(() => {
+    if (!selectedId || !selected || selectedId === selected.conversationId)
+      return;
+    const url = new URL(window.location.href);
+    url.searchParams.set("item", selected.conversationId);
+    window.history.replaceState(window.history.state, "", url);
+    setSelectedId(selected.conversationId);
+  }, [selected, selectedId]);
 
   return (
     <DesktopParityAppShell>

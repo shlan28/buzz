@@ -41,6 +41,8 @@ export function parseMessage(event: NostrEvent): Message | null {
   if (!channelId) return null;
   return {
     id: event.id,
+    kind: event.kind,
+    tags: event.tags,
     channelId,
     author: event.pubkey,
     content: event.content,

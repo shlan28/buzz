@@ -4,7 +4,6 @@ import { profileLabel } from "@/features/profile/eventCodec";
 import type { WorkConsoleData } from "@/shared/api/communitySession";
 import { ProfileAvatar } from "@/shared/ui/ProfileAvatar";
 import type { InboxEntry } from "./inboxProjection";
-import { inboxContext } from "./inboxProjection";
 
 export function InboxDetailPane({
   data,
@@ -17,7 +16,7 @@ export function InboxDetailPane({
   onBack: () => void;
   onOpenConversation: () => void;
 }) {
-  const messages = inboxContext(data, entry);
+  const messages = entry.messages;
   return (
     <section
       className="flex min-h-0 min-w-0 flex-1 flex-col bg-background"
@@ -57,9 +56,11 @@ export function InboxDetailPane({
           const label = profileLabel(profile, message.author);
           return (
             <article
-              className={`flex gap-3 rounded-xl px-2 py-2 ${message.id === entry.id ? "bg-primary/[0.07]" : "hover:bg-muted/40"}`}
+              className={`flex gap-3 rounded-xl px-2 py-2 ${message.id === entry.message.id ? "bg-primary/[0.07]" : "hover:bg-muted/40"}`}
               data-testid={
-                message.id === entry.id ? "inbox-selected-message" : undefined
+                message.id === entry.message.id
+                  ? "inbox-selected-message"
+                  : undefined
               }
               key={message.id}
             >

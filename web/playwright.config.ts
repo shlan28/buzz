@@ -28,6 +28,7 @@ export default defineConfig({
         "**/ipad-layout.spec.ts",
         "**/relay-session.spec.ts",
         "**/message-send.spec.ts",
+        "**/inbox-projection.spec.ts",
         "**/desktop-parity.visual.spec.ts",
       ],
       use: {

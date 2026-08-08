@@ -1,4 +1,5 @@
 import type { InboxEntry } from "./inboxProjection";
+import { MessageMarkdown } from "@/features/messages/MessageMarkdown";
 import { ProfileAvatar } from "@/shared/ui/ProfileAvatar";
 
 export function InboxListPane({
@@ -42,11 +43,14 @@ export function InboxListPane({
                 {new Date(entry.message.createdAt * 1000).toLocaleString()}
               </time>
             </span>
-            <span className="block truncate text-2xs text-muted-foreground">
-              in {entry.channelLabel}
+            <span className="block truncate text-2xs font-medium text-muted-foreground">
+              {entry.categoryText}
             </span>
-            <span className="mt-1 line-clamp-2 block text-sm text-muted-foreground">
-              {entry.preview || "Empty message"}
+            <span className="mt-1 block text-muted-foreground">
+              <MessageMarkdown
+                compact
+                content={entry.preview || "Empty message"}
+              />
             </span>
           </span>
         </button>

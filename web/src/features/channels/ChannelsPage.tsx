@@ -203,6 +203,11 @@ export function ChannelsPage() {
         ...current.filter((message) => message.id !== eventId),
         {
           id: eventId,
+          kind: 9,
+          tags: [
+            ["h", channel.id],
+            ...mentionPubkeys.map((pubkey) => ["p", pubkey]),
+          ],
           channelId: channel.id,
           author: state.data.userPubkey,
           content,

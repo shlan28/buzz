@@ -18,19 +18,37 @@ function safeUrl(url: string, image: boolean): string {
   }
 }
 
-export function MessageMarkdown({ content }: { content: string }) {
+export function MessageMarkdown({
+  compact = false,
+  content,
+}: {
+  compact?: boolean;
+  content: string;
+}) {
   return (
-    <div className="buzz-message-markdown max-w-full break-words text-base leading-6">
+    <div
+      className={
+        compact
+          ? "buzz-message-markdown line-clamp-2 max-h-10 max-w-full overflow-hidden break-words text-sm leading-5 [&_p]:inline [&_pre]:inline [&_pre]:bg-transparent [&_pre]:p-0"
+          : "buzz-message-markdown max-w-full break-words text-base leading-6"
+      }
+    >
       <Markdown
         components={{
-          a: ({ children, href }) => (
-            <a href={href} rel="noopener noreferrer" target="_blank">
-              {children}
-            </a>
-          ),
-          img: ({ alt, src }) => (
-            <img alt={alt ?? ""} loading="lazy" src={src} />
-          ),
+          a: ({ children, href }) =>
+            compact ? (
+              <span>{children}</span>
+            ) : (
+              <a href={href} rel="noopener noreferrer" target="_blank">
+                {children}
+              </a>
+            ),
+          img: ({ alt, src }) =>
+            compact ? (
+              <span>{alt || "Image"}</span>
+            ) : (
+              <img alt={alt ?? ""} loading="lazy" src={src} />
+            ),
         }}
         remarkPlugins={[remarkGfm]}
         urlTransform={(url, key) => safeUrl(url, key === "src")}

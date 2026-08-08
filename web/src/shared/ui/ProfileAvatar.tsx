@@ -17,6 +17,9 @@ export function ProfileAvatar({
   testId,
 }: ProfileAvatarProps) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  const resolvedAvatarUrl = isDefaultPlaceholderAvatar(avatarUrl)
+    ? null
+    : avatarUrl;
 
   const initials =
     label
@@ -40,17 +43,32 @@ export function ProfileAvatar({
       data-testid={testId}
       role="img"
     >
-      {avatarUrl && failedUrl !== avatarUrl ? (
+      {resolvedAvatarUrl && failedUrl !== resolvedAvatarUrl ? (
         <img
           alt=""
           className="h-full w-full object-cover"
-          onError={() => setFailedUrl(avatarUrl)}
+          onError={() => setFailedUrl(resolvedAvatarUrl)}
           referrerPolicy="no-referrer"
-          src={avatarUrl}
+          src={resolvedAvatarUrl}
         />
       ) : (
         <span aria-hidden="true">{initials}</span>
       )}
     </span>
   );
+}
+
+export function isDefaultPlaceholderAvatar(url?: string | null) {
+  if (!url?.startsWith("data:image/svg+xml")) return false;
+  try {
+    const [, payload = ""] = url.split(",", 2);
+    const svg = url.includes(";base64,")
+      ? atob(payload)
+      : decodeURIComponent(payload);
+    const visibleElements =
+      svg.match(/<(rect|circle|ellipse|path|image|text)\b/gi) ?? [];
+    return visibleElements.length === 1 && /^<rect\b/i.test(visibleElements[0]);
+  } catch {
+    return false;
+  }
 }

@@ -75,11 +75,9 @@ test("matches desktop message presentation and content surfaces", async ({
   await page.goto("/app/channels/11111111-1111-4111-8111-111111111111");
 
   await expect(
-    page
-      .getByTestId("dm-avatar-11111111-1111-4111-8111-111111111111")
-      .locator("img"),
-  ).toBeVisible();
-  await expect(page.getByTestId("message-avatar").locator("img")).toBeVisible();
+    page.getByTestId("dm-avatar-11111111-1111-4111-8111-111111111111"),
+  ).toContainText("H");
+  await expect(page.getByTestId("message-avatar").first()).toContainText("H");
   await expect(
     page.getByRole("heading", { name: "Agent update" }),
   ).toBeVisible();
@@ -244,13 +242,18 @@ test("opens Inbox detail with agent identity and Markdown", async ({
   page,
 }) => {
   await page.goto("/app/inbox");
-  const agentItem = page.getByTestId("inbox-item-message-2");
+  await expect(page.locator('[data-testid^="inbox-item-"]')).toHaveCount(2);
+  const agentItem = page.getByTestId(
+    "inbox-item-dm:11111111-1111-4111-8111-111111111111",
+  );
   await expect(agentItem).toContainText("Hermes");
+  await expect(agentItem).toContainText("DM from Hermes");
+  await expect(agentItem.getByRole("img")).toContainText("H");
   await agentItem.click();
-  await expect(page).toHaveURL(/item=message-2/);
+  await expect(page).toHaveURL(/item=dm%3A/);
   const detail = page.getByTestId("inbox-detail");
   await expect(detail.getByTestId("inbox-selected-message")).toContainText(
-    "Hermes",
+    "History message 36",
   );
   await expect(
     detail.getByRole("heading", { name: "Agent update" }),
@@ -258,7 +261,7 @@ test("opens Inbox detail with agent identity and Markdown", async ({
   await expect(detail.getByRole("listitem")).toHaveCount(2);
   await page.reload();
   await expect(page.getByTestId("inbox-selected-message")).toContainText(
-    "Agent update",
+    "History message 36",
   );
   await page.getByRole("button", { name: "Open conversation" }).click();
   await expect(page).toHaveURL(

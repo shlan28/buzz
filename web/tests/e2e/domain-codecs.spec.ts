@@ -43,9 +43,11 @@ test("parses channel and scoped messages while rejecting missing scope", () => {
     )?.name,
   ).toBe("General");
   expect(parseChannel(event(39_000, [["d", "general"]]))).toBeNull();
-  expect(parseMessage(event(9, [["h", "general"]], "Hello"))?.content).toBe(
-    "Hello",
-  );
+  expect(parseMessage(event(9, [["h", "general"]], "Hello"))).toMatchObject({
+    content: "Hello",
+    kind: 9,
+    tags: [["h", "general"]],
+  });
   expect(parseMessage(event(9, [], "leak"))).toBeNull();
 });
 
@@ -87,6 +89,8 @@ test("deduplicates and stably orders timeline messages by timestamp then id", ()
     channelId: "channel",
     author: "aa".repeat(32),
     content: "message",
+    kind: 9,
+    tags: [["h", "channel"]],
   };
   expect(
     sortMessagesForTimeline([

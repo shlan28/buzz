@@ -12,6 +12,8 @@ export type Channel = {
 };
 export type Message = {
   id: string;
+  kind: number;
+  tags: string[][];
   channelId: string;
   author: string;
   content: string;

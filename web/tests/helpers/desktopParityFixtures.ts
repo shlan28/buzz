@@ -38,6 +38,8 @@ export async function installWorkConsoleFixture(page: Page) {
       messages: [
         {
           id: "message-1",
+          kind: 9,
+          tags: [["h", "00000000-0000-4000-8000-000000000001"]],
           channelId: "00000000-0000-4000-8000-000000000001",
           author: userPubkey,
           content: "Fixture message from Buzz",
@@ -45,6 +47,11 @@ export async function installWorkConsoleFixture(page: Page) {
         },
         {
           id: "message-2",
+          kind: 40_002,
+          tags: [
+            ["h", "11111111-1111-4111-8111-111111111111"],
+            ["p", userPubkey],
+          ],
           channelId: "11111111-1111-4111-8111-111111111111",
           author: "22".repeat(32),
           content:
@@ -53,6 +60,11 @@ export async function installWorkConsoleFixture(page: Page) {
         },
         ...Array.from({ length: 36 }, (_, index) => ({
           id: `message-history-${index}`,
+          kind: 40_002,
+          tags: [
+            ["h", "11111111-1111-4111-8111-111111111111"],
+            ["p", userPubkey],
+          ],
           channelId: "11111111-1111-4111-8111-111111111111",
           author: "22".repeat(32),
           content: `History message ${index + 1}`,
