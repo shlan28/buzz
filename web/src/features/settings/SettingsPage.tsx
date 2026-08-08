@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { relayHttpBaseUrl } from "@/shared/lib/relay-url";
+import { resetPairedSignerSession } from "@/shared/api/signer";
 import {
   clearRemoteSignerCredential,
   loadRemoteSignerCredential,
@@ -47,6 +48,7 @@ export function SettingsPage() {
     void checkRelay();
   }, [checkRelay]);
   const clearPairing = async () => {
+    resetPairedSignerSession();
     await clearRemoteSignerCredential();
     setCredential(undefined);
     void navigate({ to: "/app/pair" });

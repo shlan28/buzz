@@ -7,8 +7,27 @@ import {
 import {
   assertSignedEventMatches,
   isSignerTransportError,
+  signerSubscriptionOutcome,
   SIGNER_HEARTBEAT_INTERVAL_MS,
 } from "../../src/shared/api/nip46Client";
+
+test("waits for the matching signer EOSE and surfaces subscription conflicts", () => {
+  expect(signerSubscriptionOutcome(["EOSE", "wanted"], "wanted")).toEqual({
+    status: "ready",
+  });
+  expect(
+    signerSubscriptionOutcome(["EOSE", "other"], "wanted"),
+  ).toBeUndefined();
+  expect(
+    signerSubscriptionOutcome(
+      ["CLOSED", "wanted", "error: #p already has a live subscriber"],
+      "wanted",
+    ),
+  ).toEqual({
+    status: "rejected",
+    message: "error: #p already has a live subscriber",
+  });
+});
 import {
   makePairedNip98AuthHeader,
   relayQueryErrorMessage,

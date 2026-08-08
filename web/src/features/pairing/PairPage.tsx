@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { Nip46Client, parseBunkerUri } from "../../shared/api/nip46Client";
 import { saveRemoteSignerCredential } from "../../shared/storage/deviceCredentials";
+import { resetPairedSignerSession } from "../../shared/api/signer";
 import { WebPairingSession } from "./pairingSession";
 import type { PairingViewState, RemoteSignerConnection } from "./types";
 
@@ -147,6 +148,7 @@ async function activateRemoteSigner(
       relayUrl: bunker.relayUrl,
       userPubkey,
     });
+    resetPairedSignerSession();
     return connection;
   } finally {
     client.close();

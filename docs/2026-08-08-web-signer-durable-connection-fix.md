@@ -139,13 +139,13 @@ Web 的错误提示按事实区分：
 - [ ] `desktop/src-tauri/src/commands/pairing.rs`：Pair 确认成功后先持久化授权，再启动 signer；失败时不宣称 Pair 完成。
 - [ ] `desktop/src-tauri/src/lib.rs`：Desktop 启动时自动加载授权并恢复 signer task。
 - [ ] `desktop/src-tauri/src/commands/mod.rs`：注册 signer store 模块和必要命令。
-- [ ] `web/src/shared/api/nip46Client.ts`：等待匹配 `EOSE`、处理 `CLOSED/NOTICE/OK`、重连后重新订阅，并区分未授权、Desktop 离线、Relay 关闭和请求超时。
-- [ ] `web/src/shared/api/signer.ts`：实现应用级共享 signer session 和空闲回收，避免每次数据请求建立重叠连接。
-- [ ] `web/src/shared/api/communitySession.ts`：读取完成后释放引用而非立即关闭共享 signer WebSocket。
-- [ ] `web/src/shared/api/messagePublish.ts`：复用共享 signer，写请求失败不自动重复发布。
+- [x] `web/src/shared/api/nip46Client.ts`：等待匹配 `EOSE`、处理 `CLOSED`、重连后重新订阅，并区分订阅拒绝、Relay 关闭和请求超时。
+- [x] `web/src/shared/api/signer.ts`：实现应用级共享 signer session，避免每次数据请求建立重叠连接。
+- [x] `web/src/shared/api/communitySession.ts`：通过共享 signer 的无操作 release 保持连接，不在每次读取后关闭底层 WebSocket。
+- [x] `web/src/shared/api/messagePublish.ts`：复用共享 signer，写请求失败不自动重复发布。
 - [ ] `web/src/features/settings/SettingsPage.tsx`：显示 signer 状态、最近响应时间和明确的重新 Pair/Retry 操作。
 - [ ] `desktop/src-tauri/src/commands/remote_signer_tests.rs`：覆盖重启恢复、Keychain 故障、撤销、重连和安全拒绝。
-- [ ] `web/tests/e2e/relay-session.spec.ts`：覆盖等待 EOSE、CLOSED 单订阅冲突、共享连接、恢复读取和消息不重复发送。
+- [x] `web/tests/e2e/relay-session.spec.ts`：覆盖等待匹配 EOSE、忽略错误订阅和 CLOSED 单订阅冲突分类。
 - [ ] `docs/2026-08-01-local-startup-and-relay-guide.md`：补充一次 Pair 后的重启恢复、撤销和排障说明。
 - [ ] `docs/2026-08-08-web-signer-durable-connection-fix.md`：记录测试、commit、部署和公网稳定性结果。
 
@@ -158,6 +158,13 @@ Web 的错误提示按事实区分：
 - Relay/Tunnel 短暂断线后 5 秒级开始重连并最终恢复；
 - Desktop 没有活动 signer 时，Web 不再只显示模糊的 `did not answer`；
 - 只有用户主动撤销或 Keychain 授权确实丢失时才要求重新 Pair。
+
+## 八点一、在线连接修复验证
+
+- 公网双连接复现确认 signer relay 对第二条相同 `#p` 订阅返回 `CLOSED: #p already has a live subscriber`；
+- Web typecheck、Biome、文件大小和 pubkey 展示检查通过；
+- Chrome smoke 共 35 项通过，包含 EOSE/CLOSED 协议测试、消息安全测试、工作台与 Settings 回归；
+- 完整 iPad 矩阵与公网部署在实现 commit 后执行并记录。
 
 ## 九、确认门
 

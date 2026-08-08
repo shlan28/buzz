@@ -4,6 +4,7 @@ import type { SignedNostrEvent, UnsignedNostrEvent } from "../lib/nostr-signer";
 
 const NOSTR_CONNECT_KIND = 24_133;
 const REQUEST_TIMEOUT_MS = 10_000;
+const SUBSCRIPTION_TIMEOUT_MS = 10_000;
 export const SIGNER_HEARTBEAT_INTERVAL_MS = 25_000;
 
 type RpcResponse = {
@@ -17,6 +18,25 @@ type PendingRequest = {
   reject: (error: Error) => void;
   timeout: number;
 };
+
+export type SignerSubscriptionOutcome =
+  | { status: "ready" }
+  | { status: "rejected"; message: string };
+
+export function signerSubscriptionOutcome(
+  frame: unknown,
+  subscriptionId: string,
+): SignerSubscriptionOutcome | undefined {
+  if (!Array.isArray(frame) || frame[1] !== subscriptionId) return undefined;
+  if (frame[0] === "EOSE") return { status: "ready" };
+  if (frame[0] === "CLOSED") {
+    return {
+      status: "rejected",
+      message: String(frame[2] ?? "Relay closed the subscription."),
+    };
+  }
+  return undefined;
+}
 
 export type BunkerConnection = {
   clientSecretKey: Uint8Array;
@@ -122,30 +142,71 @@ export class Nip46Client {
   private openSocket(): Promise<void> {
     return new Promise((resolve, reject) => {
       const socket = new WebSocket(this.connection.relayUrl);
-      let opened = false;
+      const subscriptionId = `nip46-${crypto.randomUUID()}`;
+      let ready = false;
+      let settled = false;
+      const timeout = window.setTimeout(() => {
+        fail(
+          new Error("Desktop signer relay did not confirm the subscription."),
+        );
+      }, SUBSCRIPTION_TIMEOUT_MS);
+      const succeed = () => {
+        if (settled) return;
+        settled = true;
+        ready = true;
+        window.clearTimeout(timeout);
+        this.startHeartbeat(socket);
+        resolve();
+      };
+      const fail = (error: Error) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeout);
+        if (socket === this.socket) this.socket = undefined;
+        socket.close();
+        reject(error);
+      };
       this.socket = socket;
       socket.addEventListener("open", () => {
         if (socket !== this.socket) return;
-        opened = true;
         socket.send(
           JSON.stringify([
             "REQ",
-            "nip46",
+            subscriptionId,
             { kinds: [NOSTR_CONNECT_KIND], "#p": [this.clientPubkey] },
           ]),
         );
-        this.startHeartbeat(socket);
-        resolve();
       });
-      socket.addEventListener("message", (event) => this.handleMessage(event));
+      socket.addEventListener("message", (event) => {
+        let frame: unknown;
+        try {
+          frame = JSON.parse(String(event.data));
+        } catch {
+          return;
+        }
+        const outcome = signerSubscriptionOutcome(frame, subscriptionId);
+        if (outcome) {
+          if (outcome.status === "ready") {
+            succeed();
+            return;
+          }
+          fail(
+            new Error(
+              `Desktop signer subscription rejected: ${outcome.message}`,
+            ),
+          );
+          return;
+        }
+        if (ready) this.handleFrame(frame, subscriptionId);
+      });
       socket.addEventListener("error", () => {
-        if (!opened)
-          reject(new Error("Could not reach the Desktop signer relay."));
+        if (!ready)
+          fail(new Error("Could not reach the Desktop signer relay."));
       });
       socket.addEventListener("close", () => {
         this.handleSocketClose(socket);
-        if (!opened)
-          reject(new Error("Could not reach the Desktop signer relay."));
+        if (!ready)
+          fail(new Error("Could not reach the Desktop signer relay."));
       });
     });
   }
@@ -223,13 +284,12 @@ export class Nip46Client {
     });
   }
 
-  private handleMessage(message: MessageEvent): void {
+  private handleFrame(frame: unknown, subscriptionId: string): void {
     try {
-      const frame = JSON.parse(String(message.data));
       if (
         !Array.isArray(frame) ||
         frame[0] !== "EVENT" ||
-        frame[1] !== "nip46"
+        frame[1] !== subscriptionId
       ) {
         return;
       }
@@ -267,6 +327,9 @@ export function isSignerTransportError(error: unknown): boolean {
     error instanceof Error &&
     (error.message === "Remote signer connection closed." ||
       error.message === "Remote signer is offline." ||
+      error.message.startsWith("Desktop signer subscription rejected:") ||
+      error.message ===
+        "Desktop signer relay did not confirm the subscription." ||
       error.message.startsWith("Desktop did not answer "))
   );
 }
