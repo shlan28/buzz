@@ -1,10 +1,43 @@
+import { useNavigate } from "@tanstack/react-router";
 import { Inbox, RefreshCw } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { useWorkConsoleData } from "@/shared/hooks/useWorkConsoleData";
 import { AsyncStateView } from "@/shared/ui/AsyncStateView";
 import { DesktopParityAppShell } from "@/shared/ui/DesktopParityAppShell";
+import { InboxDetailPane } from "./InboxDetailPane";
+import { InboxListPane } from "./InboxListPane";
+import { buildInboxEntries } from "./inboxProjection";
 
 export function InboxPage() {
+  const navigate = useNavigate();
   const { state, refresh } = useWorkConsoleData();
+  const [selectedId, setSelectedId] = useState<string | undefined>(
+    () => new URLSearchParams(window.location.search).get("item") ?? undefined,
+  );
+  const entries = useMemo(
+    () => (state.status === "ready" ? buildInboxEntries(state.data) : []),
+    [state],
+  );
+  const selected =
+    entries.find((entry) => entry.id === selectedId) ?? entries[0];
+
+  useEffect(() => {
+    const sync = () =>
+      setSelectedId(
+        new URLSearchParams(window.location.search).get("item") ?? undefined,
+      );
+    window.addEventListener("popstate", sync);
+    return () => window.removeEventListener("popstate", sync);
+  }, []);
+
+  const select = (id?: string) => {
+    setSelectedId(id);
+    const url = new URL(window.location.href);
+    if (id) url.searchParams.set("item", id);
+    else url.searchParams.delete("item");
+    window.history.pushState(window.history.state, "", url);
+  };
+
   return (
     <DesktopParityAppShell>
       {state.status !== "ready" ? (
@@ -36,58 +69,41 @@ export function InboxPage() {
               />
             </button>
           </header>
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <div className="mx-auto max-w-4xl p-5">
-              <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+          <div className="flex min-h-0 flex-1 overflow-hidden">
+            <div
+              className={`${selectedId ? "hidden min-[900px]:flex" : "flex"} min-h-0 w-full flex-col border-r border-border/50 min-[900px]:w-[360px] min-[900px]:shrink-0`}
+            >
+              <h2 className="flex items-center gap-2 border-b border-border/50 px-4 py-3 text-sm font-semibold">
                 <Inbox className="size-4" />
                 Recent activity
               </h2>
-              <div className="overflow-hidden rounded-xl border border-border bg-card">
-                {[...state.data.messages]
-                  .reverse()
-                  .slice(0, 100)
-                  .map((message) => {
-                    const channel = state.data.channels.find(
-                      (item) => item.id === message.channelId,
-                    );
-                    return (
-                      <article
-                        className="flex gap-3 border-b border-border p-4 last:border-0 hover:bg-muted/40"
-                        key={message.id}
-                      >
-                        <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold">
-                          {message.author.slice(0, 2).toUpperCase()}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-baseline gap-2">
-                            <span className="text-sm font-semibold">
-                              {message.author === state.data.userPubkey
-                                ? "You"
-                                : `${message.author.slice(0, 10)}…`}
-                            </span>
-                            <span className="truncate text-xs text-muted-foreground">
-                              in {channel?.name ?? "a conversation"}
-                            </span>
-                            <time className="ml-auto shrink-0 text-2xs text-muted-foreground">
-                              {new Date(
-                                message.createdAt * 1000,
-                              ).toLocaleString()}
-                            </time>
-                          </div>
-                          <p className="mt-1 line-clamp-2 text-sm leading-5">
-                            {message.content}
-                          </p>
-                        </div>
-                      </article>
-                    );
-                  })}
-                {!state.data.messages.length && (
-                  <div className="grid min-h-64 place-items-center text-sm text-muted-foreground">
-                    You’re all caught up.
-                  </div>
-                )}
-              </div>
+              <InboxListPane
+                entries={entries}
+                onSelect={select}
+                selectedId={selected?.id}
+              />
             </div>
+            {selected ? (
+              <div
+                className={`${selectedId ? "flex" : "hidden min-[900px]:flex"} min-h-0 min-w-0 flex-1`}
+              >
+                <InboxDetailPane
+                  data={state.data}
+                  entry={selected}
+                  onBack={() => select(undefined)}
+                  onOpenConversation={() =>
+                    void navigate({
+                      to: "/app/channels/$channelId",
+                      params: { channelId: selected.message.channelId },
+                    })
+                  }
+                />
+              </div>
+            ) : (
+              <div className="grid flex-1 place-items-center text-sm text-muted-foreground">
+                You’re all caught up.
+              </div>
+            )}
           </div>
         </div>
       )}

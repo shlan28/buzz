@@ -20,7 +20,6 @@ test("renders real work-console views from one authenticated data model", async 
   await page.getByRole("link", { name: "Inbox" }).click();
   await expect(page.getByTestId("inbox-screen")).toBeVisible();
   await page.getByRole("link", { name: "Calendar" }).click();
-  await expect(page.getByText("Agent review")).toBeVisible();
   await page.getByRole("button", { name: "Month" }).click();
   await expect(
     page.getByRole("button", { name: "Agent review" }),
@@ -36,9 +35,9 @@ test("renders real work-console views from one authenticated data model", async 
   await expect(page.getByText("Web launch")).toBeVisible();
   await page.getByText("Web launch", { exact: true }).click();
   await expect(
-    page
-      .getByRole("complementary")
-      .getByRole("heading", { name: "Web launch" }),
+    page.getByTestId("track-detail-screen").getByRole("heading", {
+      name: "Web launch",
+    }),
   ).toBeVisible();
 });
 
@@ -213,4 +212,56 @@ test("uses distinct fallback colors for agents and users", async ({ page }) => {
     ),
   ]);
   expect(agentColor).not.toBe(userColor);
+});
+
+test("opens a track detail with its read-only task board", async ({ page }) => {
+  await page.goto("/app/tracks");
+  await page.getByText("Web launch", { exact: true }).click();
+  await expect(page).toHaveURL(/\/app\/tracks\/track-1$/);
+  await expect(page.getByTestId("track-detail-screen")).toBeVisible();
+  await expect(page.getByText("0/1 tasks complete")).toBeVisible();
+  await expect(page.getByTestId("task-card-task-1")).toBeVisible();
+  await expect(page.getByText("Untracked follow-up")).toHaveCount(0);
+  await expect(page.getByTestId("task-column-in-progress")).toContainText(
+    "Ship iPad console",
+  );
+  await page.reload();
+  await expect(page.getByTestId("track-detail-screen")).toContainText(
+    "Web launch",
+  );
+  await page.getByRole("button", { name: "List view" }).click();
+  await expect(page.getByTestId("task-list")).toContainText(
+    "Ship iPad console",
+  );
+  await page.getByText("Ship iPad console", { exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Ship iPad console" }),
+  ).toBeVisible();
+  await expect(page.getByText("Hermes").last()).toBeVisible();
+});
+
+test("opens Inbox detail with agent identity and Markdown", async ({
+  page,
+}) => {
+  await page.goto("/app/inbox");
+  const agentItem = page.getByTestId("inbox-item-message-2");
+  await expect(agentItem).toContainText("Hermes");
+  await agentItem.click();
+  await expect(page).toHaveURL(/item=message-2/);
+  const detail = page.getByTestId("inbox-detail");
+  await expect(detail.getByTestId("inbox-selected-message")).toContainText(
+    "Hermes",
+  );
+  await expect(
+    detail.getByRole("heading", { name: "Agent update" }),
+  ).toBeVisible();
+  await expect(detail.getByRole("listitem")).toHaveCount(2);
+  await page.reload();
+  await expect(page.getByTestId("inbox-selected-message")).toContainText(
+    "Agent update",
+  );
+  await page.getByRole("button", { name: "Open conversation" }).click();
+  await expect(page).toHaveURL(
+    /\/app\/channels\/11111111-1111-4111-8111-111111111111/,
+  );
 });

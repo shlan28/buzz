@@ -17,6 +17,7 @@ import { Route as appDotinboxRouteImport } from "./routes/app.inbox";
 import { Route as appDotchannelsRouteImport } from "./routes/app.channels";
 import { Route as appDotcalendarRouteImport } from "./routes/app.calendar";
 import { Route as appDotactivityRouteImport } from "./routes/app.activity";
+import { Route as appDottracksDottrackIdRouteImport } from "./routes/app.tracks.$trackId";
 import { Route as appDotchannelsDotchannelIdRouteImport } from "./routes/app.channels.$channelId";
 import { Route as reposDotrepoIdDotblobDotsplatRouteImport } from "./routes/repos.$repoId.blob.$";
 
@@ -80,6 +81,11 @@ const appDotactivityRoute = appDotactivityRouteImport.update({
   path: "/app/activity",
   getParentRoute: () => rootRouteImport,
 } as any);
+const appDottracksDottrackIdRoute = appDottracksDottrackIdRouteImport.update({
+  id: "/app/tracks/$trackId",
+  path: "/app/tracks/$trackId",
+  getParentRoute: () => rootRouteImport,
+} as any);
 const appDotchannelsDotchannelIdRoute =
   appDotchannelsDotchannelIdRouteImport.update({
     id: "/app/channels/$channelId",
@@ -107,6 +113,7 @@ export interface FileRoutesByFullPath {
   "/invite/$code": typeof inviteDotcodeRoute;
   "/repos/$repoId": typeof reposDotrepoIdRoute;
   "/app/channels/$channelId": typeof appDotchannelsDotchannelIdRoute;
+  "/app/tracks/$trackId": typeof appDottracksDottrackIdRoute;
   "/repos/$repoId/blob/$": typeof reposDotrepoIdDotblobDotsplatRoute;
 }
 export interface FileRoutesByTo {
@@ -123,6 +130,7 @@ export interface FileRoutesByTo {
   "/invite/$code": typeof inviteDotcodeRoute;
   "/repos/$repoId": typeof reposDotrepoIdRoute;
   "/app/channels/$channelId": typeof appDotchannelsDotchannelIdRoute;
+  "/app/tracks/$trackId": typeof appDottracksDottrackIdRoute;
   "/repos/$repoId/blob/$": typeof reposDotrepoIdDotblobDotsplatRoute;
 }
 export interface FileRoutesById {
@@ -140,6 +148,7 @@ export interface FileRoutesById {
   "/invite/$code": typeof inviteDotcodeRoute;
   "/repos/$repoId": typeof reposDotrepoIdRoute;
   "/app/channels/$channelId": typeof appDotchannelsDotchannelIdRoute;
+  "/app/tracks/$trackId": typeof appDottracksDottrackIdRoute;
   "/repos/$repoId/blob/$": typeof reposDotrepoIdDotblobDotsplatRoute;
 }
 export interface FileRouteTypes {
@@ -158,6 +167,7 @@ export interface FileRouteTypes {
     | "/invite/$code"
     | "/repos/$repoId"
     | "/app/channels/$channelId"
+    | "/app/tracks/$trackId"
     | "/repos/$repoId/blob/$";
   fileRoutesByTo: FileRoutesByTo;
   to:
@@ -174,6 +184,7 @@ export interface FileRouteTypes {
     | "/invite/$code"
     | "/repos/$repoId"
     | "/app/channels/$channelId"
+    | "/app/tracks/$trackId"
     | "/repos/$repoId/blob/$";
   id:
     | "__root__"
@@ -190,6 +201,7 @@ export interface FileRouteTypes {
     | "/invite/$code"
     | "/repos/$repoId"
     | "/app/channels/$channelId"
+    | "/app/tracks/$trackId"
     | "/repos/$repoId/blob/$";
   fileRoutesById: FileRoutesById;
 }
@@ -207,6 +219,7 @@ export interface RootRouteChildren {
   inviteDotcodeRoute: typeof inviteDotcodeRoute;
   reposDotrepoIdRoute: typeof reposDotrepoIdRoute;
   appDotchannelsDotchannelIdRoute: typeof appDotchannelsDotchannelIdRoute;
+  appDottracksDottrackIdRoute: typeof appDottracksDottrackIdRoute;
   reposDotrepoIdDotblobDotsplatRoute: typeof reposDotrepoIdDotblobDotsplatRoute;
 }
 
@@ -296,6 +309,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof appDotactivityRouteImport;
       parentRoute: typeof rootRouteImport;
     };
+    "/app/tracks/$trackId": {
+      id: "/app/tracks/$trackId";
+      path: "/app/tracks/$trackId";
+      fullPath: "/app/tracks/$trackId";
+      preLoaderRoute: typeof appDottracksDottrackIdRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
     "/app/channels/$channelId": {
       id: "/app/channels/$channelId";
       path: "/app/channels/$channelId";
@@ -327,6 +347,7 @@ const rootRouteChildren: RootRouteChildren = {
   inviteDotcodeRoute: inviteDotcodeRoute,
   reposDotrepoIdRoute: reposDotrepoIdRoute,
   appDotchannelsDotchannelIdRoute: appDotchannelsDotchannelIdRoute,
+  appDottracksDottrackIdRoute: appDottracksDottrackIdRoute,
   reposDotrepoIdDotblobDotsplatRoute: reposDotrepoIdDotblobDotsplatRoute,
 };
 export const routeTree = rootRouteImport

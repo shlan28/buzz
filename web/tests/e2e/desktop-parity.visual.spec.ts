@@ -25,4 +25,20 @@ for (const theme of ["light", "dark"] as const) {
       { animations: "disabled", maxDiffPixelRatio: 0.005 },
     );
   });
+
+  for (const view of [
+    { name: "track-detail", path: "/app/tracks/track-1" },
+    { name: "inbox-detail", path: "/app/inbox?item=message-2" },
+  ]) {
+    test(`keeps the ${view.name} ${theme} appearance`, async ({ page }) => {
+      await page.setViewportSize({ width: 1366, height: 768 });
+      const separator = view.path.includes("?") ? "&" : "?";
+      await page.goto(`${view.path}${separator}previewTheme=${theme}`);
+      await waitForAnimations(page);
+      await expect(page.getByTestId("content-surface")).toHaveScreenshot(
+        `${view.name}-${theme}.png`,
+        { animations: "disabled", maxDiffPixelRatio: 0.005 },
+      );
+    });
+  }
 }

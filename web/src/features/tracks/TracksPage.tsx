@@ -1,16 +1,16 @@
-import { ChevronRight, Search, X } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
+import { ChevronRight, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useWorkConsoleData } from "@/shared/hooks/useWorkConsoleData";
 import { AsyncStateView } from "@/shared/ui/AsyncStateView";
 import { DesktopParityAppShell } from "@/shared/ui/DesktopParityAppShell";
-import type { Track } from "./types";
 export function TracksPage() {
+  const navigate = useNavigate();
   const { state, refresh } = useWorkConsoleData();
   const [scope, setScope] = useState<"current" | "completed" | "archived">(
     "current",
   );
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<string>();
   const visible = useMemo(
     () =>
       state.status === "ready"
@@ -95,7 +95,12 @@ export function TracksPage() {
                   <button
                     className="flex w-full items-center gap-4 border-b p-4 text-left last:border-0 hover:bg-muted/40"
                     key={track.id}
-                    onClick={() => setSelected(track.id)}
+                    onClick={() =>
+                      void navigate({
+                        to: "/app/tracks/$trackId",
+                        params: { trackId: track.id },
+                      })
+                    }
                     type="button"
                   >
                     <div className="min-w-0 flex-1">
@@ -133,51 +138,8 @@ export function TracksPage() {
               )}
             </div>
           </div>
-          {selected && (
-            <TrackDetail
-              track={state.data.tracks.find((track) => track.id === selected)}
-              onClose={() => setSelected(undefined)}
-            />
-          )}
         </div>
       )}
     </DesktopParityAppShell>
-  );
-}
-function TrackDetail({
-  onClose,
-  track,
-}: {
-  onClose: () => void;
-  track?: Track;
-}) {
-  if (!track) return null;
-  return (
-    <aside className="absolute inset-y-0 right-0 z-20 w-[400px] border-l border-border bg-background p-5 shadow-xl max-[700px]:w-full">
-      <button
-        className="float-right rounded-md p-1 hover:bg-muted"
-        onClick={onClose}
-        type="button"
-      >
-        <X className="size-4" />
-      </button>
-      <p className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">
-        Track
-      </p>
-      <h2 className="mt-2 pr-8 text-xl font-semibold">{track.name}</h2>
-      <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
-        {track.description || "No description."}
-      </p>
-      <dl className="mt-6 grid grid-cols-[100px_1fr] gap-y-3 text-sm">
-        <dt className="text-muted-foreground">Status</dt>
-        <dd className="capitalize">{track.status}</dd>
-        <dt className="text-muted-foreground">Owner</dt>
-        <dd className="truncate">{track.owner ?? "Unassigned"}</dd>
-        <dt className="text-muted-foreground">Timeline</dt>
-        <dd>
-          {track.startDate ?? "—"} – {track.endDate ?? "—"}
-        </dd>
-      </dl>
-    </aside>
   );
 }

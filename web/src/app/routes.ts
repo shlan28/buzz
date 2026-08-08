@@ -12,6 +12,7 @@ export const routes = rootRoute("root.tsx", [
   route("/app/calendar", "app.calendar.tsx"),
   route("/app/tasks", "app.tasks.tsx"),
   route("/app/tracks", "app.tracks.tsx"),
+  route("/app/tracks/$trackId", "app.tracks.$trackId.tsx"),
   route("/app/activity", "app.activity.tsx"),
   route("/app/pair", "app.pair.tsx"),
   route("/app/settings", "app.settings.tsx"),
