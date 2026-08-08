@@ -1,5 +1,5 @@
 > 更新日期：2026-08-08
-> 更新说明：在已部署的身份、DM 和实时消息修复基础上，补充 Agent 头像、消息 Markdown 安全渲染，以及浅色模式内容与右侧详情面板白色背景的一致性要求。
+> 更新说明：在已部署的身份、DM 和实时消息修复基础上，补充 Agent 头像、消息 Markdown 安全渲染、浅色内容面板白色背景，以及 Tasks/Tracks 导航图标一致性要求。
 
 # Web 身份、DM、Channel 与 Sidebar 一致性修复方案
 
@@ -115,6 +115,12 @@ Web 把 Catppuccin Latte 的灰色 `--background` 同时用作应用外层和内
 
 本轮增加独立的内容面板语义色，并让主 content surface、Task detail、Track detail、Calendar event detail 和 Settings 内容区域消费同一语义。Sidebar、hover、muted、卡片和深色主题不做全局漂白，避免丢失层级。
 
+### 1.12 Tasks 与 Tracks 导航图标错误
+
+Desktop Sidebar 的 Tasks 使用 Lucide `ListTodo`，Tracks 使用 Lucide `Route`，图标尺寸均为 16px。Web 当前分别使用 `CheckSquare2` 和 `Waypoints`，即使文字、间距和激活色一致，轮廓语义仍明显不同。
+
+Web 应直接使用 Desktop 的同名 Lucide 图标，并保持 `size-4`、`shrink-0`、激活态颜色和折叠态位置不变；不要通过 CSS 或自制 SVG 模拟。
+
 ## 二、产品目标
 
 - Sidebar profile 显示当前 Buzz 用户真实名字与头像；
@@ -129,6 +135,7 @@ Web 把 Catppuccin Latte 的灰色 `--background` 同时用作应用外层和内
 - 一对一 DM、消息作者和 mention 候选显示 kind `0.picture` 头像，加载失败时稳定回退；
 - DM/Channel 正文支持安全 Markdown 与 GFM，排版和 Desktop 保持一致；
 - 浅色模式主内容和所有右侧详情区域为白色，深色模式保持 Desktop 暖黑内容画布。
+- Tasks 使用 `ListTodo`、Tracks 使用 `Route`，尺寸和导航状态与 Desktop 一致。
 
 ## 三、统一数据模型
 
@@ -224,6 +231,7 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - 超长代码、表格和 URL 在 iPad 竖屏中不造成页面级横向溢出。
 - 浅色模式 `content-surface`、Task detail、Track detail、Calendar detail 和 Settings 内容画布的计算背景为白色；Sidebar 仍保留原主题色。
 - 深色模式上述区域保持 Desktop 暖黑背景，不被白色规则覆盖。
+- Sidebar 的 Tasks 图标 SVG 对应 `ListTodo`，Tracks 图标 SVG 对应 `Route`，并在普通、激活和折叠状态保持 16px 几何尺寸。
 
 ## 七、Todo List
 
@@ -249,7 +257,7 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - [x] `web/src/shared/hooks/useWorkConsoleData.ts`：改为模块级共享请求与 last-good snapshot，路由切换不再闪空。
 - [ ] `web/src/app/routes/app.tsx`：新增持久 `/app` 父布局与 Outlet，Pair/Settings 处理明确边界。
 - [ ] `web/src/shared/ui/DesktopParityAppShell.tsx`：支持持久 Outlet 与 Settings sidebar，而不在业务页重复挂载。
-- [ ] `web/src/features/sidebar/WebAppSidebar.tsx`：在现有真实 profile 与 DM label 基础上，按 Desktop 规则显示一对一 DM 头像和群组人数图标。
+- [ ] `web/src/features/sidebar/WebAppSidebar.tsx`：按 Desktop 规则显示 DM 头像/群组人数，并把 Tasks、Tracks 图标分别统一为 `ListTodo`、`Route`。
 - [ ] `web/src/features/settings/SettingsPage.tsx`：保留已完成的真实用户 profile，并让 Settings 主内容区域使用统一内容面板背景语义。
 - [ ] `web/src/features/inbox/InboxPage.tsx`：移除页面级 Shell，消费共享 Provider。
 - [ ] `web/src/features/channels/ChannelsPage.tsx`：接入统一头像与 MessageMarkdown，并在后续持久父布局中移除页面级 Shell。
@@ -262,7 +270,7 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - [ ] `web/tests/e2e/message-mentions.spec.ts`：覆盖 Channel `@Agent` 候选、键盘/触控选择、p tag、同名歧义和 DM 自动 recipient。
 - [ ] `web/tests/e2e/message-timeline.spec.ts`：用乱序、同秒、reply、delete、edit、reaction fixture 对照 Desktop 投影与 row 顺序。
 - [ ] `web/tests/e2e/message-presentation.spec.ts`：覆盖 Agent 头像、图片失败回退、Markdown/GFM、危险输入和 iPad 横向溢出。
-- [ ] `web/tests/e2e/desktop-parity.visual.spec.ts`：覆盖浅色白色详情面板、深色暖黑画布及 Sidebar 色彩不被污染。
+- [ ] `web/tests/e2e/desktop-parity.visual.spec.ts`：覆盖浅色白色详情面板、深色暖黑画布、Sidebar 色彩及 Tasks/Tracks 图标一致性。
 - [ ] `web/tests/helpers/desktopParityFixtures.ts`：增加 profile、未加入、已归档和隐藏 DM fixture。
 - [ ] `docs/2026-08-08-web-identity-dm-channel-sidebar-consistency-plan.md`：记录验证、部署号和 commit。
 
@@ -279,6 +287,7 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - Web Sidebar 的 Channel/DM id 集合与 Desktop 一致，而不只比较数量；
 - 六个标签连续切换时 Sidebar 内容始终可见且 DOM identity 不变；
 - 浅色模式主内容及右侧详情为白色、深色模式保持暖黑，Sidebar 和层级色不受影响；
+- Tasks 与 Tracks 的 Sidebar 图标、尺寸、激活态和折叠态与 Desktop 一致；
 - 完整 Chrome、iPad 横屏、iPad 竖屏 E2E 与视觉回归通过后再部署。
 
 ## 九、建设性建议
