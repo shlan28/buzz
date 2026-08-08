@@ -12,6 +12,21 @@ export function parseChannel(event: NostrEvent): Channel | null {
     id,
     name,
     about: firstTag(event.tags, "about") ?? event.content,
+    channelType:
+      firstTag(event.tags, "t") === "dm" ||
+      event.tags.some((tag) => tag[0] === "hidden")
+        ? "dm"
+        : firstTag(event.tags, "t") === "forum"
+          ? "forum"
+          : "stream",
+    visibility:
+      firstTag(event.tags, "visibility") === "private" ||
+      event.tags.some((tag) => tag[0] === "private")
+        ? "private"
+        : "open",
+    participantPubkeys: event.tags
+      .filter((tag) => tag[0] === "p" && tag[1])
+      .map((tag) => tag[1]),
     updatedAt: event.created_at,
   };
 }

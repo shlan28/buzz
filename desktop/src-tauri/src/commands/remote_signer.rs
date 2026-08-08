@@ -9,7 +9,7 @@ use tokio_util::sync::CancellationToken;
 use zeroize::Zeroizing;
 
 const KIND_NOSTR_CONNECT: u16 = 24_133;
-const ALLOWED_SIGN_KINDS: &[u16] = &[22_242, 27_235];
+const ALLOWED_SIGN_KINDS: &[u16] = &[9, 22_242, 27_235];
 const SIGNER_READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 const SIGNER_RECONNECT_MIN_DELAY: std::time::Duration = std::time::Duration::from_millis(250);
 const SIGNER_RECONNECT_MAX_DELAY: std::time::Duration = std::time::Duration::from_secs(5);
@@ -339,6 +339,9 @@ fn sign_event(keys: &Keys, event_json: Option<&String>) -> Result<String, String
     if !ALLOWED_SIGN_KINDS.contains(&unsigned.kind) {
         return Err(format!("event kind {} is not permitted", unsigned.kind));
     }
+    if unsigned.kind == 9 {
+        validate_message_tags(&unsigned.tags)?;
+    }
     let tags = unsigned
         .tags
         .into_iter()
@@ -350,6 +353,35 @@ fn sign_event(keys: &Keys, event_json: Option<&String>) -> Result<String, String
         .sign_with_keys(keys)
         .map(|event| event.as_json())
         .map_err(|error| format!("sign event failed: {error}"))
+}
+
+fn validate_message_tags(tags: &[Vec<String>]) -> Result<(), String> {
+    let channel_tags: Vec<&Vec<String>> = tags
+        .iter()
+        .filter(|tag| tag.first().map(String::as_str) == Some("h"))
+        .collect();
+    if channel_tags.len() != 1
+        || channel_tags[0].len() != 2
+        || uuid::Uuid::parse_str(&channel_tags[0][1]).is_err()
+    {
+        return Err("message requires exactly one valid channel h tag".into());
+    }
+    for tag in tags {
+        let label = tag.first().map(String::as_str).unwrap_or_default();
+        if !matches!(label, "h" | "p" | "client") {
+            return Err(format!("message tag {label:?} is not permitted from Web"));
+        }
+        if label == "p"
+            && (tag.len() != 2
+                || tag[1].len() != 64
+                || !tag[1]
+                    .chars()
+                    .all(|character| character.is_ascii_hexdigit()))
+        {
+            return Err("message p tag must contain one pubkey".into());
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -420,6 +452,43 @@ mod tests {
         assert_eq!(
             response.error.as_deref(),
             Some("event kind 1 is not permitted")
+        );
+    }
+
+    #[test]
+    fn web_message_signing_requires_a_single_channel_scope() {
+        let keys = Keys::generate();
+        let mut connected = true;
+        let allowed = handle_request(
+            &keys,
+            "secret",
+            &mut connected,
+            RpcRequest {
+                id: "message-ok".into(),
+                method: "sign_event".into(),
+                params: vec![format!(
+                    r#"{{"kind":9,"content":"hello","tags":[["h","{}"]],"created_at":1}}"#,
+                    uuid::Uuid::new_v4()
+                )],
+            },
+        );
+        assert!(allowed.error.is_none());
+
+        let rejected = handle_request(
+            &keys,
+            "secret",
+            &mut connected,
+            RpcRequest {
+                id: "message-bad".into(),
+                method: "sign_event".into(),
+                params: vec![
+                    r#"{"kind":9,"content":"hello","tags":[["p","00"]],"created_at":1}"#.into(),
+                ],
+            },
+        );
+        assert_eq!(
+            rejected.error.as_deref(),
+            Some("message requires exactly one valid channel h tag")
         );
     }
 

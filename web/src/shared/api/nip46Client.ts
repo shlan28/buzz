@@ -71,7 +71,7 @@ export class Nip46Client {
     const result = await this.request("connect", [
       this.connection.remoteSignerPubkey,
       this.connection.secret,
-      "sign_event:22242,sign_event:27235",
+      "sign_event:9,sign_event:22242,sign_event:27235",
       JSON.stringify({ name: "Buzz Web", url: window.location.origin }),
     ]);
     if (result !== "ack" && result !== this.connection.secret) {

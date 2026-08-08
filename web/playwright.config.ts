@@ -27,6 +27,8 @@ export default defineConfig({
         "**/pwa-install.spec.ts",
         "**/ipad-layout.spec.ts",
         "**/relay-session.spec.ts",
+        "**/message-send.spec.ts",
+        "**/desktop-parity.visual.spec.ts",
       ],
       use: {
         ...devices["Desktop Chrome"],
