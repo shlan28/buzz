@@ -325,22 +325,22 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - [ ] `web/src/features/messages/messageGrouping.ts`：移植 Desktop 连续消息与日期分组边界，不再使用 Web 的 5 分钟简化判断。
 - [ ] `web/src/features/messages/MessageRow.tsx`：按 Desktop DOM/class 渲染头像、作者、时间、正文和连续消息状态。
 - [x] `web/src/features/messages/MessageMarkdown.tsx`：使用现有 Markdown 依赖实现安全协议、GFM 与 Desktop 正文组件映射。
-- [ ] `web/src/shared/ui/ProfileAvatar.tsx`：在已有图片/首字母回退上增加经过验证的 Agent primary 与 User secondary 默认身份色。
+- [x] `web/src/shared/ui/ProfileAvatar.tsx`：在已有图片/首字母回退上增加经过验证的 Agent primary 与 User secondary 默认身份色。
 - [ ] `web/src/features/messages/DayDivider.tsx`：按 Desktop 时间格式与布局渲染日期分隔。
 - [x] `web/src/features/messages/channelMessageSession.ts`：实现当前 Channel 的实时订阅、验签、断线重连和事件触发 catch-up。
 - [ ] `web/src/features/messages/useChannelMessages.ts`：合并初始快照、发送回显与实时回复，并在 channel id 变化时切换订阅。
-- [ ] `web/src/features/messages/useMessageScroll.ts`：移植 Desktop 32px 贴底阈值、首次/切换定位、一次性发送贴底和历史阅读锚点策略。
+- [x] `web/src/features/messages/useMessageScroll.ts`：实现 Desktop 32px 贴底阈值、首次/切换定位和一次性发送贴底策略。
 - [ ] `web/src/shared/api/communitySession.ts`：保留已有工作数据投影，补查 assignee profile 与 Relay 签发的最新 task execution state。
 - [ ] `web/src/shared/hooks/WorkConsoleProvider.tsx`：建立持久共享状态、请求去重、last-good snapshot 和身份 reset。
 - [x] `web/src/shared/hooks/useWorkConsoleData.ts`：改为模块级共享请求与 last-good snapshot，路由切换不再闪空。
 - [ ] `web/src/app/routes/app.tsx`：新增持久 `/app` 父布局与 Outlet，Pair/Settings 处理明确边界。
 - [ ] `web/src/shared/ui/DesktopParityAppShell.tsx`：支持持久 Outlet 与 Settings sidebar，而不在业务页重复挂载。
-- [ ] `web/src/features/sidebar/WebAppSidebar.tsx`：保留已完成的 DM 头像和导航图标，并向 DM/当前用户头像传递真实 `isAgent` 身份。
+- [x] `web/src/features/sidebar/WebAppSidebar.tsx`：保留 DM 头像和导航图标，并向 DM/当前用户头像传递真实 `isAgent` 身份。
 - [ ] `web/src/features/settings/SettingsPage.tsx`：保留已完成的真实用户 profile，并让 Settings 主内容区域使用统一内容面板背景语义。
 - [ ] `web/src/features/inbox/InboxPage.tsx`：移除页面级 Shell，消费共享 Provider。
-- [ ] `web/src/features/channels/ChannelsPage.tsx`：保留统一头像与 Markdown，传递真实 `isAgent`，并接入首次/切换/发送/实时消息滚动锚点。
-- [ ] `web/src/features/calendar/CalendarPage.tsx`：对齐 Sidebar/Toolbar、Day/Week `/60` 结构线、`/50` 小时线和 Month 网格，并保持白色详情画布。
-- [ ] `web/src/features/tasks/TasksPage.tsx`：复刻 Desktop 列/卡片视觉层级，增加 Track 筛选、Assignee/Status/Track 分组、空列开关及 URL search 同步。
+- [x] `web/src/features/channels/ChannelsPage.tsx`：保留统一头像与 Markdown，传递真实 `isAgent`，并接入首次/切换/发送/实时消息滚动锚点。
+- [x] `web/src/features/calendar/CalendarPage.tsx`：对齐 Sidebar/Toolbar、Day/Week 与 Month 的 `/60` 轻量结构线并保持白色详情画布。
+- [x] `web/src/features/tasks/TasksPage.tsx`：复刻 Desktop 列/卡片视觉层级，增加 Track 筛选、Assignee/Status/Track 分组、空列开关及 URL search 同步。
 - [ ] `web/src/features/tasks/types.ts`：对齐 Desktop Task priority、due timestamp 与 TaskExecution 类型，使用明确 null 语义。
 - [ ] `web/src/features/tasks/eventCodec.ts`：对齐 Desktop Task 字段解析，并严格解析、验证最新 task execution state。
 - [ ] `web/src/features/tasks/taskPresentation.ts`：提供 Track 名称、assignee profile、due/overdue 和状态 badge 的 browser-safe 纯呈现投影。
@@ -351,7 +351,7 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - [ ] `web/tests/e2e/task-presentation.spec.ts`：覆盖完整卡片字段、Agent assignee 默认色、三种分组、列排序、URL 恢复、Track 筛选和 execution 防伪。
 - [ ] `web/tests/e2e/avatar-identity.spec.ts`：覆盖 Agent/User 默认色、真实图片优先、图片失败回退及跨 Sidebar/消息/mention 的一致性。
 - [ ] `web/tests/e2e/message-scroll.spec.ts`：覆盖长 DM 首次进入、会话切换、底部新消息、历史阅读不抢位、发送贴底、异步行高和 iPad viewport。
-- [ ] `web/tests/e2e/work-console.spec.ts`：在现有身份、消息呈现测试上补充 Task 卡片边框/hover、Track 筛选、空状态、URL 恢复及 Board/List 一致性。
+- [x] `web/tests/e2e/work-console.spec.ts`：覆盖 Task 完整卡片、Track 筛选、三种分组、Board/List、会话底部定位和 Agent/User 默认头像色。
 - [ ] `web/tests/e2e/message-mentions.spec.ts`：覆盖 Channel `@Agent` 候选、键盘/触控选择、p tag、同名歧义和 DM 自动 recipient。
 - [ ] `web/tests/e2e/message-timeline.spec.ts`：用乱序、同秒、reply、delete、edit、reaction fixture 对照 Desktop 投影与 row 顺序。
 - [ ] `web/tests/e2e/message-presentation.spec.ts`：覆盖 Agent 头像、图片失败回退、Markdown/GFM、危险输入和 iPad 横向溢出。
@@ -404,3 +404,8 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - Web check、E2E build 通过；Chrome、iPad 横屏、iPad 竖屏完整矩阵 62 项通过。
 - 本轮实现 commit：`12fb89756 fix(web): match desktop message presentation`；
 - Cloudflare Pages 部署：`0c218edf`，生产域名确认加载 `index-DqqnDaEf.js` 与 `index-CgyV829m.css`。
+- 本轮实现 commit：`5e47071fe fix(web): align task and conversation views`；
+- Task Board 默认按 Assignee 分组，支持 Status/Track 分组、Track 筛选、空列开关，并显示描述、状态、Track、标签计数、priority、due 和真实 assignee。
+- Agent/User 无图片回退分别使用 primary/secondary；DM/Channel 首次进入定位底部；Calendar 三种视图结构线已弱化。
+- Web check 通过；本轮相关 Chrome/iPad 用例全部通过，完整矩阵 70/71 首轮通过，唯一外部 GitHub 新窗口超时用例单独复跑通过。
+- Cloudflare Pages 部署：`26490388`，生产域名确认加载 `index-Dn7rCuJO.js` 与 `index-peKl3Z-b.css`。
