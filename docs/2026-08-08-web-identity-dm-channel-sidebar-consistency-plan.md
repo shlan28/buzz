@@ -1,5 +1,5 @@
 > 更新日期：2026-08-08
-> 更新说明：在已部署的身份、DM 和实时消息修复基础上，补充 Agent/User 默认头像身份色、消息 Markdown、会话首次进入底部定位、安全内容面板、导航图标，以及 Task 卡片完整信息、视觉层级、Track 筛选和 Assignee/Status/Track 分组一致性要求。
+> 更新说明：在已部署的身份、DM 和实时消息修复基础上，补充 Agent/User 默认头像身份色、消息 Markdown、会话首次进入底部定位、安全内容面板、Calendar 三视图轻边框、导航图标，以及 Task 完整呈现与分组筛选要求。
 
 # Web 身份、DM、Channel 与 Sidebar 一致性修复方案
 
@@ -167,6 +167,12 @@ Web 时间线当前没有滚动锚点逻辑，进入长 DM 时停留在列表顶
 - Markdown、头像或图片加载导致行高变化时，如果仍处于贴底状态，应在布局稳定后继续追到底部；若正在阅读历史，则保持可见消息锚点；
 - 空会话、短于视口的会话、iPad 软键盘收起/展开不能产生错误跳动。
 
+### 1.17 Calendar 三种视图边框过重
+
+Web 的 Day、Week、Month 网格目前都使用不透明 `border-border`，在已改为白色的内容画布上对比明显过强。Desktop 对 Calendar 的结构线统一使用 `border-border/60`：Toolbar、Sidebar 分隔、Day/Week 顶栏与日期列、Month 星期标题与日期单元格均如此；Day/Week 小时线进一步使用 `hsl(var(--border) / .5)` 的半透明背景渐变，而不是每个小时格同时画完整横线和竖线。
+
+Web 应复刻这一层级：结构分隔线使用 `/60`，小时刻度线使用 `/50`，事件块继续保留清晰的 primary 左边框；今天、选中事件和 hover 通过背景色表达，不能再靠加重网格边框。Day 与 Week 共用同一 TimeGrid 规则，Month 单独覆盖 7×6 网格，三种视图都要在 Light/Dark 下验收。
+
 ## 二、产品目标
 
 - Sidebar profile 显示当前 Buzz 用户真实名字与头像；
@@ -186,6 +192,7 @@ Web 时间线当前没有滚动锚点逻辑，进入长 DM 时停留在列表顶
 - Task 卡片完整显示 Desktop 的描述、状态、执行状态、Track、标签计数、优先级、到期日和 assignee 信息。
 - 无真实头像时 Agent 使用 primary 默认头像、普通 User 使用 secondary，所有页面保持一致。
 - 首次进入或切换 DM/Channel 时默认显示最新消息，阅读历史时不被实时回复强制拉回底部。
+- Calendar Day、Week、Month 使用 Desktop 的轻量结构线与小时刻度，白色画布上不再出现重网格。
 
 ## 三、统一数据模型
 
@@ -300,6 +307,8 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - 用户主动上滚超过 Desktop 的 32px 底部阈值后，新消息不改变当前阅读锚点；回到底部后恢复贴底。
 - 从 Web 发送消息时触发一次性到底部意图；历史补载和同一批数据刷新不能误触发。
 - Markdown/图片异步增高、iPad viewport/软键盘变化时，贴底状态继续落在底部，历史阅读状态保持原锚点。
+- Calendar Sidebar/Toolbar/Day/Week/Month 结构线计算颜色为 `border/60`，小时刻度为 `border/50`；事件 primary 边框不被弱化。
+- 三种 Calendar 视图在 Light/Dark 与 iPad 横竖屏下均保持可辨识但不抢眼的网格层级。
 
 ## 七、Todo List
 
@@ -330,7 +339,7 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - [ ] `web/src/features/settings/SettingsPage.tsx`：保留已完成的真实用户 profile，并让 Settings 主内容区域使用统一内容面板背景语义。
 - [ ] `web/src/features/inbox/InboxPage.tsx`：移除页面级 Shell，消费共享 Provider。
 - [ ] `web/src/features/channels/ChannelsPage.tsx`：保留统一头像与 Markdown，传递真实 `isAgent`，并接入首次/切换/发送/实时消息滚动锚点。
-- [ ] `web/src/features/calendar/CalendarPage.tsx`：移除页面级 Shell、保留 Sidebar，并让 Calendar 画布和事件详情使用统一内容面板背景语义。
+- [ ] `web/src/features/calendar/CalendarPage.tsx`：对齐 Sidebar/Toolbar、Day/Week `/60` 结构线、`/50` 小时线和 Month 网格，并保持白色详情画布。
 - [ ] `web/src/features/tasks/TasksPage.tsx`：复刻 Desktop 列/卡片视觉层级，增加 Track 筛选、Assignee/Status/Track 分组、空列开关及 URL search 同步。
 - [ ] `web/src/features/tasks/types.ts`：对齐 Desktop Task priority、due timestamp 与 TaskExecution 类型，使用明确 null 语义。
 - [ ] `web/src/features/tasks/eventCodec.ts`：对齐 Desktop Task 字段解析，并严格解析、验证最新 task execution state。
@@ -346,7 +355,7 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - [ ] `web/tests/e2e/message-mentions.spec.ts`：覆盖 Channel `@Agent` 候选、键盘/触控选择、p tag、同名歧义和 DM 自动 recipient。
 - [ ] `web/tests/e2e/message-timeline.spec.ts`：用乱序、同秒、reply、delete、edit、reaction fixture 对照 Desktop 投影与 row 顺序。
 - [ ] `web/tests/e2e/message-presentation.spec.ts`：覆盖 Agent 头像、图片失败回退、Markdown/GFM、危险输入和 iPad 横向溢出。
-- [ ] `web/tests/e2e/desktop-parity.visual.spec.ts`：覆盖浅色白色详情面板、深色暖黑画布、Sidebar 色彩及 Tasks/Tracks 图标一致性。
+- [ ] `web/tests/e2e/desktop-parity.visual.spec.ts`：覆盖内容画布、Sidebar、导航图标及 Calendar Day/Week/Month 在 Light/Dark 下的边框透明度。
 - [ ] `web/tests/helpers/desktopParityFixtures.ts`：增加 profile、未加入、已归档和隐藏 DM fixture。
 - [ ] `docs/2026-08-08-web-identity-dm-channel-sidebar-consistency-plan.md`：记录验证、部署号和 commit。
 
@@ -368,6 +377,7 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - Task 卡片在相同 fixture 下与 Desktop 显示相同的信息集合、顺序、状态颜色和缺省规则；
 - 无真实头像时 Agent 与 User 可通过一致的 primary/secondary 默认头像视觉区分，且身份判断不依赖名称猜测；
 - 首次进入长 DM/Channel 时直接看到最新消息；实时回复、发送、历史阅读与布局变化遵循 Desktop 的锚点策略；
+- Calendar Day、Week、Month 的结构线、小时刻度、事件强调和 hover 层级与 Desktop 一致；
 - 完整 Chrome、iPad 横屏、iPad 竖屏 E2E 与视觉回归通过后再部署。
 
 ## 九、建设性建议
