@@ -4,7 +4,11 @@ import {
   generateSecretKey,
   getPublicKey,
 } from "nostr-tools/pure";
-import { assertSignedEventMatches } from "../../src/shared/api/nip46Client";
+import {
+  assertSignedEventMatches,
+  isSignerTransportError,
+  SIGNER_HEARTBEAT_INTERVAL_MS,
+} from "../../src/shared/api/nip46Client";
 import {
   makePairedNip98AuthHeader,
   relayQueryErrorMessage,
@@ -56,6 +60,22 @@ test("accepts an exact valid signer response and rejects tampering", () => {
   expect(() =>
     assertSignedEventMatches(unsigned, signed, "ff".repeat(32)),
   ).toThrow("invalid signed event");
+});
+
+test("classifies only recoverable signer transport failures for read retries", () => {
+  expect(SIGNER_HEARTBEAT_INTERVAL_MS).toBe(25_000);
+  expect(
+    isSignerTransportError(new Error("Remote signer connection closed.")),
+  ).toBe(true);
+  expect(
+    isSignerTransportError(new Error("Desktop did not answer get_public_key.")),
+  ).toBe(true);
+  expect(isSignerTransportError(new Error("invalid connection secret"))).toBe(
+    false,
+  );
+  expect(
+    isSignerTransportError(new Error("event kind 1 is not permitted")),
+  ).toBe(false);
 });
 
 test("builds a payload-bound NIP-98 query authorization", async () => {

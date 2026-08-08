@@ -13,6 +13,7 @@ const ALLOWED_SIGN_KINDS: &[u16] = &[22_242, 27_235];
 const SIGNER_READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 const SIGNER_RECONNECT_MIN_DELAY: std::time::Duration = std::time::Duration::from_millis(250);
 const SIGNER_RECONNECT_MAX_DELAY: std::time::Duration = std::time::Duration::from_secs(5);
+const SIGNER_HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(25);
 
 struct SignerTask {
     cancel: CancellationToken,
@@ -170,10 +171,19 @@ async fn remote_signer_connection(
             .send(())
             .map_err(|_| "remote signer ready receiver closed".to_string())?;
     }
+    let mut heartbeat = tokio::time::interval_at(
+        tokio::time::Instant::now() + SIGNER_HEARTBEAT_INTERVAL,
+        SIGNER_HEARTBEAT_INTERVAL,
+    );
+    heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
     loop {
         tokio::select! {
             _ = cancel.cancelled() => break,
+            _ = heartbeat.tick() => {
+                write.send(Message::Ping(Vec::new().into())).await
+                    .map_err(|error| format!("remote signer heartbeat failed: {error}"))?;
+            }
             message = read.next() => {
                 let Some(message) = message else {
                     return Err("remote signer relay closed connection".into());
@@ -348,7 +358,7 @@ mod tests {
 
     use super::{
         await_signer_ready, handle_request, is_signer_eose, next_reconnect_delay, RpcRequest,
-        SIGNER_RECONNECT_MAX_DELAY, SIGNER_RECONNECT_MIN_DELAY,
+        SIGNER_HEARTBEAT_INTERVAL, SIGNER_RECONNECT_MAX_DELAY, SIGNER_RECONNECT_MIN_DELAY,
     };
     use nostr::Keys;
     use tokio::sync::oneshot;
@@ -421,6 +431,12 @@ mod tests {
         }
         assert_eq!(delay, SIGNER_RECONNECT_MAX_DELAY);
         assert_eq!(next_reconnect_delay(delay), SIGNER_RECONNECT_MAX_DELAY);
+    }
+
+    #[test]
+    fn signer_heartbeat_stays_below_public_proxy_idle_timeout() {
+        assert_eq!(SIGNER_HEARTBEAT_INTERVAL, Duration::from_secs(25));
+        assert!(SIGNER_HEARTBEAT_INTERVAL < Duration::from_secs(60));
     }
 
     #[test]

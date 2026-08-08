@@ -21,12 +21,21 @@ export function AsyncStateView({
       </div>
     );
   const pair = status === "pair-required";
+  const signerUnavailable =
+    !pair &&
+    (message?.includes("Remote signer") ||
+      message?.includes("Desktop") ||
+      message?.includes("signer"));
   return (
     <div className="flex flex-1 items-center justify-center p-6 text-center">
       <div className="max-w-sm">
         <Unplug className="mx-auto mb-3 size-8 text-muted-foreground" />
         <h2 className="text-base font-semibold">
-          {pair ? "Pair with your Mac" : "Mac signer or Relay unavailable"}
+          {pair
+            ? "Pair with your Mac"
+            : signerUnavailable
+              ? "Mac signer is offline"
+              : "Relay data is unavailable"}
         </h2>
         <p className="mt-2 text-sm text-muted-foreground">
           {pair ? "This browser has no paired device credential yet." : message}

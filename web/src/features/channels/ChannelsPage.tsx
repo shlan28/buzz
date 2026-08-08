@@ -34,12 +34,16 @@ export function ChannelsPage() {
               </h1>
             </div>
             <button
-              aria-label="Refresh"
+              aria-label={state.refreshing ? "Refreshing" : "Refresh"}
               className="rounded-md p-2 text-muted-foreground hover:bg-accent"
+              disabled={state.refreshing}
               onClick={refresh}
+              title={state.refreshError}
               type="button"
             >
-              <RefreshCw className="size-4" />
+              <RefreshCw
+                className={`size-4 ${state.refreshing ? "animate-spin" : ""}`}
+              />
             </button>
           </header>
           <div className="flex min-h-0 flex-1">

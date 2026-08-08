@@ -129,6 +129,27 @@ async fn signer_listener_rejects_pairing_kind() {
     assert!(response[2].as_str().unwrap_or_default().contains("24133"));
 }
 
+#[tokio::test]
+async fn signer_heartbeat_keeps_subscription_usable() {
+    let url = start_signer_relay().await;
+    let mut subscriber = connect(&url).await;
+    send(
+        &mut subscriber,
+        &json!(["REQ", "signer", {"kinds": [24133], "#p": [P_A]}]),
+    )
+    .await;
+    assert_eq!(recv(&mut subscriber).await[0], "EOSE");
+
+    send(&mut subscriber, &json!(["PING"])).await;
+    assert_eq!(recv(&mut subscriber).await, json!(["PONG"]));
+
+    let (secret, pubkey) = gen_keypair();
+    let mut publisher = connect(&url).await;
+    let event = make_signed_event_for_kind(&secret, &pubkey, P_A, 1, 24133);
+    send(&mut publisher, &json!(["EVENT", event])).await;
+    assert_eq!(recv(&mut subscriber).await[0], "EVENT");
+}
+
 /// Generate a random keypair; returns `(SecretKey, pubkey_hex)`.
 fn gen_keypair() -> (SecretKey, String) {
     let secp = Secp256k1::new();

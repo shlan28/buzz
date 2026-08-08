@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   loadWorkConsoleData,
   type WorkConsoleData,
@@ -8,17 +8,36 @@ export type WorkConsoleState =
   | { status: "loading" }
   | { status: "pair-required" }
   | { status: "error"; message: string }
-  | { status: "ready"; data: WorkConsoleData };
+  | {
+      status: "ready";
+      data: WorkConsoleData;
+      refreshing?: boolean;
+      refreshError?: string;
+    };
 
 export function useWorkConsoleData() {
   const [state, setState] = useState<WorkConsoleState>({ status: "loading" });
+  const retainedData = useRef<WorkConsoleData | undefined>(undefined);
   const refresh = useCallback(async () => {
-    setState({ status: "loading" });
+    setState((current) => {
+      if (current.status !== "ready") return { status: "loading" };
+      return { status: "ready", data: current.data, refreshing: true };
+    });
     try {
-      setState({ status: "ready", data: await loadWorkConsoleData() });
+      const data = await loadWorkConsoleData();
+      retainedData.current = data;
+      setState({ status: "ready", data });
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Could not load Buzz data.";
+      if (retainedData.current) {
+        setState({
+          status: "ready",
+          data: retainedData.current,
+          refreshError: message,
+        });
+        return;
+      }
       setState(
         message === "PAIR_REQUIRED"
           ? { status: "pair-required" }

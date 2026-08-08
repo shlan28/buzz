@@ -1,5 +1,5 @@
 > 更新日期：2026-08-08
-> 更新说明：在 Desktop dev 启动说明基础上，增加 Web/PWA 本地开发、Pair/Remote Signer、Cloudflare Tunnel 公网入口、Cloudflare Pages 线上部署、版本验证和排障流程；补充配对后真实工作数据加载、完整 E2E 矩阵和 signer 离线恢复说明。
+> 更新说明：在 Desktop dev 启动说明基础上，增加 Web/PWA 本地开发、Pair/Remote Signer、Cloudflare Tunnel 公网入口、Cloudflare Pages 线上部署、版本验证和排障流程；补充配对后真实工作数据加载、完整 E2E 矩阵和 signer 离线恢复说明；增加 `/signer` 25 秒心跳与公网五分钟稳定性验收。
 
 # Buzz 本地启动与 Web 部署指南
 
@@ -346,10 +346,13 @@ curl --fail --silent --show-error \
 | Pair Link 连接失败 | 5000 端口、`/pair` ingress、Pair Link 是否过期 |
 | SAS 两边不一致 | 立即拒绝，确认 Web 是最新版，重新生成 Pair Link；不得绕过 SAS |
 | SAS 一致但 signer 超时 | 5001 端口、`/signer` ingress、Desktop 是否仍在运行 |
+| 约两分钟后 signer 断开 | 查看 `buzz-pair-relay.log` 的 `duration_ms`；Desktop 和 Web 应每 25 秒发送心跳，不应持续出现约 125 秒的空闲关闭 |
 | Pair 成功但页面没有数据 | 先刷新 `/app/channels`；确认 Desktop signer 在线、`VITE_RELAY_URL=wss://achoverse.xyz`，再检查 Relay AUTH 和浏览器控制台；不要重新导入 user nsec |
 | 重启 Desktop 后 Web 提示 signer 离线 | 当前授权由 Desktop 进程持有；重新打开 Desktop，若授权记录已失效则生成新的 Web Pair Link 重新配对 |
 | Pages 单次地址是新版，自定义域名是旧版 | 对比 hashed asset，等待边缘更新或使用查询参数再验证 |
 | Wrangler 提示未登录 | 执行 `npx --yes wrangler login` 重新授权 |
+
+公网 signer 改动后的最低人工验收是：保持 Desktop 和 Web 打开至少五分钟，在开始和结束时分别刷新一次 Channels、Tasks 或 Tracks。两次都应直接成功，不得要求重新 Pair。
 
 ## 九、Todolist
 

@@ -4,6 +4,7 @@ import type { SignedNostrEvent, UnsignedNostrEvent } from "../lib/nostr-signer";
 
 const NOSTR_CONNECT_KIND = 24_133;
 const REQUEST_TIMEOUT_MS = 10_000;
+export const SIGNER_HEARTBEAT_INTERVAL_MS = 25_000;
 
 type RpcResponse = {
   id: string;
@@ -44,6 +45,9 @@ export function parseBunkerUri(
 
 export class Nip46Client {
   private socket?: WebSocket;
+  private openPromise?: Promise<void>;
+  private heartbeatTimer?: number;
+  private manuallyClosed = false;
   private readonly pending = new Map<string, PendingRequest>();
   private readonly clientPubkey: string;
   private readonly conversationKey: Uint8Array;
@@ -78,11 +82,16 @@ export class Nip46Client {
 
   async open(): Promise<void> {
     if (this.socket?.readyState === WebSocket.OPEN) return;
-    await this.openSocket();
+    if (this.openPromise) return this.openPromise;
+    this.manuallyClosed = false;
+    this.openPromise = this.openSocket().finally(() => {
+      this.openPromise = undefined;
+    });
+    return this.openPromise;
   }
 
   async getPublicKey(): Promise<string> {
-    const pubkey = await this.request("get_public_key", []);
+    const pubkey = await this.retryReadRequest("get_public_key", []);
     if (!/^[0-9a-f]{64}$/.test(pubkey)) {
       throw new Error("Desktop returned an invalid user public key.");
     }
@@ -102,20 +111,22 @@ export class Nip46Client {
   }
 
   close(): void {
-    this.socket?.close();
+    this.manuallyClosed = true;
+    this.stopHeartbeat();
+    const socket = this.socket;
     this.socket = undefined;
-    for (const pending of this.pending.values()) {
-      window.clearTimeout(pending.timeout);
-      pending.reject(new Error("Remote signer connection closed."));
-    }
-    this.pending.clear();
+    socket?.close();
+    this.rejectPending(new Error("Remote signer connection closed."));
   }
 
   private openSocket(): Promise<void> {
     return new Promise((resolve, reject) => {
       const socket = new WebSocket(this.connection.relayUrl);
+      let opened = false;
       this.socket = socket;
       socket.addEventListener("open", () => {
+        if (socket !== this.socket) return;
+        opened = true;
         socket.send(
           JSON.stringify([
             "REQ",
@@ -123,14 +134,64 @@ export class Nip46Client {
             { kinds: [NOSTR_CONNECT_KIND], "#p": [this.clientPubkey] },
           ]),
         );
+        this.startHeartbeat(socket);
         resolve();
       });
       socket.addEventListener("message", (event) => this.handleMessage(event));
-      socket.addEventListener("error", () =>
-        reject(new Error("Could not reach the Desktop signer relay.")),
-      );
-      socket.addEventListener("close", () => this.close());
+      socket.addEventListener("error", () => {
+        if (!opened)
+          reject(new Error("Could not reach the Desktop signer relay."));
+      });
+      socket.addEventListener("close", () => {
+        this.handleSocketClose(socket);
+        if (!opened)
+          reject(new Error("Could not reach the Desktop signer relay."));
+      });
     });
+  }
+
+  private async retryReadRequest(
+    method: "get_public_key",
+    params: string[],
+  ): Promise<string> {
+    try {
+      return await this.request(method, params);
+    } catch (error) {
+      if (this.manuallyClosed || !isSignerTransportError(error)) throw error;
+      await this.open();
+      return this.request(method, params);
+    }
+  }
+
+  private startHeartbeat(socket: WebSocket): void {
+    this.stopHeartbeat();
+    this.heartbeatTimer = window.setInterval(() => {
+      if (socket === this.socket && socket.readyState === WebSocket.OPEN) {
+        socket.send('["PING"]');
+      }
+    }, SIGNER_HEARTBEAT_INTERVAL_MS);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer !== undefined) {
+      window.clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = undefined;
+    }
+  }
+
+  private handleSocketClose(socket: WebSocket): void {
+    if (socket !== this.socket) return;
+    this.stopHeartbeat();
+    this.socket = undefined;
+    this.rejectPending(new Error("Remote signer connection closed."));
+  }
+
+  private rejectPending(error: Error): void {
+    for (const pending of this.pending.values()) {
+      window.clearTimeout(pending.timeout);
+      pending.reject(error);
+    }
+    this.pending.clear();
   }
 
   private request(method: string, params: string[]): Promise<string> {
@@ -199,6 +260,15 @@ export class Nip46Client {
       // Invalid, spoofed, or undecryptable events are ignored.
     }
   }
+}
+
+export function isSignerTransportError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.message === "Remote signer connection closed." ||
+      error.message === "Remote signer is offline." ||
+      error.message.startsWith("Desktop did not answer "))
+  );
 }
 
 export function assertSignedEventMatches(
