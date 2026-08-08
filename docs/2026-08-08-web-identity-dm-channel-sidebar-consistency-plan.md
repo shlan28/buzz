@@ -1,5 +1,5 @@
 > 更新日期：2026-08-08
-> 更新说明：补充 Web 消息能发出但无法收到 Agent 后续回复的问题；方案覆盖 profile、成员投影、提及候选、实时消息订阅、发送回显、断线补偿和持久 Sidebar。
+> 更新说明：明确 Web 消息时间线不再使用自制聚合与排序，直接以 Desktop 的消息投影、稳定排序、日期分组和 MessageRow 结构为事实源。
 
 # Web 身份、DM、Channel 与 Sidebar 一致性修复方案
 
@@ -68,6 +68,28 @@ Desktop 的产品语义是：
 4. 路由切换时只切换 Channel subscription，不重建整个工作台数据；
 5. WebSocket 断线重连后执行一次 HTTP catch-up，再恢复实时订阅；
 6. 页面从后台或设备睡眠恢复时执行 catch-up，避免漏掉 Agent 回复。
+
+### 1.8 DM 消息聚合和展示顺序错误
+
+Web 当前没有对消息排序，只按 `/query` 返回数组顺序展示；同时用“同 author 且相差小于 300 秒”自行隐藏头像和作者。这不是 Desktop 的时间线规则，因此会出现：
+
+- 同秒消息顺序不稳定；
+- 历史查询和实时消息合并后前后颠倒；
+- thread reply 被当成普通顶层消息；
+- deletion/edit/reaction 等事件没有经过投影；
+- 日期分隔缺失；
+- 连续消息被错误聚合。
+
+本轮不再维护 Web 专属的简化时间线。直接以 Desktop 下列纯逻辑与 DOM/class 为事实源：
+
+- `messageQueryKeys.ts`：按 `created_at ASC, event id ASC` 去重并稳定排序；
+- `formatTimelineMessages.ts`：过滤 deletion target、投影 edit/reaction/system/content；
+- `threadPanel.ts`：区分顶层消息、thread reply 和 summary；
+- `timelineItems.ts`：日期分组与系统消息分组；
+- `messageGrouping.ts`：连续消息作者/时间边界；
+- `TimelineMessageList.tsx`、`MessageRow.tsx`、`DayDivider.tsx`：保持 Desktop DOM、间距、头像、作者、时间与正文样式。
+
+这些 browser-safe 纯逻辑应提取到共享包或逐文件移植；不能直接从 Web 跨目录 import Desktop 的 Tauri hooks，但不能再次自行发明另一套规则。
 
 ## 二、产品目标
 
@@ -163,6 +185,12 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - 切换 DM/Channel 时旧 `#h` 订阅被关闭，新订阅只接收当前 channel；
 - 伪造签名、错误 `h` tag、错误 subscription id 的事件必须忽略；
 - iPad 切后台再回来能够补回后台期间的回复。
+- 输入顺序随机的消息必须输出为 `created_at ASC, event id ASC`；
+- HTTP 快照、发送回显和实时事件合并后顺序稳定且 event id 唯一；
+- thread reply 不作为普通顶层消息重复展示；
+- deletion target 消失，edit/reaction 不作为普通正文行；
+- 日期分隔和连续消息分组与 Desktop 固定 fixture 的投影完全一致；
+- Web 与 Desktop 使用相同 fixture 时，时间线 row keys、row kinds、作者、时间和顺序逐项相等。
 
 ## 七、Todo List
 
@@ -176,6 +204,10 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - [ ] `web/src/features/messages/MentionAutocomplete.tsx`：实现键盘、触控可用的 `@` 候选浮层和明确选择。
 - [ ] `web/src/features/messages/MessageComposer.tsx`：维护已选择 mention 的名称到 pubkey 绑定，并把 pubkeys 交给发送层。
 - [ ] `web/src/features/messages/MessageTimeline.tsx`：使用共享 profile lookup 渲染真实作者名称、头像和 Agent 标识。
+- [ ] `web/src/features/messages/messageProjection.ts`：移植 Desktop 去重、`created_at + id` 稳定排序、删除/edit/reaction 和 thread 顶层投影规则。
+- [ ] `web/src/features/messages/messageGrouping.ts`：移植 Desktop 连续消息与日期分组边界，不再使用 Web 的 5 分钟简化判断。
+- [ ] `web/src/features/messages/MessageRow.tsx`：按 Desktop DOM/class 渲染头像、作者、时间、正文和连续消息状态。
+- [ ] `web/src/features/messages/DayDivider.tsx`：按 Desktop 时间格式与布局渲染日期分隔。
 - [ ] `web/src/features/messages/channelMessageSession.ts`：实现当前 Channel 的实时订阅、验签、按 id 去重、断线重连和 HTTP catch-up。
 - [ ] `web/src/features/messages/useChannelMessages.ts`：合并初始快照、发送回显与实时回复，并在 channel id 变化时切换订阅。
 - [ ] `web/src/shared/api/communitySession.ts`：分段查询 profile/membership/visibility，生成与 Desktop 一致的可见 Channel/DM 数据。
@@ -193,6 +225,7 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - [ ] `web/tests/e2e/domain-codecs.spec.ts`：覆盖 profile、membership、archived、hidden DM 和 latest-state 投影。
 - [ ] `web/tests/e2e/work-console.spec.ts`：覆盖真实用户名、Agent DM 名称、数量一致和 Sidebar DOM 不卸载。
 - [ ] `web/tests/e2e/message-mentions.spec.ts`：覆盖 Channel `@Agent` 候选、键盘/触控选择、p tag、同名歧义和 DM 自动 recipient。
+- [ ] `web/tests/e2e/message-timeline.spec.ts`：用乱序、同秒、reply、delete、edit、reaction fixture 对照 Desktop 投影与 row 顺序。
 - [ ] `web/tests/helpers/desktopParityFixtures.ts`：增加 profile、未加入、已归档和隐藏 DM fixture。
 - [ ] `docs/2026-08-08-web-identity-dm-channel-sidebar-consistency-plan.md`：记录验证、部署号和 commit。
 
@@ -203,6 +236,7 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - Web Channel/DM 时间线中的 Agent 作者名称与 Desktop 一致；
 - Channel 中可以通过 `@` 候选准确提及 Agent，发布事件含正确 p tag；
 - 从 Web 发出 DM/Channel 消息后立即回显，Agent 延迟回复无需刷新自动出现；
+- DM/Channel 消息顺序、日期分组、连续消息聚合和顶层/thread 投影与 Desktop 一致；
 - Web Sidebar 的 Channel/DM id 集合与 Desktop 一致，而不只比较数量；
 - 六个标签连续切换时 Sidebar 内容始终可见且 DOM identity 不变；
 - 完整 Chrome、iPad 横屏、iPad 竖屏 E2E 与视觉回归通过后再部署。
