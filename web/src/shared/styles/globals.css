@@ -36,10 +36,14 @@
     --sidebar-foreground: 234 16.02% 35.49%;
     --sidebar-primary: 266 85.05% 58.04%;
     --sidebar-primary-foreground: 220 23.08% 94.9%;
+    --sidebar-active: var(--sidebar-primary);
+    --sidebar-active-foreground: var(--sidebar-primary-foreground);
     --sidebar-accent: 220 23.08% 94.9%;
     --sidebar-accent-foreground: 234 16.02% 35.49%;
     --sidebar-border: 225 13.56% 76.86%;
     --sidebar-ring: 225 13.56% 76.86%;
+    --buzz-gradient-top: #e6e6b6;
+    --buzz-gradient-bottom: #c4d0da;
   }
 
   .dark {
@@ -74,10 +78,14 @@
     --sidebar-foreground: 227 68.25% 87.65%;
     --sidebar-primary: 267 82.69% 79.61%;
     --sidebar-primary-foreground: 232 23.4% 18.43%;
+    --sidebar-active: var(--sidebar-primary);
+    --sidebar-active-foreground: var(--sidebar-primary-foreground);
     --sidebar-accent: 232 23.4% 18.43%;
     --sidebar-accent-foreground: 227 68.25% 87.65%;
     --sidebar-border: 231 15.61% 33.92%;
     --sidebar-ring: 231 15.61% 33.92%;
+    --buzz-gradient-top: #4a4616;
+    --buzz-gradient-bottom: #0a1423;
   }
 
   * {
@@ -97,4 +105,34 @@
     @apply bg-background text-foreground antialiased;
     font-family: "Inter Variable", Inter, "Avenir Next", "Segoe UI", sans-serif;
   }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    min-height: 100%;
+    width: 100%;
+  }
+
+  html,
+  body {
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  button:not(:disabled),
+  a[href],
+  [role="button"]:not([aria-disabled="true"]),
+  [role="menuitem"]:not([aria-disabled="true"]),
+  [role="tab"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+}
+
+.buzz-theme-gradient-layer {
+  background: linear-gradient(
+    180deg,
+    var(--buzz-gradient-top),
+    var(--buzz-gradient-bottom)
+  );
 }

@@ -2,6 +2,18 @@
 export default {
   theme: {
     extend: {
+      fontSize: {
+        "2xs": "0.6875rem",
+        "3xs": "0.5rem",
+        badge: "0.625rem",
+        title: ["2.5rem", { lineHeight: "1.15", letterSpacing: "-0.02em" }],
+        "nsec-key": ["2.25rem", { lineHeight: "1.3" }],
+      },
+      boxShadow: {
+        "content-edge": "-1px -1px 0 0 hsl(var(--sidebar-border) / 0.45)",
+        "panel-left":
+          "-1px 0 0 0 hsl(var(--border) / 0.8), -16px 0 32px -12px rgb(0 0 0 / 0.18)",
+      },
       borderRadius: {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
@@ -55,6 +67,8 @@ export default {
           foreground: "hsl(var(--sidebar-foreground))",
           primary: "hsl(var(--sidebar-primary))",
           "primary-foreground": "hsl(var(--sidebar-primary-foreground))",
+          active: "hsl(var(--sidebar-active))",
+          "active-foreground": "hsl(var(--sidebar-active-foreground))",
           accent: "hsl(var(--sidebar-accent))",
           "accent-foreground": "hsl(var(--sidebar-accent-foreground))",
           border: "hsl(var(--sidebar-border))",

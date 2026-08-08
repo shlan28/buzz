@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Buzz">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e6e6b6" />
+      <stop offset="1" stop-color="#c4d0da" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)" />
+  <path d="M148 112h116c77 0 120 31 120 92 0 36-18 62-51 77 43 13 65 44 65 91 0 69-48 104-143 104H148V112Zm104 142c35 0 52-12 52-37 0-24-17-36-52-36h-24v73h24Zm8 153c38 0 57-14 57-42 0-27-19-41-57-41h-32v83h32Z" fill="#8839ef" />
+</svg>

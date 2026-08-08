@@ -1,0 +1,20 @@
+{
+  "name": "Buzz",
+  "short_name": "Buzz",
+  "id": "/app/",
+  "description": "Buzz community and Agent control console",
+  "start_url": "/app/channels",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#eff1f5",
+  "theme_color": "#e6e6b6",
+  "icons": [
+    {
+      "src": "/buzz-pwa-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

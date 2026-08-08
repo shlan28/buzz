@@ -1,7 +1,7 @@
 # Buzz Web/PWA iPad 控制台方案
 
 > 更新日期：2026-08-08
-> 更新说明：根据产品确认将“与 Desktop 客户端视觉完全一致”提升为硬约束；移除独立 NavigationRail 视觉路线，改为复刻 Desktop AppShell、Sidebar、内容表面和业务页面，并增加视觉基线、截图回归和逐组件一致性验收。
+> 更新说明：根据产品确认将“与 Desktop 客户端视觉完全一致”提升为硬约束；移除独立 NavigationRail 视觉路线，改为复刻 Desktop AppShell、Sidebar、内容表面和业务页面；经协议复核补充专用 Remote Signer 通道，明确现有短时 Pair Relay 和主业务 Relay 均不能直接承担长期 NIP-46。
 
 ## 一、产品结论
 
@@ -240,6 +240,24 @@ Web 仍需要一份 NIP-46 client/device key来标识配对连接。这不是 Us
 如果未来要求 Desktop 离线时仍可读取受保护数据，应设计 User 签发、Relay 可验证、可撤销、有限期、有限 scope 的设备能力。它需要 Relay 鉴权模型扩展，不能用前端本地标记冒充权限。
 
 第一版不做，避免同时引入新的 delegated identity 安全边界。
+
+### 4.6 NIP-46 传输通道
+
+现有 Pair Relay 只服务短时 `kind:24134` 配对，连接和事件数量都有严格限制，不能在配对完成后继续承载长期 NIP-46 RPC。主业务 Relay 虽可转发 ephemeral event，但 Web device key 不是 community member，不能为了远程签名绕过 NIP-42/NIP-43 membership；把它伪装成 Agent 或普通成员会扩大权限。
+
+因此第一版增加独立 Remote Signer 通道：
+
+- 仅允许 NIP-46 `kind:24133`；
+- 严格按 `p` tag 单播，不做 community 广播；
+- 不持久化请求和响应；
+- 校验 event 签名、接收方、连接 secret、request id 和时效；
+- 限制连接数、帧大小、请求频率和在途请求；
+- Pair 完成后从短时 Pair Relay 切换到 signer 通道；
+- signer 通道只负责密文转发，不能读取 NIP-44 plaintext；
+- 撤销设备后立即断开连接并拒绝重连；
+- 不改变业务 Relay 的 community membership 规则。
+
+这条通道可以作为 Relay 的独立 route/sidecar 部署，但必须与业务 event ingest 分离，不能让 `24133` 进入 Postgres、搜索、普通订阅或审计正文。
 
 ## 五、Desktop 视觉一致性与 iPad 布局
 
@@ -511,6 +529,7 @@ service worker 只缓存：
 
 - Web 实现 NIP-AB target；
 - Desktop 增加 NIP-46 signer Pair 模式；
+- 增加专用 Remote Signer 单播通道，不复用短时 Pair Relay；
 - signer policy、设备列表、撤销和在线状态；
 - NIP-42/NIP-98 通过远程 signer 完成；
 - 不传 nsec。
@@ -604,16 +623,16 @@ Task Progress:
 
 ### Phase 1：PWA Shell
 
-- [ ] `web/tailwind.config.js`：对齐 Desktop 字号、阴影、圆角、字体和语义颜色 token。
-- [ ] `web/src/shared/styles/globals.css`：对齐 Desktop Light/Dark/accent、Sidebar 和内容表面变量。
+- [x] `web/tailwind.config.js`：对齐 Desktop 字号、阴影、圆角、字体和语义颜色 token。
+- [x] `web/src/shared/styles/globals.css`：对齐 Desktop Light/Dark/accent、Sidebar 和内容表面变量。
 - [ ] `web/src/shared/styles/desktop-parity.css`：承载 Web 环境所需但与 Desktop 等价的 shell 和触控适配。
 - [ ] `web/package.json`：增加 PWA 构建、测试和依赖配置。
 - [ ] `web/vite.config.ts`：配置 manifest、service worker 和构建缓存策略。
-- [ ] `web/index.html`：增加 iPad/PWA meta、主题色和图标声明。
-- [ ] `web/public/manifest.webmanifest`：定义名称、图标、启动路径和 standalone display。
-- [ ] `web/src/app/routes.ts`：登记 Pair 和认证后工作台路由。
+- [x] `web/index.html`：增加 iPad/PWA meta、主题色和图标声明。
+- [x] `web/public/manifest.webmanifest`：定义名称、图标、启动路径和 standalone display。
+- [x] `web/src/app/routes.ts`：登记 Pair 和认证后工作台路由。
 - [ ] `web/src/app/routes/app.tsx`：建立认证、community 和 signer 状态门。
-- [ ] `web/src/shared/ui/DesktopParityAppShell.tsx`：复刻 Desktop AppShell、AppSidebar、内容表面和详情面板。
+- [x] `web/src/shared/ui/DesktopParityAppShell.tsx`：建立 Desktop AppShell、AppSidebar 与内容表面的第一版浏览器骨架；完整视觉回归仍在 Phase 6 验收。
 - [ ] `web/src/shared/hooks/useAdaptiveLayout.ts`：集中管理断点和 Split View 变化。
 - [ ] `web/src/shared/ui/DesktopParityButton.tsx`：对齐 Desktop Button 的尺寸、variant 和交互状态。
 - [ ] `web/src/shared/ui/DesktopParityBadge.tsx`：对齐 Desktop Badge 和状态语义。
@@ -635,6 +654,9 @@ Task Progress:
 - [ ] `desktop/src-tauri/src/commands/pairing.rs`：增加 NIP-46 signer Pair payload，不再为 Web 发送 nsec。
 - [ ] `desktop/src-tauri/src/commands/remote_signer.rs`：实现设备授权、kind/tag policy、签名和撤销。
 - [ ] `desktop/src/features/settings/PairedWebDevices.tsx`：展示权限、在线状态、最后使用和撤销。
+- [ ] `crates/buzz-relay/src/api/remote_signer.rs`：提供仅转发 `24133`、无持久化、严格单播的 signer WebSocket route。
+- [ ] `crates/buzz-relay/src/api/mod.rs`：注册 Remote Signer route。
+- [ ] `crates/buzz-test-client/tests/e2e_remote_signer.rs`：覆盖 secret、重放、错误接收方、撤销、限流、无持久化和跨社区隔离。
 
 ### Phase 3：Relay Session 与共享领域
 
