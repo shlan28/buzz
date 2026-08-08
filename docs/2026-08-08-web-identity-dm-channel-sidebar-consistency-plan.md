@@ -1,5 +1,5 @@
 > 更新日期：2026-08-08
-> 更新说明：在已部署的身份、DM 和实时消息修复基础上，补充 Agent 头像、消息 Markdown 安全渲染、浅色内容面板白色背景，以及 Tasks/Tracks 导航图标一致性要求。
+> 更新说明：在已部署的身份、DM 和实时消息修复基础上，补充 Agent 头像、消息 Markdown、安全内容面板、导航图标，以及 Task 卡片层级和按 Track 筛选的一致性要求。
 
 # Web 身份、DM、Channel 与 Sidebar 一致性修复方案
 
@@ -121,6 +121,12 @@ Desktop Sidebar 的 Tasks 使用 Lucide `ListTodo`，Tracks 使用 Lucide `Route
 
 Web 应直接使用 Desktop 的同名 Lucide 图标，并保持 `size-4`、`shrink-0`、激活态颜色和折叠态位置不变；不要通过 CSS 或自制 SVG 模拟。
 
+### 1.13 Task 卡片边框过重且缺少 Track 筛选
+
+Web Task Board 当前把白色卡片直接放在白色内容画布上，使用 `border-border`、`shadow-sm`，hover 时上浮并增强阴影。Desktop 则用 `bg-muted/40` 的圆角列承载卡片，卡片使用 `shadow-xs`，hover 为 `border-primary/30 + bg-muted/30`，不做位移。边框观感差异来自整套层级关系，不能只随意降低一条边框透明度。
+
+Web 还缺少 Desktop 顶部的 `Filter by track`：当存在 Track 时显示下拉框，默认 `All tracks`，选择后只显示 `task.trackId` 精确匹配的任务，并同时作用于 Board 与 List。选择应写入 `track` URL search，刷新、前进后退和分享链接后仍能恢复；清除筛选则移除该参数。Track 本身存在但当前没有任务时，应显示明确空状态，而不是悄悄退回全部任务。
+
 ## 二、产品目标
 
 - Sidebar profile 显示当前 Buzz 用户真实名字与头像；
@@ -136,6 +142,7 @@ Web 应直接使用 Desktop 的同名 Lucide 图标，并保持 `size-4`、`shri
 - DM/Channel 正文支持安全 Markdown 与 GFM，排版和 Desktop 保持一致；
 - 浅色模式主内容和所有右侧详情区域为白色，深色模式保持 Desktop 暖黑内容画布。
 - Tasks 使用 `ListTodo`、Tracks 使用 `Route`，尺寸和导航状态与 Desktop 一致。
+- Task Board 的列背景、卡片边框、阴影和 hover 层级与 Desktop 一致；可按 Track 筛选 Board 与 List。
 
 ## 三、统一数据模型
 
@@ -232,6 +239,10 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - 浅色模式 `content-surface`、Task detail、Track detail、Calendar detail 和 Settings 内容画布的计算背景为白色；Sidebar 仍保留原主题色。
 - 深色模式上述区域保持 Desktop 暖黑背景，不被白色规则覆盖。
 - Sidebar 的 Tasks 图标 SVG 对应 `ListTodo`，Tracks 图标 SVG 对应 `Route`，并在普通、激活和折叠状态保持 16px 几何尺寸。
+- Task Board 列使用 Desktop 的 muted 容器层级，卡片不再使用上浮和重阴影；普通与 hover 边框计算颜色纳入视觉回归。
+- 存在 Track 时显示 `Filter by track`，默认 `All tracks`；选择 Track 后 Board、List 仅显示匹配 `trackId` 的任务。
+- Track 筛选同步到 URL `track` 参数，刷新和浏览器前进后退可恢复；清除后移除参数。
+- 所选 Track 没有任务时显示筛选空状态；任务没有 `trackId` 时不进入任一具体 Track 筛选结果。
 
 ## 七、Todo List
 
@@ -262,11 +273,11 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - [ ] `web/src/features/inbox/InboxPage.tsx`：移除页面级 Shell，消费共享 Provider。
 - [ ] `web/src/features/channels/ChannelsPage.tsx`：接入统一头像与 MessageMarkdown，并在后续持久父布局中移除页面级 Shell。
 - [ ] `web/src/features/calendar/CalendarPage.tsx`：移除页面级 Shell、保留 Sidebar，并让 Calendar 画布和事件详情使用统一内容面板背景语义。
-- [ ] `web/src/features/tasks/TasksPage.tsx`：移除页面级 Shell、保留 Sidebar，并让 Task 列表、看板与右侧详情使用统一内容面板背景语义。
+- [ ] `web/src/features/tasks/TasksPage.tsx`：复刻 Desktop 列/卡片视觉层级，增加 Track 下拉筛选与 URL search 同步，并在后续移除页面级 Shell。
 - [ ] `web/src/features/tracks/TracksPage.tsx`：移除页面级 Shell、保留 Sidebar，并让 Track 列表与右侧详情使用统一内容面板背景语义。
 - [x] `web/src/shared/styles/globals.css`：增加 Desktop Light 白色内容面板和 Dark 暖黑画布语义，并补齐消息 Markdown 排版规则。
 - [x] `web/tests/e2e/domain-codecs.spec.ts`：覆盖 profile、Agent DM label、最新 profile 和稳定消息排序。
-- [x] `web/tests/e2e/work-console.spec.ts`：覆盖真实用户名、Agent DM 名称、`@Agent` 候选和 Sidebar 数据保留。
+- [ ] `web/tests/e2e/work-console.spec.ts`：在现有身份、消息呈现测试上补充 Task 卡片边框/hover、Track 筛选、空状态、URL 恢复及 Board/List 一致性。
 - [ ] `web/tests/e2e/message-mentions.spec.ts`：覆盖 Channel `@Agent` 候选、键盘/触控选择、p tag、同名歧义和 DM 自动 recipient。
 - [ ] `web/tests/e2e/message-timeline.spec.ts`：用乱序、同秒、reply、delete、edit、reaction fixture 对照 Desktop 投影与 row 顺序。
 - [ ] `web/tests/e2e/message-presentation.spec.ts`：覆盖 Agent 头像、图片失败回退、Markdown/GFM、危险输入和 iPad 横向溢出。
@@ -288,6 +299,7 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - 六个标签连续切换时 Sidebar 内容始终可见且 DOM identity 不变；
 - 浅色模式主内容及右侧详情为白色、深色模式保持暖黑，Sidebar 和层级色不受影响；
 - Tasks 与 Tracks 的 Sidebar 图标、尺寸、激活态和折叠态与 Desktop 一致；
+- Task 卡片边框、阴影、列背景与 Desktop 一致，且 Track 筛选在 Board、List、刷新和浏览器历史中行为一致；
 - 完整 Chrome、iPad 横屏、iPad 竖屏 E2E 与视觉回归通过后再部署。
 
 ## 九、建设性建议
