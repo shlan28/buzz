@@ -1,5 +1,5 @@
 > 更新日期：2026-08-08
-> 更新说明：在已部署的身份、DM 和实时消息修复基础上，补充 Agent 头像、消息 Markdown、安全内容面板、导航图标，以及 Task 卡片完整信息、视觉层级和按 Track 筛选的一致性要求。
+> 更新说明：在已部署的身份、DM 和实时消息修复基础上，补充 Agent 头像、消息 Markdown、安全内容面板、导航图标，以及 Task 卡片完整信息、视觉层级、Track 筛选和 Assignee/Status/Track 分组一致性要求。
 
 # Web 身份、DM、Channel 与 Sidebar 一致性修复方案
 
@@ -127,6 +127,10 @@ Web Task Board 当前把白色卡片直接放在白色内容画布上，使用 `
 
 Web 还缺少 Desktop 顶部的 `Filter by track`：当存在 Track 时显示下拉框，默认 `All tracks`，选择后只显示 `task.trackId` 精确匹配的任务，并同时作用于 Board 与 List。选择应写入 `track` URL search，刷新、前进后退和分享链接后仍能恢复；清除筛选则移除该参数。Track 本身存在但当前没有任务时，应显示明确空状态，而不是悄悄退回全部任务。
 
+Desktop Board 还提供 `Group by Assignee / Status / Track`，默认是 Assignee。Web 当前固定按 Status 分列，因此也不一致。Assignee 分组必须包含 `Unassigned`，并按 Desktop 顺序排列：未分配优先、当前用户优先、其余按任务数降序再按名称排序；默认隐藏空列，可通过 `Show empty groups` 显示。每列标题显示真实名称、Agent/Person/No owner 类型和任务数。Web 首版保持只读，不加入 Desktop 的拖拽改派行为。
+
+`group` 选择同步到 URL，允许值仅为 `assignee`、`status`、`track`；非法值回退 `assignee`。List 视图不显示分组列，但必须保留当前 group 参数，切回 Board 后恢复原分组。
+
 ### 1.14 Task 卡片内容不完整
 
 Web 卡片目前只有标题、可选描述、全部 labels 和 priority，缺少 Desktop 的主要工作状态信息。Desktop `TaskCard` 的固定信息结构为：
@@ -158,7 +162,7 @@ Web 已解析 status、priority、assignee、due、trackId 和 labels，但还�
 - DM/Channel 正文支持安全 Markdown 与 GFM，排版和 Desktop 保持一致；
 - 浅色模式主内容和所有右侧详情区域为白色，深色模式保持 Desktop 暖黑内容画布。
 - Tasks 使用 `ListTodo`、Tracks 使用 `Route`，尺寸和导航状态与 Desktop 一致。
-- Task Board 的列背景、卡片边框、阴影和 hover 层级与 Desktop 一致；可按 Track 筛选 Board 与 List。
+- Task Board 的列背景、卡片边框、阴影和 hover 层级与 Desktop 一致；可按 Track 筛选 Board 与 List，并按 Assignee、Status、Track 分组。
 - Task 卡片完整显示 Desktop 的描述、状态、执行状态、Track、标签计数、优先级、到期日和 assignee 信息。
 
 ## 三、统一数据模型
@@ -264,6 +268,9 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - Track id 映射为 Track 名称；assignee pubkey 映射为真实 profile 名称和 Agent/person 类型，不显示截断公钥作为正常结果。
 - due date 使用本地日期并区分逾期；priority 为 `none` 时隐藏、urgent 使用警告色。
 - queued、running、failed execution badge 只来自 Relay 签发的最新 kind `30501`；伪造作者和旧状态必须忽略。
+- Board 默认按 Assignee 分组，包含 `Unassigned`，并遵循 Desktop 的当前用户、任务数和名称排序规则。
+- `Group by` 支持 Assignee、Status、Track，选择写入 URL `group`；刷新、前进后退及 List/Board 切换后保持。
+- 默认隐藏无任务分组；`Show empty groups` 开启后显示完整 assignee/status/track 列，非法 group 参数安全回退 Assignee。
 
 ## 七、Todo List
 
@@ -294,14 +301,15 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - [ ] `web/src/features/inbox/InboxPage.tsx`：移除页面级 Shell，消费共享 Provider。
 - [ ] `web/src/features/channels/ChannelsPage.tsx`：接入统一头像与 MessageMarkdown，并在后续持久父布局中移除页面级 Shell。
 - [ ] `web/src/features/calendar/CalendarPage.tsx`：移除页面级 Shell、保留 Sidebar，并让 Calendar 画布和事件详情使用统一内容面板背景语义。
-- [ ] `web/src/features/tasks/TasksPage.tsx`：复刻 Desktop 列/卡片视觉层级，增加 Track 下拉筛选与 URL search 同步，并在后续移除页面级 Shell。
+- [ ] `web/src/features/tasks/TasksPage.tsx`：复刻 Desktop 列/卡片视觉层级，增加 Track 筛选、Assignee/Status/Track 分组、空列开关及 URL search 同步。
 - [ ] `web/src/features/tasks/types.ts`：对齐 Desktop Task priority、due timestamp 与 TaskExecution 类型，使用明确 null 语义。
 - [ ] `web/src/features/tasks/eventCodec.ts`：对齐 Desktop Task 字段解析，并严格解析、验证最新 task execution state。
 - [ ] `web/src/features/tasks/taskPresentation.ts`：提供 Track 名称、assignee profile、due/overdue 和状态 badge 的 browser-safe 纯呈现投影。
+- [ ] `web/src/features/tasks/taskBoard.ts`：移植 Desktop assignee/status/track 列构建、列排序、卡片排序与空列规则。
 - [ ] `web/src/features/tracks/TracksPage.tsx`：移除页面级 Shell、保留 Sidebar，并让 Track 列表与右侧详情使用统一内容面板背景语义。
 - [x] `web/src/shared/styles/globals.css`：增加 Desktop Light 白色内容面板和 Dark 暖黑画布语义，并补齐消息 Markdown 排版规则。
 - [x] `web/tests/e2e/domain-codecs.spec.ts`：覆盖 profile、Agent DM label、最新 profile 和稳定消息排序。
-- [ ] `web/tests/e2e/task-presentation.spec.ts`：覆盖完整卡片字段、无描述、标签折叠、逾期、Agent assignee、Track 名称和 execution 防伪。
+- [ ] `web/tests/e2e/task-presentation.spec.ts`：覆盖完整卡片字段、Agent assignee、三种分组、列排序、空列开关、URL 恢复、Track 筛选和 execution 防伪。
 - [ ] `web/tests/e2e/work-console.spec.ts`：在现有身份、消息呈现测试上补充 Task 卡片边框/hover、Track 筛选、空状态、URL 恢复及 Board/List 一致性。
 - [ ] `web/tests/e2e/message-mentions.spec.ts`：覆盖 Channel `@Agent` 候选、键盘/触控选择、p tag、同名歧义和 DM 自动 recipient。
 - [ ] `web/tests/e2e/message-timeline.spec.ts`：用乱序、同秒、reply、delete、edit、reaction fixture 对照 Desktop 投影与 row 顺序。
@@ -324,7 +332,7 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - 六个标签连续切换时 Sidebar 内容始终可见且 DOM identity 不变；
 - 浅色模式主内容及右侧详情为白色、深色模式保持暖黑，Sidebar 和层级色不受影响；
 - Tasks 与 Tracks 的 Sidebar 图标、尺寸、激活态和折叠态与 Desktop 一致；
-- Task 卡片边框、阴影、列背景与 Desktop 一致，且 Track 筛选在 Board、List、刷新和浏览器历史中行为一致；
+- Task 卡片边框、阴影、列背景与 Desktop 一致；Track 筛选及 Assignee/Status/Track 分组在 Board、List、刷新和浏览器历史中行为一致；
 - Task 卡片在相同 fixture 下与 Desktop 显示相同的信息集合、顺序、状态颜色和缺省规则；
 - 完整 Chrome、iPad 横屏、iPad 竖屏 E2E 与视觉回归通过后再部署。
 
