@@ -643,13 +643,13 @@ Task Progress:
 
 ### Phase 2：Pair 与远程签名
 
-- [ ] `web/src/features/pairing/types.ts`：定义 NIP-AB、NIP-46、SAS 和设备状态类型。
-- [ ] `web/src/features/pairing/pairingCrypto.ts`：实现浏览器端 ECDH、HKDF、NIP-44 和零化边界。
-- [ ] `web/src/features/pairing/pairingSession.ts`：实现 NIP-AB target 状态机和重复事件幂等。
-- [ ] `web/src/features/pairing/PairPage.tsx`：实现扫码/链接、SAS、确认、拒绝和错误恢复。
-- [ ] `web/src/shared/api/nip46Client.ts`：实现远程 signer 请求、响应验证、超时和撤销错误。
+- [x] `web/src/features/pairing/types.ts`：定义 NIP-AB、NIP-46、SAS 和设备状态类型。
+- [x] `web/src/features/pairing/pairingCrypto.ts`：实现浏览器端 ECDH、HKDF、NIP-44 和会话密钥边界。
+- [x] `web/src/features/pairing/pairingSession.ts`：实现 NIP-AB target 状态机和重复事件幂等。
+- [x] `web/src/features/pairing/PairPage.tsx`：实现链接导入、SAS、确认、拒绝、signer 激活和错误恢复。
+- [x] `web/src/shared/api/nip46Client.ts`：实现远程 signer 请求、响应验证、超时和连接错误。
 - [ ] `web/src/shared/api/signer.ts`：统一 NIP-07、NIP-46 和无 signer 状态，不允许 nsec fallback。
-- [ ] `web/src/shared/storage/deviceCredentials.ts`：保存可撤销 device key和临时会话模式。
+- [x] `web/src/shared/storage/deviceCredentials.ts`：在 IndexedDB 保存可撤销 device key 和已验证 signer 连接。
 - [ ] `web/src/features/settings/PairedDeviceSettings.tsx`：展示本 Web 设备和清除操作。
 - [x] `desktop/src-tauri/src/commands/pairing.rs`：增加 NIP-46 signer Pair payload，不再为 Web 发送 nsec。
 - [x] `crates/buzz-core/src/pairing/session.rs`：向 Desktop Pair source 暴露已验证 target 设备公钥。

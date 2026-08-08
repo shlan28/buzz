@@ -2,6 +2,8 @@ import { Link } from "@tanstack/react-router";
 import { Check, Link2, LoaderCircle, ShieldCheck, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { Nip46Client, parseBunkerUri } from "../../shared/api/nip46Client";
+import { saveRemoteSignerCredential } from "../../shared/storage/deviceCredentials";
 import { WebPairingSession } from "./pairingSession";
 import type { PairingViewState, RemoteSignerConnection } from "./types";
 
@@ -14,7 +16,23 @@ export function PairPage() {
   const sessionRef = useRef<WebPairingSession | undefined>(undefined);
 
   useEffect(() => {
-    const session = new WebPairingSession(setState, setConnection);
+    const session = new WebPairingSession(setState, (pairedConnection) => {
+      setState({ status: "transferring" });
+      void activateRemoteSigner(pairedConnection)
+        .then((verifiedConnection) => {
+          setConnection(verifiedConnection);
+          setState({ status: "success" });
+        })
+        .catch((error: unknown) => {
+          setState({
+            status: "error",
+            errorMessage:
+              error instanceof Error
+                ? error.message
+                : "Could not activate the Desktop signer.",
+          });
+        });
+    });
     sessionRef.current = session;
     return () => session.close();
   }, []);
@@ -94,6 +112,33 @@ export function PairPage() {
       </div>
     </div>
   );
+}
+
+async function activateRemoteSigner(
+  connection: RemoteSignerConnection,
+): Promise<RemoteSignerConnection> {
+  if (connection.type !== "bunker") {
+    throw new Error(
+      "This Web build requires a bunker connection from Desktop.",
+    );
+  }
+  const bunker = parseBunkerUri(connection.uri, connection.clientSecretKey);
+  const client = new Nip46Client(bunker);
+  try {
+    const userPubkey = await client.connect();
+    if (!/^[0-9a-f]{64}$/.test(userPubkey)) {
+      throw new Error("Desktop returned an invalid user identity.");
+    }
+    await saveRemoteSignerCredential({
+      clientSecretKey: connection.clientSecretKey,
+      remoteSignerPubkey: bunker.remoteSignerPubkey,
+      relayUrl: bunker.relayUrl,
+      userPubkey,
+    });
+    return connection;
+  } finally {
+    client.close();
+  }
 }
 
 function SasState({

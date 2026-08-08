@@ -172,10 +172,10 @@ export class WebPairingSession {
         const connection = {
           type: message.payload_type,
           uri: message.payload,
+          clientSecretKey: this.privateKey.slice(),
         } as RemoteSignerConnection;
         this.publish({ type: "complete", success: true });
         this.onComplete(connection);
-        this.onState({ status: "success" });
       }
     } catch {
       // Invalid and undecryptable relay events are discarded by design.

@@ -21,6 +21,7 @@ export type PairingQrPayload = {
 export type RemoteSignerConnection = {
   type: "bunker" | "connect";
   uri: string;
+  clientSecretKey: Uint8Array;
 };
 
 export type PairingMessage =
