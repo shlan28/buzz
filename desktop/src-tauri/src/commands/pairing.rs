@@ -310,19 +310,39 @@ async fn pairing_ws_task(
     mut outbound_rx: mpsc::Receiver<String>,
     app: AppHandle,
 ) {
-    if let Err(e) = pairing_ws_task_inner(
-        &relay_url,
-        &session,
-        &generation,
-        task_generation,
-        &cancel,
-        &mut outbound_rx,
-        &app,
-    )
-    .await
-    {
-        if pairing_task_is_current(&generation, task_generation) {
-            let _ = app.emit("pairing-error", PairingErrorPayload { message: e });
+    let deadline = tokio::time::Instant::now() + PAIRING_SESSION_TIMEOUT;
+    loop {
+        let result = pairing_ws_task_inner(
+            &relay_url,
+            &session,
+            &generation,
+            task_generation,
+            &cancel,
+            &mut outbound_rx,
+            &app,
+            deadline,
+        )
+        .await;
+        match result {
+            Ok(()) => break,
+            Err(error)
+                if pairing_task_is_current(&generation, task_generation)
+                    && !cancel.is_cancelled()
+                    && tokio::time::Instant::now() < deadline =>
+            {
+                tracing::warn!(%error, "pairing connection lost; reconnecting");
+                let _ = app.emit("pairing-reconnecting", serde_json::json!({}));
+                tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    _ = tokio::time::sleep(Duration::from_millis(750)) => {}
+                }
+            }
+            Err(error) => {
+                if pairing_task_is_current(&generation, task_generation) {
+                    let _ = app.emit("pairing-error", PairingErrorPayload { message: error });
+                }
+                break;
+            }
         }
     }
     clear_pairing_session_if_current(&session, &generation, task_generation).await;
@@ -336,13 +356,16 @@ async fn pairing_ws_task_inner(
     cancel: &CancellationToken,
     outbound_rx: &mut mpsc::Receiver<String>,
     app: &AppHandle,
+    deadline: tokio::time::Instant,
 ) -> Result<(), String> {
     let (ws, _) = connect_async(relay_url)
         .await
         .map_err(|e| format!("WebSocket connection failed: {e}"))?;
     let (mut write, mut read) = ws.split();
 
-    handle_nip42_auth(&mut read, &mut write, session, relay_url).await?;
+    if !is_dedicated_pairing_relay(relay_url) {
+        handle_nip42_auth(&mut read, &mut write, session, relay_url).await?;
+    }
 
     let our_pk = {
         let guard = session.lock().await;
@@ -359,8 +382,10 @@ async fn pairing_ws_task_inner(
 
     wait_for_eose(&mut read, "pair", Duration::from_secs(10)).await?;
 
-    let hard_timeout = tokio::time::sleep(PAIRING_SESSION_TIMEOUT);
+    let hard_timeout = tokio::time::sleep_until(deadline);
     tokio::pin!(hard_timeout);
+    let mut heartbeat = tokio::time::interval(Duration::from_secs(15));
+    heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
     loop {
         if !pairing_task_is_current(generation, task_generation) {
@@ -376,6 +401,10 @@ async fn pairing_ws_task_inner(
                     });
                 }
                 break;
+            }
+            _ = heartbeat.tick() => {
+                write.send(Message::Ping(Vec::new().into())).await
+                    .map_err(|e| format!("pairing heartbeat failed: {e}"))?;
             }
             Some(json_msg) = outbound_rx.recv() => {
                 if let Err(e) = write.send(Message::Text(json_msg.into())).await {
@@ -442,6 +471,12 @@ async fn pairing_ws_task_inner(
 
 fn pairing_task_is_current(generation: &AtomicU64, task_generation: u64) -> bool {
     generation.load(Ordering::SeqCst) == task_generation
+}
+
+fn is_dedicated_pairing_relay(relay_url: &str) -> bool {
+    url::Url::parse(relay_url)
+        .ok()
+        .is_some_and(|url| url.path().trim_end_matches('/').ends_with("/pair"))
 }
 
 async fn clear_pairing_session_if_current(
@@ -701,7 +736,8 @@ mod pairing_generation_tests {
 #[cfg(test)]
 mod pairing_relay_tests {
     use super::{
-        pairing_relay_from_nip11, probe_pairing_relay, resolve_pairing_relay_url, PairingRelay,
+        is_dedicated_pairing_relay, pairing_relay_from_nip11, probe_pairing_relay,
+        resolve_pairing_relay_url, PairingRelay,
     };
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -803,5 +839,14 @@ mod pairing_relay_tests {
         .expect("resolve main pairing relay");
 
         assert_eq!(resolved, "wss://sprout-oss.stage.blox.sqprod.co");
+    }
+
+    #[test]
+    fn dedicated_pairing_path_skips_main_relay_auth_probe() {
+        assert!(is_dedicated_pairing_relay("wss://achoverse.xyz/pair"));
+        assert!(is_dedicated_pairing_relay(
+            "wss://example.test/community/pair/"
+        ));
+        assert!(!is_dedicated_pairing_relay("wss://achoverse.xyz"));
     }
 }

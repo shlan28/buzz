@@ -62,7 +62,11 @@ function pairingErrorMessage(error: unknown) {
 }
 
 function isPairingSessionTimeout(message: string) {
-  return message.toLowerCase().includes("session timed out");
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("session timed out") ||
+    normalized.includes("pairing link expired")
+  );
 }
 
 function PairingStatusDialog({
@@ -185,6 +189,7 @@ export function MobilePairingCard({
   const [qrUri, setQrUri] = useState<string | null>(null);
   const [sasCode, setSasCode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [recovering, setRecovering] = useState(false);
   const [mode, setMode] = useState<PairingMode>("mobile");
   const requestIdRef = useRef(0);
   const pairingActiveRef = useRef(false);
@@ -198,6 +203,7 @@ export function MobilePairingCard({
     setQrUri(null);
     setSasCode(null);
     setError(null);
+    setRecovering(false);
 
     startPairing(mode).then(
       (uri) => {
@@ -223,6 +229,7 @@ export function MobilePairingCard({
     setQrUri(null);
     setSasCode(null);
     setError(null);
+    setRecovering(false);
 
     if (!currentPubkey) {
       return;
@@ -234,6 +241,7 @@ export function MobilePairingCard({
     listeners.add(
       listen<{ sas: string }>("pairing-sas-received", (event) => {
         if (!cancelled && pairingActiveRef.current) {
+          setRecovering(false);
           setSasCode(event.payload.sas);
           setStep("sas");
         }
@@ -243,6 +251,7 @@ export function MobilePairingCard({
     listeners.add(
       listen("pairing-complete", () => {
         if (!cancelled && pairingActiveRef.current) {
+          setRecovering(false);
           pairingActiveRef.current = false;
           setStep("done");
         }
@@ -250,8 +259,15 @@ export function MobilePairingCard({
     );
 
     listeners.add(
+      listen("pairing-reconnecting", () => {
+        if (!cancelled && pairingActiveRef.current) setRecovering(true);
+      }),
+    );
+
+    listeners.add(
       listen<{ reason: string }>("pairing-aborted", (event) => {
         if (!cancelled && pairingActiveRef.current) {
+          setRecovering(false);
           pairingActiveRef.current = false;
           setError(`Pairing stopped: ${event.payload.reason}`);
           setStep("error");
@@ -262,6 +278,7 @@ export function MobilePairingCard({
     listeners.add(
       listen<{ message: string }>("pairing-error", (event) => {
         if (!cancelled && pairingActiveRef.current) {
+          setRecovering(false);
           pairingActiveRef.current = false;
           if (isPairingSessionTimeout(event.payload.message)) {
             setQrUri(null);
@@ -443,17 +460,27 @@ export function MobilePairingCard({
           </div>
 
           {step === "qr" && qrUri ? (
-            <Button
-              className="w-full origin-top animate-in fade-in-0 zoom-in-95 duration-[250ms] ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:animate-none"
-              data-testid="copy-pairing-code"
-              onClick={handleCopy}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              <Copy className="mr-1.5 h-4 w-4" />
-              {mode === "web" ? "Copy Web pairing link" : "Copy pairing code"}
-            </Button>
+            <div className="space-y-2">
+              <Button
+                className="w-full origin-top animate-in fade-in-0 zoom-in-95 duration-[250ms] ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:animate-none"
+                data-testid="copy-pairing-code"
+                onClick={handleCopy}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                <Copy className="mr-1.5 h-4 w-4" />
+                {mode === "web" ? "Copy Web pairing link" : "Copy pairing code"}
+              </Button>
+              {recovering ? (
+                <p
+                  className="text-center text-xs text-muted-foreground"
+                  role="status"
+                >
+                  Restoring the pairing connection…
+                </p>
+              ) : null}
+            </div>
           ) : null}
         </SettingsOptionRow>
       </SettingsOptionGroup>

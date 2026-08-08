@@ -1,6 +1,7 @@
 export type PairingStatus =
   | "idle"
   | "connecting"
+  | "reconnecting"
   | "confirming-sas"
   | "transferring"
   | "success"

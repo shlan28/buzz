@@ -6,6 +6,10 @@ import {
   derivePairingProofs,
   hexToBytes,
 } from "../../src/features/pairing/pairingCrypto";
+import {
+  MAX_OFFER_ATTEMPTS,
+  shouldRetryPairingOffer,
+} from "../../src/features/pairing/pairingSession";
 
 test("matches the buzz-core NIP-AB ECDH and SAS vector", async () => {
   const sourcePrivateKey = hexToBytes(
@@ -44,4 +48,13 @@ test("matches the buzz-core NIP-AB ECDH and SAS vector", async () => {
     "d662818ff8911fc60a2d025f8b8b4756107104e85888dd202d28db5ca2cf28d3",
   );
   expect(bytesToHex(targetPrivateKey)).toHaveLength(64);
+});
+
+test("pairing offer retries are bounded by verification, attempts, and expiry", () => {
+  expect(shouldRetryPairingOffer(0, false, 100, 200)).toBe(true);
+  expect(shouldRetryPairingOffer(MAX_OFFER_ATTEMPTS, false, 100, 200)).toBe(
+    false,
+  );
+  expect(shouldRetryPairingOffer(0, true, 100, 200)).toBe(false);
+  expect(shouldRetryPairingOffer(0, false, 200, 200)).toBe(false);
 });

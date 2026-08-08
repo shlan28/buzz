@@ -1023,6 +1023,15 @@ async fn test_ping_pong() {
     }
 }
 
+#[tokio::test]
+async fn test_browser_application_ping_pong() {
+    let url = start_relay().await;
+    let mut ws = connect(&url).await;
+
+    send(&mut ws, &json!(["PING"])).await;
+    assert_eq!(recv(&mut ws).await, json!(["PONG"]));
+}
+
 /// 34. Client-initiated Close frame receives a Close reply.
 #[tokio::test]
 async fn test_close_handshake() {

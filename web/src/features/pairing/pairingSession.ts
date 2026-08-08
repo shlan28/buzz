@@ -14,6 +14,20 @@ import type {
 } from "./types";
 
 const PAIRING_KIND = 24134;
+export const OFFER_RETRY_INTERVAL_MS = 2_000;
+export const MAX_OFFER_ATTEMPTS = 5;
+const HEARTBEAT_INTERVAL_MS = 15_000;
+const RECONNECT_DELAY_MS = 750;
+const SESSION_LIFETIME_MS = 10 * 60 * 1_000;
+
+export function shouldRetryPairingOffer(
+  attempts: number,
+  desktopVerified: boolean,
+  now: number,
+  expiresAt: number,
+): boolean {
+  return !desktopVerified && attempts < MAX_OFFER_ATTEMPTS && now < expiresAt;
+}
 
 export class WebPairingSession {
   private readonly privateKey = generateSecretKey();
@@ -23,6 +37,16 @@ export class WebPairingSession {
   private conversationKey?: Uint8Array;
   private transcriptHash?: string;
   private hasVerifiedDesktop = false;
+  private completed = false;
+  private intentionallyClosed = false;
+  private offerMessage?: Record<string, unknown>;
+  private offerAttempts = 0;
+  private expiresAt = 0;
+  private retryTimer?: number;
+  private heartbeatTimer?: number;
+  private reconnectTimer?: number;
+  private relayUrl?: string;
+  private sasCode?: string;
   private readonly processedIds = new Set<string>();
 
   constructor(
@@ -32,9 +56,15 @@ export class WebPairingSession {
 
   async connect(uri: string): Promise<void> {
     this.close();
+    this.intentionallyClosed = false;
+    this.completed = false;
+    this.hasVerifiedDesktop = false;
+    this.offerAttempts = 0;
+    this.expiresAt = Date.now() + SESSION_LIFETIME_MS;
     this.onState({ status: "connecting" });
     try {
       const qr = parsePairingUri(uri);
+      this.relayUrl = qr.relay;
       this.sourcePubkey = qr.sourcePubkey;
       this.conversationKey = nip44.v2.utils.getConversationKey(
         this.privateKey,
@@ -46,33 +76,13 @@ export class WebPairingSession {
         this.pubkey,
       );
       this.transcriptHash = proofs.transcriptHash;
-
-      const socket = new WebSocket(qr.relay);
-      this.socket = socket;
-      socket.addEventListener("message", (event) => this.handleMessage(event));
-      socket.addEventListener("close", () => {
-        if (!this.hasVerifiedDesktop) {
-          this.fail(
-            "The pairing Relay disconnected. Create a new code and retry.",
-          );
-        }
-      });
-      socket.addEventListener("error", () =>
-        this.fail("Could not connect to the pairing Relay."),
-      );
-      await new Promise<void>((resolve, reject) => {
-        socket.addEventListener("open", () => resolve(), { once: true });
-        socket.addEventListener("error", () => reject(), { once: true });
-      });
-      socket.send(
-        JSON.stringify([
-          "REQ",
-          "web-pair",
-          { kinds: [PAIRING_KIND], "#p": [this.pubkey] },
-        ]),
-      );
-      this.publish({ type: "offer", version: 1, session_id: proofs.sessionId });
-      this.onState({ status: "confirming-sas", sasCode: proofs.sasCode });
+      this.sasCode = proofs.sasCode;
+      this.offerMessage = {
+        type: "offer",
+        version: 1,
+        session_id: proofs.sessionId,
+      };
+      await this.openSocket(false, proofs.sasCode);
     } catch (error) {
       this.fail(error instanceof Error ? error.message : "Pairing failed.");
     }
@@ -95,15 +105,20 @@ export class WebPairingSession {
   }
 
   close(): void {
+    this.intentionallyClosed = true;
+    this.clearTimers();
     this.socket?.close();
     this.socket = undefined;
     this.processedIds.clear();
   }
 
   private publish(message: Record<string, unknown>): void {
-    if (!this.socket || !this.sourcePubkey || !this.conversationKey) {
-      return;
-    }
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
+    this.socket.send(this.createEventFrame(message));
+  }
+
+  private createEventFrame(message: Record<string, unknown>): string {
+    if (!this.sourcePubkey || !this.conversationKey) return "";
     const content = nip44.v2.encrypt(
       JSON.stringify(message),
       this.conversationKey,
@@ -117,7 +132,104 @@ export class WebPairingSession {
       },
       this.privateKey,
     );
-    this.socket.send(JSON.stringify(["EVENT", event]));
+    return JSON.stringify(["EVENT", event]);
+  }
+
+  private async openSocket(
+    reconnecting: boolean,
+    sasCode: string,
+  ): Promise<void> {
+    if (!this.relayUrl) throw new Error("Pairing Relay URL is missing.");
+    const socket = new WebSocket(this.relayUrl);
+    this.socket = socket;
+    socket.addEventListener("message", (event) => this.handleMessage(event));
+    socket.addEventListener("close", () => this.handleSocketClose(socket));
+    await new Promise<void>((resolve, reject) => {
+      socket.addEventListener("open", () => resolve(), { once: true });
+      socket.addEventListener(
+        "error",
+        () => reject(new Error("Could not connect to the pairing Relay.")),
+        { once: true },
+      );
+    });
+    socket.send(
+      JSON.stringify([
+        "REQ",
+        "web-pair",
+        { kinds: [PAIRING_KIND], "#p": [this.pubkey] },
+      ]),
+    );
+    if (reconnecting) this.offerAttempts = 0;
+    this.sendOffer();
+    this.startHeartbeat();
+    this.onState({
+      status: "confirming-sas",
+      sasCode,
+      errorMessage: reconnecting ? "Connection restored." : undefined,
+    });
+  }
+
+  private sendOffer(): void {
+    if (
+      !shouldRetryPairingOffer(
+        this.offerAttempts,
+        this.hasVerifiedDesktop,
+        Date.now(),
+        this.expiresAt,
+      ) ||
+      !this.offerMessage ||
+      !this.socket ||
+      this.socket.readyState !== WebSocket.OPEN
+    )
+      return;
+    // Re-sign each retry so the Relay freshness window remains valid while the
+    // logical session id, browser key, and resulting SAS stay unchanged.
+    this.socket.send(this.createEventFrame(this.offerMessage));
+    this.offerAttempts += 1;
+    window.clearTimeout(this.retryTimer);
+    this.retryTimer = window.setTimeout(
+      () => this.sendOffer(),
+      OFFER_RETRY_INTERVAL_MS,
+    );
+  }
+
+  private startHeartbeat(): void {
+    window.clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = window.setInterval(() => {
+      if (this.socket?.readyState === WebSocket.OPEN)
+        this.socket.send('["PING"]');
+    }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  private handleSocketClose(socket: WebSocket): void {
+    if (this.socket !== socket || this.intentionallyClosed || this.completed)
+      return;
+    this.clearTimers();
+    if (Date.now() >= this.expiresAt) {
+      this.fail("The pairing link expired. Create a new code and retry.");
+      return;
+    }
+    this.scheduleReconnect();
+  }
+
+  private scheduleReconnect(): void {
+    this.onState({
+      status: "reconnecting",
+      errorMessage: "Restoring the pairing connection…",
+    });
+    window.clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = window.setTimeout(() => {
+      void this.openSocket(true, this.sasCode ?? "------").catch(() => {
+        if (!this.intentionallyClosed && !this.completed)
+          this.scheduleReconnect();
+      });
+    }, RECONNECT_DELAY_MS);
+  }
+
+  private clearTimers(): void {
+    window.clearTimeout(this.retryTimer);
+    window.clearTimeout(this.reconnectTimer);
+    window.clearInterval(this.heartbeatTimer);
   }
 
   private handleMessage(messageEvent: MessageEvent): void {
@@ -151,6 +263,7 @@ export class WebPairingSession {
           return;
         }
         this.hasVerifiedDesktop = true;
+        window.clearTimeout(this.retryTimer);
         return;
       }
       if (message.type === "abort") {
@@ -175,6 +288,8 @@ export class WebPairingSession {
           clientSecretKey: this.privateKey.slice(),
         } as RemoteSignerConnection;
         this.publish({ type: "complete", success: true });
+        this.completed = true;
+        this.clearTimers();
         this.onComplete(connection);
       }
     } catch {

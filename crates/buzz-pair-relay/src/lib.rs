@@ -258,6 +258,7 @@ impl Relay {
 struct ConnGuard {
     relay: Arc<Relay>,
     conn_id: u64,
+    opened_at: tokio::time::Instant,
 }
 
 impl Drop for ConnGuard {
@@ -265,9 +266,10 @@ impl Drop for ConnGuard {
         self.relay.remove_sub(self.conn_id);
         self.relay.conn_count.fetch_sub(1, Ordering::Relaxed);
         eprintln!(
-            "conn closed conn_id={} active={}",
+            "conn closed conn_id={} active={} duration_ms={} category=connection_ended",
             self.conn_id,
-            self.relay.conn_count.load(Ordering::Relaxed)
+            self.relay.conn_count.load(Ordering::Relaxed),
+            self.opened_at.elapsed().as_millis()
         );
     }
 }
@@ -671,6 +673,7 @@ async fn handle_conn(relay: Arc<Relay>, conn_id: u64, stream: WebSocketStream<To
     let _guard = ConnGuard {
         relay: Arc::clone(&relay),
         conn_id,
+        opened_at: tokio::time::Instant::now(),
     };
     let (sink, mut source) = stream.split();
     let (tx, rx) = mpsc::channel::<OutMsg>(CHANNEL_CAP);
@@ -738,6 +741,16 @@ async fn handle_conn(relay: Arc<Relay>, conn_id: u64, stream: WebSocketStream<To
                 };
 
                 match verb.as_str() {
+                    "PING" => {
+                        if arr.len() != 1 {
+                            let _ = tx.try_send(OutMsg::Text(make_notice("error: invalid PING")));
+                            continue;
+                        }
+                        if tx.try_send(OutMsg::Text("[\"PONG\"]".into())).is_err() {
+                            break 'conn;
+                        }
+                    }
+
                     "REQ" => {
                         // Structural validation first (before we have a valid sub_id).
                         if arr.len() < 3 || !arr[1].is_string() {

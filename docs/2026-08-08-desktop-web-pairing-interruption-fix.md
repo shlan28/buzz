@@ -1,5 +1,5 @@
 > 更新日期：2026-08-08
-> 更新说明：新增 Desktop 与 Web 在 SAS 匹配后被意外中断的修复方案，聚焦事件监听器异步注册/卸载竞态、配对生命周期所有权和回归测试；真实配对成功后进一步确认主 Relay 的 NIP-42 五秒 AUTH 窗口不足以容纳公网 Remote Signer 往返，只读加载改用同身份 NIP-98 `/query`；补充 Mac signer 长连接中断后的自动重连和运行期授权保持；根据公网复测新增 Pair Relay 两分钟硬超时修复与可理解错误提示。
+> 更新说明：新增 Desktop 与 Web 在 SAS 匹配后被意外中断的修复方案，聚焦事件监听器异步注册/卸载竞态、配对生命周期所有权和回归测试；真实配对成功后进一步确认主 Relay 的 NIP-42 五秒 AUTH 窗口不足以容纳公网 Remote Signer 往返，只读加载改用同身份 NIP-98 `/query`；补充 Mac signer 长连接中断后的自动重连和运行期授权保持；根据公网复测新增 Pair Relay 两分钟硬超时修复与可理解错误提示；进一步补充专用 Pair Relay 跳过无效 AUTH 探测、连接保活、offer 重试和关闭原因观测。
 
 > 线上联调补充：NIP-98 `/query` 首次返回 Safari `Load failed`，根因是 Relay CORS 白名单仅包含 `https://achoverse.xyz`，未包含 Pages 域名 `https://app.achoverse.xyz`；运行配置需同时允许两者。
 
@@ -81,6 +81,21 @@ MobilePairingCard.tsx:236, 246, 257, 276
 - Web 页面同步显示十分钟有效期，并在断开时明确要求使用新链接；
 - 自动化通过虚拟时间验证 Relay 十分钟关闭边界，避免测试实际等待。
 
+### 3.6 公网断线容错和可观测性
+
+公网复测出现 `Connection reset without closing handshake`。现场确认 Pair Relay 和 Cloudflare Tunnel 均未重启，且连接未达到十分钟有效期，因此这是传输链路的非正常重置，不是业务处理超时。
+
+修复原则：配对仍然是短期、无持久化、一次性的安全会话，但单次瞬时断流不应直接终止用户流程。
+
+- Desktop 已明确选择专用 `/pair` Relay 时跳过 NIP-42 challenge 探测，消除固定三秒等待；主 Relay 配对路径仍保留 NIP-42；
+- Desktop 和 Web 在空闲期间发送 WebSocket Ping/应用层保活，避免公网代理回收空闲连接；
+- Web 在尚未收到 Desktop `sas-confirm` 前，以同一个签名会话和同一个 `session_id` 有界重发 offer；
+- Desktop 断线后在十分钟总有效期内自动重连并重新订阅，保留同一个 `PairingSession`，不生成新密钥或新安全码；
+- Pair Relay 对每条连接记录关闭类别和连接时长，但不记录 pubkey、事件正文、secret 或配对 payload；
+- 任何自动重试都受总有效期、事件数、速率和事件新鲜度限制，不能无限重试。
+
+产品验收目标：正常公网环境下应在数秒内出现安全码；发生一次短暂 reset 后界面保持当前安全码并显示“正在恢复连接”，恢复后继续完成，而不是要求用户从头开始。
+
 ## 四、建设性建议
 
 本次先修复可复现的前端生命周期竞态，不把配对授权持久化混入同一个补丁。Desktop 重启后是否保留 Web signer 授权属于独立的设备管理设计，应单独实现持久化授权、撤销和过期策略，否则会扩大私钥签名安全边界。
@@ -103,6 +118,14 @@ MobilePairingCard.tsx:236, 246, 257, 276
 - [x] `crates/buzz-pair-relay/tests/integration.rs`：把虚拟时间超时测试更新为十分钟边界。
 - [x] `desktop/src-tauri/src/commands/pairing.rs`：统一十分钟有效期并把非预期关闭转换为可执行的过期提示。
 - [x] `web/src/features/pairing/PairPage.tsx`：在配对界面明确展示链接十分钟有效期。
+- [x] `desktop/src-tauri/src/commands/pairing.rs`：专用 Pair Relay 跳过 AUTH 探测，并实现同会话有界重连、保活与恢复状态事件。
+- [x] `desktop/src/features/settings/ui/MobilePairingCard.tsx`：展示配对连接恢复状态，避免瞬时断流直接进入终止错误。
+- [x] `crates/buzz-pair-relay/src/lib.rs`：增加不含敏感数据的连接关闭类别、连接时长日志和保活处理。
+- [x] `crates/buzz-pair-relay/tests/integration.rs`：覆盖 Ping/Pong、异常断开清理和重连后重新订阅。
+- [x] `web/src/features/pairing/pairingSession.ts`：实现有界 offer 重发、连接保活和同会话自动重连。
+- [x] `web/src/features/pairing/types.ts`：增加恢复连接视图状态类型。
+- [x] `web/src/features/pairing/PairPage.tsx`：展示恢复状态和剩余有效期说明。
+- [x] `web/tests/e2e/pairing-crypto.spec.ts`：补充 offer 重发保持 session/key 不变及达到上限停止测试。
 - [ ] `docs/2026-08-08-desktop-web-pairing-interruption-fix.md`：记录验证结果、提交号与真实配对结果。
 
 ## 八、自动化验证结果
@@ -111,8 +134,12 @@ MobilePairingCard.tsx:236, 246, 257, 276
 - Pairing listener 生命周期测试：4 项通过；
 - Web TypeScript 类型检查、Biome、文件大小与 pubkey 展示检查通过；
 - Pair Relay 集成测试：53 项通过，包含十分钟虚拟时间关闭边界；
+- 断线容错补丁后 Pair Relay 集成测试：54 项通过，新增浏览器应用层 Ping/Pong；
+- Desktop 专用 Pair Relay 跳过 AUTH 探测测试：1 项通过；
+- Web 配对密码学与重试边界测试：2 项通过；Desktop/Web 类型检查通过；
 - Pair Relay 已重新构建并由 LaunchAgent 重启；Desktop 已热重编译；
 - Web 生产部署 `3a88f708` 已发布，`app.achoverse.xyz` 返回新资源 `index-BSGKawym.js`；
+- Web 断线容错生产部署 `09302b8a` 已发布，offer 重试会保持同一 session/key/SAS 并为 Relay 新鲜度窗口重新签名；
 - `git diff --check` 通过；
 - 真实公网重新配对和数据加载仍待最终人工操作验收。
 

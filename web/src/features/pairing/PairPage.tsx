@@ -38,7 +38,9 @@ export function PairPage() {
   }, []);
 
   const isBusy =
-    state.status === "connecting" || state.status === "transferring";
+    state.status === "connecting" ||
+    state.status === "reconnecting" ||
+    state.status === "transferring";
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -53,6 +55,15 @@ export function PairPage() {
 
           {state.status === "success" ? (
             <SuccessState connection={connection} />
+          ) : state.status === "reconnecting" ? (
+            <div role="status">
+              <LoaderCircle className="mb-4 size-6 animate-spin" />
+              <h2 className="text-base font-semibold">Restoring connection</h2>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                Keep this page and Buzz Desktop open. The same pairing session
+                and security code will resume automatically.
+              </p>
+            </div>
           ) : state.status === "confirming-sas" ? (
             <SasState
               errorMessage={state.errorMessage}
