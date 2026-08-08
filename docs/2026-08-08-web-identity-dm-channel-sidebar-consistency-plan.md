@@ -1,5 +1,5 @@
 > 更新日期：2026-08-08
-> 更新说明：在已部署的身份、DM 和实时消息修复基础上，补充 Agent/User 默认头像身份色、消息 Markdown、安全内容面板、导航图标，以及 Task 卡片完整信息、视觉层级、Track 筛选和 Assignee/Status/Track 分组一致性要求。
+> 更新说明：在已部署的身份、DM 和实时消息修复基础上，补充 Agent/User 默认头像身份色、消息 Markdown、会话首次进入底部定位、安全内容面板、导航图标，以及 Task 卡片完整信息、视觉层级、Track 筛选和 Assignee/Status/Track 分组一致性要求。
 
 # Web 身份、DM、Channel 与 Sidebar 一致性修复方案
 
@@ -153,6 +153,20 @@ Web 统一头像组件当前无论身份都使用 `bg-muted`，Agent 和普通 U
 
 Web 将身份色规则统一为：真实头像优先且不染色；默认头像中 Agent 使用 `bg-primary text-primary-foreground`，普通 User（包括当前用户）使用 `bg-secondary text-secondary-foreground`。`isAgent` 必须来自已有的 profile/NIP-OA 验证投影，不能根据名称、DM 类型或是否回复消息猜测。图片加载失败后仍保持对应身份色；Sidebar DM、消息行、mention 候选、Task assignee 和当前用户资料卡必须消费同一组件规则。
 
+### 1.16 进入 DM 后没有定位到最新消息
+
+Web 时间线当前没有滚动锚点逻辑，进入长 DM 时停留在列表顶部，用户必须手动滚到最新消息。Desktop 在首次进入或切换 Channel 时，等待首批消息真实布局完成后定位到底部；DM 与普通 Channel 使用相同时间线策略。
+
+实现不能变成每次更新都无条件 `scrollToBottom()`。正确边界是：
+
+- 首次进入会话、首批消息渲染完成后无动画定位到物理底部；
+- 从一个 DM/Channel 切换到另一个时，为新 channel id 重置并定位其底部；
+- 用户处于底部附近时，新消息到达继续贴底；
+- 用户已向上阅读历史时，新消息不抢滚动位置，并保留“有新消息/回到底部”的后续扩展接口；
+- 用户发送自己的消息时，即使此前向上阅读，也应回到底部看到发送结果；
+- Markdown、头像或图片加载导致行高变化时，如果仍处于贴底状态，应在布局稳定后继续追到底部；若正在阅读历史，则保持可见消息锚点；
+- 空会话、短于视口的会话、iPad 软键盘收起/展开不能产生错误跳动。
+
 ## 二、产品目标
 
 - Sidebar profile 显示当前 Buzz 用户真实名字与头像；
@@ -171,6 +185,7 @@ Web 将身份色规则统一为：真实头像优先且不染色；默认头像�
 - Task Board 的列背景、卡片边框、阴影和 hover 层级与 Desktop 一致；可按 Track 筛选 Board 与 List，并按 Assignee、Status、Track 分组。
 - Task 卡片完整显示 Desktop 的描述、状态、执行状态、Track、标签计数、优先级、到期日和 assignee 信息。
 - 无真实头像时 Agent 使用 primary 默认头像、普通 User 使用 secondary，所有页面保持一致。
+- 首次进入或切换 DM/Channel 时默认显示最新消息，阅读历史时不被实时回复强制拉回底部。
 
 ## 三、统一数据模型
 
@@ -281,6 +296,10 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - 有真实 picture 时 Agent/User 均原样显示图片；没有图片或加载失败时，Agent 使用 primary、User 使用 secondary。
 - Sidebar DM、消息行、mention、Task assignee 和个人资料卡对同一 pubkey 的默认头像颜色必须一致。
 - `isAgent=false` 或身份未验证时保守按普通 User 呈现，不能通过名称或所在 DM 推断为 Agent。
+- 长会话首次进入和 channel id 切换后，消息容器停在物理底部，最新消息及 composer 可见。
+- 用户主动上滚超过 Desktop 的 32px 底部阈值后，新消息不改变当前阅读锚点；回到底部后恢复贴底。
+- 从 Web 发送消息时触发一次性到底部意图；历史补载和同一批数据刷新不能误触发。
+- Markdown/图片异步增高、iPad viewport/软键盘变化时，贴底状态继续落在底部，历史阅读状态保持原锚点。
 
 ## 七、Todo List
 
@@ -301,6 +320,7 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - [ ] `web/src/features/messages/DayDivider.tsx`：按 Desktop 时间格式与布局渲染日期分隔。
 - [x] `web/src/features/messages/channelMessageSession.ts`：实现当前 Channel 的实时订阅、验签、断线重连和事件触发 catch-up。
 - [ ] `web/src/features/messages/useChannelMessages.ts`：合并初始快照、发送回显与实时回复，并在 channel id 变化时切换订阅。
+- [ ] `web/src/features/messages/useMessageScroll.ts`：移植 Desktop 32px 贴底阈值、首次/切换定位、一次性发送贴底和历史阅读锚点策略。
 - [ ] `web/src/shared/api/communitySession.ts`：保留已有工作数据投影，补查 assignee profile 与 Relay 签发的最新 task execution state。
 - [ ] `web/src/shared/hooks/WorkConsoleProvider.tsx`：建立持久共享状态、请求去重、last-good snapshot 和身份 reset。
 - [x] `web/src/shared/hooks/useWorkConsoleData.ts`：改为模块级共享请求与 last-good snapshot，路由切换不再闪空。
@@ -309,7 +329,7 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - [ ] `web/src/features/sidebar/WebAppSidebar.tsx`：保留已完成的 DM 头像和导航图标，并向 DM/当前用户头像传递真实 `isAgent` 身份。
 - [ ] `web/src/features/settings/SettingsPage.tsx`：保留已完成的真实用户 profile，并让 Settings 主内容区域使用统一内容面板背景语义。
 - [ ] `web/src/features/inbox/InboxPage.tsx`：移除页面级 Shell，消费共享 Provider。
-- [ ] `web/src/features/channels/ChannelsPage.tsx`：保留统一头像与 Markdown，并向消息行和 mention 候选传递真实 `isAgent` 身份。
+- [ ] `web/src/features/channels/ChannelsPage.tsx`：保留统一头像与 Markdown，传递真实 `isAgent`，并接入首次/切换/发送/实时消息滚动锚点。
 - [ ] `web/src/features/calendar/CalendarPage.tsx`：移除页面级 Shell、保留 Sidebar，并让 Calendar 画布和事件详情使用统一内容面板背景语义。
 - [ ] `web/src/features/tasks/TasksPage.tsx`：复刻 Desktop 列/卡片视觉层级，增加 Track 筛选、Assignee/Status/Track 分组、空列开关及 URL search 同步。
 - [ ] `web/src/features/tasks/types.ts`：对齐 Desktop Task priority、due timestamp 与 TaskExecution 类型，使用明确 null 语义。
@@ -321,6 +341,7 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - [x] `web/tests/e2e/domain-codecs.spec.ts`：覆盖 profile、Agent DM label、最新 profile 和稳定消息排序。
 - [ ] `web/tests/e2e/task-presentation.spec.ts`：覆盖完整卡片字段、Agent assignee 默认色、三种分组、列排序、URL 恢复、Track 筛选和 execution 防伪。
 - [ ] `web/tests/e2e/avatar-identity.spec.ts`：覆盖 Agent/User 默认色、真实图片优先、图片失败回退及跨 Sidebar/消息/mention 的一致性。
+- [ ] `web/tests/e2e/message-scroll.spec.ts`：覆盖长 DM 首次进入、会话切换、底部新消息、历史阅读不抢位、发送贴底、异步行高和 iPad viewport。
 - [ ] `web/tests/e2e/work-console.spec.ts`：在现有身份、消息呈现测试上补充 Task 卡片边框/hover、Track 筛选、空状态、URL 恢复及 Board/List 一致性。
 - [ ] `web/tests/e2e/message-mentions.spec.ts`：覆盖 Channel `@Agent` 候选、键盘/触控选择、p tag、同名歧义和 DM 自动 recipient。
 - [ ] `web/tests/e2e/message-timeline.spec.ts`：用乱序、同秒、reply、delete、edit、reaction fixture 对照 Desktop 投影与 row 顺序。
@@ -346,6 +367,7 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - Task 卡片边框、阴影、列背景与 Desktop 一致；Track 筛选及 Assignee/Status/Track 分组在 Board、List、刷新和浏览器历史中行为一致；
 - Task 卡片在相同 fixture 下与 Desktop 显示相同的信息集合、顺序、状态颜色和缺省规则；
 - 无真实头像时 Agent 与 User 可通过一致的 primary/secondary 默认头像视觉区分，且身份判断不依赖名称猜测；
+- 首次进入长 DM/Channel 时直接看到最新消息；实时回复、发送、历史阅读与布局变化遵循 Desktop 的锚点策略；
 - 完整 Chrome、iPad 横屏、iPad 竖屏 E2E 与视觉回归通过后再部署。
 
 ## 九、建设性建议
