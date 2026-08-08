@@ -162,6 +162,41 @@ test("opens conversations at the bottom", async ({ page }) => {
     .toBeLessThanOrEqual(1);
 });
 
+test("aligns the timeline and composer and shows DM delivery progress", async ({
+  page,
+}) => {
+  await page.goto("/app/channels/11111111-1111-4111-8111-111111111111");
+  const content = page.getByTestId("conversation-messages");
+  const composer = page.getByTestId("conversation-composer");
+  const [contentBox, composerBox] = await Promise.all([
+    content.boundingBox(),
+    composer.boundingBox(),
+  ]);
+  expect(contentBox).not.toBeNull();
+  expect(composerBox).not.toBeNull();
+  expect(Math.abs((contentBox?.x ?? 0) - (composerBox?.x ?? 0))).toBeLessThan(
+    1,
+  );
+  expect(
+    Math.abs((contentBox?.width ?? 0) - (composerBox?.width ?? 0)),
+  ).toBeLessThan(1);
+
+  const textarea = page.getByPlaceholder("Message Hermes");
+  await textarea.fill("Optimistic hello from Web");
+  await page.getByRole("button", { name: "Send message" }).click();
+  await expect(page.getByTestId("message-delivery-status")).toContainText(
+    "Signing and sending",
+  );
+  await expect(page.getByText("Optimistic hello from Web")).toBeVisible();
+  await expect(page.getByTestId("message-delivery-status")).toContainText(
+    "Sent",
+  );
+  await expect(page.getByTestId("message-delivery-status")).toContainText(
+    "Waiting for Hermes",
+    { timeout: 2_000 },
+  );
+});
+
 test("uses distinct fallback colors for agents and users", async ({ page }) => {
   await page.goto("/app/channels/00000000-0000-4000-8000-000000000001");
   await page.getByPlaceholder("Message #general").fill("@Cod");

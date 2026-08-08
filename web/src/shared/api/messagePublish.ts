@@ -40,6 +40,12 @@ export async function publishChannelMessage(input: {
   content: string;
   mentionPubkeys?: string[];
 }): Promise<string> {
+  if (
+    import.meta.env.MODE === "e2e" &&
+    window.__BUZZ_E2E_PUBLISH_CHANNEL_MESSAGE__
+  ) {
+    return window.__BUZZ_E2E_PUBLISH_CHANNEL_MESSAGE__(input);
+  }
   const unsigned = buildUnsignedChannelMessage(input);
   const signer = await openPairedSigner();
   try {

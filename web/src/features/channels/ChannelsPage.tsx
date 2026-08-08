@@ -16,8 +16,13 @@ import { DesktopParityAppShell } from "@/shared/ui/DesktopParityAppShell";
 import { profileLabel } from "@/features/profile/eventCodec";
 import { subscribeChannelMessages } from "@/features/messages/channelMessageSession";
 import { MessageMarkdown } from "@/features/messages/MessageMarkdown";
+import {
+  type DeliveryState,
+  MessageDeliveryStatus,
+} from "@/features/messages/MessageDeliveryStatus";
 import { useMessageScroll } from "@/features/messages/useMessageScroll";
 import { ProfileAvatar } from "@/shared/ui/ProfileAvatar";
+import type { Message } from "./types";
 
 export function ChannelsPage() {
   const { state, refresh } = useWorkConsoleData();
@@ -25,8 +30,11 @@ export function ChannelsPage() {
   const navigate = useNavigate();
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
-  const [sendError, setSendError] = useState<string>();
   const [mentionPubkeys, setMentionPubkeys] = useState<string[]>([]);
+  const [optimisticMessages, setOptimisticMessages] = useState<Message[]>([]);
+  const [deliveryByChannel, setDeliveryByChannel] = useState<
+    Record<string, DeliveryState & { sentAt?: number; eventId?: string }>
+  >({});
   const channels = state.status === "ready" ? state.data.channels : [];
   const channel =
     channels.find((item) => item.id === params.channelId) ?? channels[0];
@@ -53,19 +61,95 @@ export function ChannelsPage() {
       document.removeEventListener("visibilitychange", catchUp);
     };
   }, [channel, refresh]);
-  const messages = useMemo(
-    () =>
+  const messages = useMemo(() => {
+    const server =
       state.status === "ready"
         ? state.data.messages.filter((item) => item.channelId === channel?.id)
-        : [],
-    [channel?.id, state],
-  );
+        : [];
+    const merged = new Map(server.map((message) => [message.id, message]));
+    for (const message of optimisticMessages) {
+      if (message.channelId === channel?.id && !merged.has(message.id))
+        merged.set(message.id, message);
+    }
+    return [...merged.values()].sort(
+      (left, right) =>
+        left.createdAt - right.createdAt || left.id.localeCompare(right.id),
+    );
+  }, [channel?.id, optimisticMessages, state]);
   const messageIds = useMemo(
     () => messages.map((message) => message.id),
     [messages],
   );
   const { containerRef, onScroll, scrollToBottomOnNextUpdate } =
     useMessageScroll(channel?.id, messageIds);
+  const delivery = channel
+    ? (deliveryByChannel[channel.id] ?? { status: "idle" as const })
+    : ({ status: "idle" } as const);
+  useEffect(() => {
+    if (state.status !== "ready" || optimisticMessages.length === 0) return;
+    const serverIds = new Set(state.data.messages.map((message) => message.id));
+    setOptimisticMessages((current) => {
+      const pending = current.filter((message) => !serverIds.has(message.id));
+      return pending.length === current.length ? current : pending;
+    });
+  }, [optimisticMessages.length, state]);
+  useEffect(() => {
+    if (!channel || delivery.status !== "accepted") return;
+    const timer = window.setTimeout(
+      () => {
+        setDeliveryByChannel((current) => ({
+          ...current,
+          [channel.id]:
+            channel.channelType === "dm"
+              ? {
+                  ...current[channel.id],
+                  status: "waiting",
+                  label: channel.displayName,
+                }
+              : { status: "idle" },
+        }));
+      },
+      channel.channelType === "dm" ? 900 : 1800,
+    );
+    return () => window.clearTimeout(timer);
+  }, [channel, delivery.status]);
+  useEffect(() => {
+    if (!channel || delivery.status !== "waiting") return;
+    const timer = window.setTimeout(() => {
+      setDeliveryByChannel((current) => ({
+        ...current,
+        [channel.id]: {
+          ...current[channel.id],
+          status: "still-waiting",
+          label: channel.displayName,
+        },
+      }));
+    }, 30_000);
+    return () => window.clearTimeout(timer);
+  }, [channel, delivery.status]);
+  useEffect(() => {
+    if (
+      !channel ||
+      state.status !== "ready" ||
+      (delivery.status !== "waiting" && delivery.status !== "still-waiting") ||
+      !delivery.sentAt
+    )
+      return;
+    const sentAt = delivery.sentAt;
+    if (!sentAt) return;
+    const replied = state.data.messages.some(
+      (message) =>
+        message.channelId === channel.id &&
+        message.author !== state.data.userPubkey &&
+        message.createdAt >= sentAt,
+    );
+    if (replied) {
+      setDeliveryByChannel((current) => ({
+        ...current,
+        [channel.id]: { status: "idle" },
+      }));
+    }
+  }, [channel, delivery, state]);
   const mentionQuery = draft.match(/(?:^|\s)@([^\s@]*)$/)?.[1]?.toLowerCase();
   const mentionCandidates = useMemo(() => {
     if (mentionQuery === undefined || state.status !== "ready" || !channel)
@@ -94,9 +178,13 @@ export function ChannelsPage() {
       return;
     setSending(true);
     scrollToBottomOnNextUpdate();
-    setSendError(undefined);
+    setDeliveryByChannel((current) => ({
+      ...current,
+      [channel.id]: { status: "sending" },
+    }));
     try {
-      await publishChannelMessage({
+      const content = draft.trim();
+      const eventId = await publishChannelMessage({
         channelId: channel.id,
         content: draft,
         mentionPubkeys: [
@@ -110,13 +198,31 @@ export function ChannelsPage() {
           ]),
         ],
       });
+      const sentAt = Math.floor(Date.now() / 1000);
+      setOptimisticMessages((current) => [
+        ...current.filter((message) => message.id !== eventId),
+        {
+          id: eventId,
+          channelId: channel.id,
+          author: state.data.userPubkey,
+          content,
+          createdAt: sentAt,
+        },
+      ]);
+      setDeliveryByChannel((current) => ({
+        ...current,
+        [channel.id]: { status: "accepted", eventId, sentAt },
+      }));
       setDraft("");
       setMentionPubkeys([]);
       await refresh();
     } catch (error) {
-      setSendError(
-        error instanceof Error ? error.message : "Message could not be sent.",
-      );
+      const message =
+        error instanceof Error ? error.message : "Message could not be sent.";
+      setDeliveryByChannel((current) => ({
+        ...current,
+        [channel.id]: { status: "failed", message },
+      }));
     } finally {
       setSending(false);
     }
@@ -175,9 +281,12 @@ export function ChannelsPage() {
             onScroll={onScroll}
             ref={containerRef}
           >
-            <div className="mx-auto max-w-4xl px-5 py-4">
+            <div
+              className="w-full px-2 py-4 sm:px-3"
+              data-testid="conversation-content"
+            >
               {messages.length ? (
-                <div>
+                <div data-testid="conversation-messages">
                   {messages.map((message, index) => {
                     const previous = messages[index - 1];
                     const messageDay = new Date(
@@ -214,7 +323,7 @@ export function ChannelsPage() {
                           </div>
                         )}
                         <article
-                          className={`group flex gap-3 px-2 hover:bg-muted/30 ${grouped ? "py-0.5" : "mt-3 pt-2"}`}
+                          className={`group flex gap-3 hover:bg-muted/30 ${grouped ? "py-0.5" : "mt-3 pt-2"}`}
                         >
                           {grouped ? (
                             <div className="w-9 shrink-0 text-right text-3xs text-muted-foreground opacity-0 group-hover:opacity-100">
@@ -275,8 +384,12 @@ export function ChannelsPage() {
               )}
             </div>
           </section>
-          <footer className="shrink-0 px-5 pb-5 pt-2">
-            <div className="mx-auto max-w-4xl">
+          <footer className="shrink-0 px-2 pb-3 pt-2 sm:px-3">
+            <div className="w-full" data-testid="conversation-composer">
+              <MessageDeliveryStatus
+                delivery={delivery}
+                onRetry={() => void send()}
+              />
               {mentionCandidates.length > 0 && (
                 <div
                   className="mb-2 max-h-64 overflow-y-auto rounded-xl border border-border bg-popover p-1 shadow-xl"
@@ -357,9 +470,6 @@ export function ChannelsPage() {
                   </button>
                 </div>
               </div>
-              {sendError && (
-                <p className="mt-2 text-xs text-destructive">{sendError}</p>
-              )}
             </div>
           </footer>
         </div>

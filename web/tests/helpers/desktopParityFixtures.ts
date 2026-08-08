@@ -3,6 +3,10 @@ import type { Page } from "@playwright/test";
 export async function installWorkConsoleFixture(page: Page) {
   await page.addInitScript(() => {
     const userPubkey = "11".repeat(32);
+    window.__BUZZ_E2E_PUBLISH_CHANNEL_MESSAGE__ = async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 100));
+      return "e2e-published-message";
+    };
     window.__BUZZ_E2E_WORK_CONSOLE_DATA__ = {
       userPubkey,
       channels: [
