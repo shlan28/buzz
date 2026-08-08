@@ -1,5 +1,5 @@
 > 更新日期：2026-08-08
-> 更新说明：补充 DM/Channel 消息作者未显示 Agent 名称与 Composer 无法 `@Agent` 的问题；方案覆盖 profile、成员投影、提及候选、p tags 和持久 Sidebar。
+> 更新说明：补充 Web 消息能发出但无法收到 Agent 后续回复的问题；方案覆盖 profile、成员投影、提及候选、实时消息订阅、发送回显、断线补偿和持久 Sidebar。
 
 # Web 身份、DM、Channel 与 Sidebar 一致性修复方案
 
@@ -56,6 +56,19 @@ Desktop 的产品语义是：
 - 候选显示 profile 名称和 Agent 状态，最终发送时携带精确 pubkey；
 - 只输入无法唯一解析的 `@名字` 不能悄悄发成没有 p tag 的普通文本。
 
+### 1.7 消息发出后没有 Agent 回复
+
+当前 Web 只有“发送成功后立即执行一次全量 refresh”，没有订阅当前 Channel 的 kind `9/40002` 实时事件。Agent 通常在这次 refresh 完成之后才回复，因此回复不会进入当前页面，只有再次手动刷新才可能看到。
+
+完整消息闭环必须包含：
+
+1. 发送成功后立即把已签名事件合并进时间线，避免等待 Relay 回读；
+2. 当前 Channel 建立带明确 `kinds` 和 `#h` 的实时 WebSocket 订阅；
+3. 收到经过验签的 Agent 回复后按 event id 去重并追加；
+4. 路由切换时只切换 Channel subscription，不重建整个工作台数据；
+5. WebSocket 断线重连后执行一次 HTTP catch-up，再恢复实时订阅；
+6. 页面从后台或设备睡眠恢复时执行 catch-up，避免漏掉 Agent 回复。
+
 ## 二、产品目标
 
 - Sidebar profile 显示当前 Buzz 用户真实名字与头像；
@@ -66,6 +79,7 @@ Desktop 的产品语义是：
 - Relay 查询失败不能清空已加载 Sidebar。
 - Channel 与 DM 时间线显示真实用户/Agent 名称和头像；
 - 输入 `@` 出现当前 Channel 成员候选，选择 Agent 后正文保留可读名称且事件携带对应 `p` tag。
+- 消息发出后立即回显，Agent 回复无需手动刷新即可出现在当前 DM/Channel。
 
 ## 三、统一数据模型
 
@@ -74,6 +88,7 @@ Desktop 的产品语义是：
 - `currentProfile`：当前用户 profile；
 - `profilesByPubkey`：DM 参与者、消息作者和 Agent profile；
 - `membersByChannelId`：每个可见 Channel 最新 membership pubkeys；
+- `messagesByChannelId`：HTTP 初始快照、发送回显和实时事件按 id 合并后的消息集合；
 - `memberChannelIds`：当前用户最新 membership 投影；
 - `hiddenDmIds`：当前用户最新 kind `30622` 隐藏列表；
 - Channel 增加 `isMember`、`archivedAt`、`displayName`；
@@ -142,6 +157,12 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - 同名候选必须通过选择绑定 pubkey，不能仅按文本猜测；
 - DM 不输入 `@` 仍自动携带其他参与者 p tags；普通 Channel 不选择候选则不添加 p tag；
 - 已离开、已归档 Agent 不进入 mention candidates。
+- 发送成功后时间线立即出现该 event id，Relay 回放不得生成重复消息；
+- Agent 延迟回复通过实时 subscription 自动出现；
+- 强制断开实时 WebSocket、期间注入回复、恢复后 catch-up 不丢消息；
+- 切换 DM/Channel 时旧 `#h` 订阅被关闭，新订阅只接收当前 channel；
+- 伪造签名、错误 `h` tag、错误 subscription id 的事件必须忽略；
+- iPad 切后台再回来能够补回后台期间的回复。
 
 ## 七、Todo List
 
@@ -155,6 +176,8 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - [ ] `web/src/features/messages/MentionAutocomplete.tsx`：实现键盘、触控可用的 `@` 候选浮层和明确选择。
 - [ ] `web/src/features/messages/MessageComposer.tsx`：维护已选择 mention 的名称到 pubkey 绑定，并把 pubkeys 交给发送层。
 - [ ] `web/src/features/messages/MessageTimeline.tsx`：使用共享 profile lookup 渲染真实作者名称、头像和 Agent 标识。
+- [ ] `web/src/features/messages/channelMessageSession.ts`：实现当前 Channel 的实时订阅、验签、按 id 去重、断线重连和 HTTP catch-up。
+- [ ] `web/src/features/messages/useChannelMessages.ts`：合并初始快照、发送回显与实时回复，并在 channel id 变化时切换订阅。
 - [ ] `web/src/shared/api/communitySession.ts`：分段查询 profile/membership/visibility，生成与 Desktop 一致的可见 Channel/DM 数据。
 - [ ] `web/src/shared/hooks/WorkConsoleProvider.tsx`：建立持久共享状态、请求去重、last-good snapshot 和身份 reset。
 - [ ] `web/src/shared/hooks/useWorkConsoleData.ts`：改为读取 Provider，不再由每个页面独立请求。
@@ -179,6 +202,7 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - Web DM 名称与 Desktop 同一个 DM 的名称一致；
 - Web Channel/DM 时间线中的 Agent 作者名称与 Desktop 一致；
 - Channel 中可以通过 `@` 候选准确提及 Agent，发布事件含正确 p tag；
+- 从 Web 发出 DM/Channel 消息后立即回显，Agent 延迟回复无需刷新自动出现；
 - Web Sidebar 的 Channel/DM id 集合与 Desktop 一致，而不只比较数量；
 - 六个标签连续切换时 Sidebar 内容始终可见且 DOM identity 不变；
 - 完整 Chrome、iPad 横屏、iPad 竖屏 E2E 与视觉回归通过后再部署。
