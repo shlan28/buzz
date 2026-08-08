@@ -1,5 +1,5 @@
 > 更新日期：2026-08-08
-> 更新说明：新增 Desktop 与 Web 在 SAS 匹配后被意外中断的修复方案，聚焦事件监听器异步注册/卸载竞态、配对生命周期所有权和回归测试；真实配对成功后进一步确认主 Relay 的 NIP-42 五秒 AUTH 窗口不足以容纳公网 Remote Signer 往返，只读加载改用同身份 NIP-98 `/query`；补充 Mac signer 长连接中断后的自动重连和运行期授权保持。
+> 更新说明：新增 Desktop 与 Web 在 SAS 匹配后被意外中断的修复方案，聚焦事件监听器异步注册/卸载竞态、配对生命周期所有权和回归测试；真实配对成功后进一步确认主 Relay 的 NIP-42 五秒 AUTH 窗口不足以容纳公网 Remote Signer 往返，只读加载改用同身份 NIP-98 `/query`；补充 Mac signer 长连接中断后的自动重连和运行期授权保持；根据公网复测新增 Pair Relay 两分钟硬超时修复与可理解错误提示。
 
 > 线上联调补充：NIP-98 `/query` 首次返回 Safari `Load failed`，根因是 Relay CORS 白名单仅包含 `https://achoverse.xyz`，未包含 Pages 域名 `https://app.achoverse.xyz`；运行配置需同时允许两者。
 
@@ -32,6 +32,8 @@ MobilePairingCard.tsx:236, 246, 257, 276
 同一个 cleanup 还会在 `step !== idle/done` 时调用 `cancelPairing()`。因此，当组件在 `sas` 或 `transferring` 阶段因生命周期变化被清理时，后台 NIP-AB 会话可能收到取消，Web 端表现为 SAS 一致后突然中断。
 
 配对成功后的第二个现场错误是 `Desktop did not answer get_public_key`。Desktop Remote Signer 当前只连接 signer Relay 一次；公网隧道、休眠或 Relay 短暂断开后任务直接结束，但 UI 仍保留“已配对”状态。Web 随后可以发出请求，却没有在线的 Mac signer 订阅者应答。
+
+第三个现场错误反复表现为 `relay connection closed`。代码核查确认 Pair Relay 会在连接建立 120 秒后无条件关闭，而 Desktop 自身到 130 秒才显示 `Session timed out`。因此 Relay 总是先断开，用户看到的是误导性的网络故障；在人工核对验证码、切换窗口或排障超过两分钟时，即使网络完全健康也必然失败。
 
 ## 三、修复设计
 
@@ -71,6 +73,14 @@ MobilePairingCard.tsx:236, 246, 257, 276
 - 首次订阅仍受十秒 ready 超时约束，避免 Desktop 把未真正上线的 signer 显示为配对成功；
 - 用户撤销、重新配对或 Desktop 退出时立即停止重连。
 
+### 3.5 配对有效期和错误语义
+
+- Pair Relay 单连接有效期从两分钟延长至十分钟，仍保持连接数、帧大小、事件数和事件新鲜度限制；
+- Desktop 配对任务使用相同的十分钟产品有效期，不再晚于 Relay 才超时；
+- Relay 在未完成时关闭，Desktop 显示“配对链接已过期，请生成新链接”，不再暴露 `relay connection closed`；
+- Web 页面同步显示十分钟有效期，并在断开时明确要求使用新链接；
+- 自动化通过虚拟时间验证 Relay 十分钟关闭边界，避免测试实际等待。
+
 ## 四、建设性建议
 
 本次先修复可复现的前端生命周期竞态，不把配对授权持久化混入同一个补丁。Desktop 重启后是否保留 Web signer 授权属于独立的设备管理设计，应单独实现持久化授权、撤销和过期策略，否则会扩大私钥签名安全边界。
@@ -89,6 +99,10 @@ MobilePairingCard.tsx:236, 246, 257, 276
 - [x] `desktop/src/features/settings/lib/pairingListenerLifecycle.test.mjs`：覆盖延迟注册、重复 cleanup、异常 unlisten 和各阶段取消规则。
 - [x] `desktop/src/features/settings/ui/MobilePairingCard.tsx`：接入统一 listener 生命周期，移除四组竞态式注册/卸载代码。
 - [x] `desktop/src-tauri/src/commands/remote_signer.rs`：实现保持运行期授权的可取消重连循环，并覆盖退避与授权保持测试。
+- [x] `crates/buzz-pair-relay/src/lib.rs`：把 Pair 连接有效期调整为十分钟并保持其他安全预算不变。
+- [x] `crates/buzz-pair-relay/tests/integration.rs`：把虚拟时间超时测试更新为十分钟边界。
+- [x] `desktop/src-tauri/src/commands/pairing.rs`：统一十分钟有效期并把非预期关闭转换为可执行的过期提示。
+- [x] `web/src/features/pairing/PairPage.tsx`：在配对界面明确展示链接十分钟有效期。
 - [ ] `docs/2026-08-08-desktop-web-pairing-interruption-fix.md`：记录验证结果、提交号与真实配对结果。
 
 ## 八、自动化验证结果
@@ -96,6 +110,9 @@ MobilePairingCard.tsx:236, 246, 257, 276
 - Remote Signer Rust 定向测试：6 项通过；
 - Pairing listener 生命周期测试：4 项通过；
 - Web TypeScript 类型检查、Biome、文件大小与 pubkey 展示检查通过；
+- Pair Relay 集成测试：53 项通过，包含十分钟虚拟时间关闭边界；
+- Pair Relay 已重新构建并由 LaunchAgent 重启；Desktop 已热重编译；
+- Web 生产部署 `3a88f708` 已发布，`app.achoverse.xyz` 返回新资源 `index-BSGKawym.js`；
 - `git diff --check` 通过；
 - 真实公网重新配对和数据加载仍待最终人工操作验收。
 

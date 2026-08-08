@@ -66,7 +66,8 @@ export function PairPage() {
               <p className="mt-1 text-sm leading-6 text-muted-foreground">
                 On Buzz Desktop, open Settings → Pair Device, then paste the
                 pairing link here. Your user private key never enters the
-                browser.
+                browser. Each pairing link is valid for 10 minutes and can only
+                be used once.
               </p>
               <label
                 className="mt-5 block text-xs font-medium"

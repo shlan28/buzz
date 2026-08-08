@@ -20,7 +20,7 @@
 //! - **Signature verification** — Schnorr signatures are verified against the
 //!   NIP-01 event ID hash. Events with invalid signatures are rejected.
 //! - **No persistence** — events exist only in-flight between matched pub/sub.
-//! - **Bounded resources** — 128 max WS connections, 4 KiB max frame, 120s TTL.
+//! - **Bounded resources** — 128 max WS connections, 4 KiB max frame, 10-minute TTL.
 //! - **Session cap** — at most 6 accepted EVENTs per connection.
 //! - **Freshness** — `created_at` must be within ±120 s of relay wall-clock.
 //! - **Deduplication** — duplicate event IDs are rejected; dedup entries expire after 300 s.
@@ -56,7 +56,7 @@ use tokio_tungstenite::WebSocketStream;
 use tokio_util::sync::CancellationToken;
 
 /// Hard per-connection lifetime. `pub(crate)` for test access.
-pub(crate) const CONN_TIMEOUT: Duration = Duration::from_secs(120);
+pub(crate) const CONN_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
 const MAX_CONNS: u32 = 128;
 const CHANNEL_CAP: usize = 4;

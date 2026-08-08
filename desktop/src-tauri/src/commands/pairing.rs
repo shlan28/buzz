@@ -19,6 +19,8 @@ use crate::app_state::AppState;
 use crate::commands::remote_signer::RemoteSignerHandle;
 use crate::relay::{relay_api_base_url_with_override, relay_ws_url_with_override};
 
+const PAIRING_SESSION_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+
 #[derive(Serialize, Clone)]
 struct PairingSasPayload {
     sas: String,
@@ -357,7 +359,7 @@ async fn pairing_ws_task_inner(
 
     wait_for_eose(&mut read, "pair", Duration::from_secs(10)).await?;
 
-    let hard_timeout = tokio::time::sleep(Duration::from_secs(130));
+    let hard_timeout = tokio::time::sleep(PAIRING_SESSION_TIMEOUT);
     tokio::pin!(hard_timeout);
 
     loop {
@@ -370,7 +372,7 @@ async fn pairing_ws_task_inner(
             _ = &mut hard_timeout => {
                 if pairing_task_is_current(generation, task_generation) {
                     let _ = app.emit("pairing-error", PairingErrorPayload {
-                        message: "Session timed out".into(),
+                        message: "Pairing link expired. Generate a new link and try again.".into(),
                     });
                 }
                 break;
@@ -382,7 +384,9 @@ async fn pairing_ws_task_inner(
             }
             msg = read.next() => {
                 let Some(msg) = msg else {
-                    return Err("relay connection closed".into());
+                    return Err(
+                        "Pairing connection ended. Generate a new link and try again.".into(),
+                    );
                 };
                 let msg = msg.map_err(|e| format!("WS read error: {e}"))?;
                 let Message::Text(text) = msg else { continue };
