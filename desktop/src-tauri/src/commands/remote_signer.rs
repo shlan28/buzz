@@ -11,6 +11,8 @@ use zeroize::Zeroizing;
 const KIND_NOSTR_CONNECT: u16 = 24_133;
 const ALLOWED_SIGN_KINDS: &[u16] = &[22_242, 27_235];
 const SIGNER_READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+const SIGNER_RECONNECT_MIN_DELAY: std::time::Duration = std::time::Duration::from_millis(250);
+const SIGNER_RECONNECT_MAX_DELAY: std::time::Duration = std::time::Duration::from_secs(5);
 
 struct SignerTask {
     cancel: CancellationToken,
@@ -110,27 +112,42 @@ async fn remote_signer_task(
     cancel: CancellationToken,
     ready_tx: oneshot::Sender<()>,
 ) {
-    if let Err(error) = remote_signer_task_inner(
-        &keys,
-        &relay_url,
-        client_pubkey,
-        secret.as_str(),
-        &cancel,
-        ready_tx,
-    )
-    .await
-    {
-        tracing::warn!(%error, "remote signer stopped");
+    let mut connected = false;
+    let mut ready_tx = Some(ready_tx);
+    let mut reconnect_delay = SIGNER_RECONNECT_MIN_DELAY;
+    loop {
+        let result = remote_signer_connection(
+            &keys,
+            &relay_url,
+            client_pubkey,
+            secret.as_str(),
+            &cancel,
+            &mut connected,
+            &mut ready_tx,
+        )
+        .await;
+        if cancel.is_cancelled() {
+            break;
+        }
+        if let Err(error) = result {
+            tracing::warn!(%error, ?reconnect_delay, "remote signer connection lost; reconnecting");
+        }
+        tokio::select! {
+            _ = cancel.cancelled() => break,
+            _ = tokio::time::sleep(reconnect_delay) => {}
+        }
+        reconnect_delay = next_reconnect_delay(reconnect_delay);
     }
 }
 
-async fn remote_signer_task_inner(
+async fn remote_signer_connection(
     keys: &Keys,
     relay_url: &str,
     client_pubkey: PublicKey,
     secret: &str,
     cancel: &CancellationToken,
-    ready_tx: oneshot::Sender<()>,
+    connected: &mut bool,
+    ready_tx: &mut Option<oneshot::Sender<()>>,
 ) -> Result<(), String> {
     let (socket, _) = connect_async(relay_url)
         .await
@@ -148,16 +165,19 @@ async fn remote_signer_task_inner(
         .map_err(|error| format!("remote signer subscribe failed: {error}"))?;
 
     wait_for_signer_eose(&mut read, cancel).await?;
-    ready_tx
-        .send(())
-        .map_err(|_| "remote signer ready receiver closed".to_string())?;
+    if let Some(sender) = ready_tx.take() {
+        sender
+            .send(())
+            .map_err(|_| "remote signer ready receiver closed".to_string())?;
+    }
 
-    let mut connected = false;
     loop {
         tokio::select! {
             _ = cancel.cancelled() => break,
             message = read.next() => {
-                let Some(message) = message else { break };
+                let Some(message) = message else {
+                    return Err("remote signer relay closed connection".into());
+                };
                 let message = message.map_err(|error| format!("remote signer read failed: {error}"))?;
                 let Message::Text(text) = message else { continue };
                 let Some(event) = parse_relay_event(text.as_str()) else { continue };
@@ -173,7 +193,7 @@ async fn remote_signer_task_inner(
                     .map_err(|error| format!("remote signer decrypt failed: {error}"))?;
                 let request: RpcRequest = serde_json::from_str(&plaintext)
                     .map_err(|error| format!("invalid remote signer request: {error}"))?;
-                let response = handle_request(keys, secret, &mut connected, request);
+                let response = handle_request(keys, secret, connected, request);
                 let response_json = serde_json::to_string(&response)
                     .map_err(|error| format!("serialize remote signer response: {error}"))?;
                 let encrypted = nip44::encrypt(
@@ -194,6 +214,13 @@ async fn remote_signer_task_inner(
         }
     }
     Ok(())
+}
+
+fn next_reconnect_delay(current: std::time::Duration) -> std::time::Duration {
+    current
+        .checked_mul(2)
+        .unwrap_or(SIGNER_RECONNECT_MAX_DELAY)
+        .min(SIGNER_RECONNECT_MAX_DELAY)
 }
 
 async fn wait_for_signer_eose<R>(read: &mut R, cancel: &CancellationToken) -> Result<(), String>
@@ -319,7 +346,10 @@ fn sign_event(keys: &Keys, event_json: Option<&String>) -> Result<String, String
 mod tests {
     use std::time::Duration;
 
-    use super::{await_signer_ready, handle_request, is_signer_eose, RpcRequest};
+    use super::{
+        await_signer_ready, handle_request, is_signer_eose, next_reconnect_delay, RpcRequest,
+        SIGNER_RECONNECT_MAX_DELAY, SIGNER_RECONNECT_MIN_DELAY,
+    };
     use nostr::Keys;
     use tokio::sync::oneshot;
 
@@ -381,5 +411,37 @@ mod tests {
             response.error.as_deref(),
             Some("event kind 1 is not permitted")
         );
+    }
+
+    #[test]
+    fn reconnect_backoff_is_bounded() {
+        let mut delay = SIGNER_RECONNECT_MIN_DELAY;
+        for _ in 0..10 {
+            delay = next_reconnect_delay(delay);
+        }
+        assert_eq!(delay, SIGNER_RECONNECT_MAX_DELAY);
+        assert_eq!(next_reconnect_delay(delay), SIGNER_RECONNECT_MAX_DELAY);
+    }
+
+    #[test]
+    fn authorized_client_remains_connected_across_transport_reconnects() {
+        let keys = Keys::generate();
+        let mut connected = true;
+        let response = handle_request(
+            &keys,
+            "already-consumed",
+            &mut connected,
+            RpcRequest {
+                id: "3".into(),
+                method: "get_public_key".into(),
+                params: vec![],
+            },
+        );
+        assert_eq!(
+            response.result.as_deref(),
+            Some(keys.public_key().to_hex().as_str())
+        );
+        assert!(response.error.is_none());
+        assert!(connected);
     }
 }

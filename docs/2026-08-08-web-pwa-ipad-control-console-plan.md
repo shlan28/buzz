@@ -673,7 +673,7 @@ Task Progress:
 - [x] `web/.env.development`：声明本地开发连接的公开 Relay URL，不包含任何密钥。
 - [x] `web/.env.production`：声明线上 PWA 使用 `wss://achoverse.xyz`，避免误连 `app.achoverse.xyz`。
 - [x] `web/src/shared/api/relaySession.ts`：提供 NIP-42 WebSocket session 和受约束 REQ 查询。
-- [ ] `web/src/shared/api/relayHttp.ts`：集中实现 NIP-98 `/query`、`/count` 和错误类型。
+- [x] `web/src/shared/api/relayHttp.ts`：集中实现远程 signer 签署的 NIP-98 `/query` 和错误类型，规避公网 signer 超过 NIP-42 五秒窗口导致的只读加载中断。
 - [x] `web/src/shared/api/communitySession.ts`：管理 relay、identity、signer 和一次性工作台查询生命周期。
 - [x] `web/src/shared/hooks/useWorkConsoleData.ts`：集中加载、刷新和表达 Pair、signer、Relay 的会话状态，页面不直接操作连接。
 - [x] `web/src/shared/domain/eventKinds.ts`：登记消息、Calendar、Task、Track 和 Activity kinds。

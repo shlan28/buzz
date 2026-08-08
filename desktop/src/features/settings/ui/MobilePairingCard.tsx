@@ -29,6 +29,10 @@ import { SettingsOptionGroup, SettingsOptionRow } from "./SettingsOptionGroup";
 import { SettingsSectionHeader } from "./SettingsSectionHeader";
 import { writeTextToClipboard } from "@/shared/lib/clipboard";
 import { cn } from "@/shared/lib/cn";
+import {
+  createPairingListenerLifecycle,
+  shouldCancelPairingOnCleanup,
+} from "../lib/pairingListenerLifecycle";
 
 type PairingStep =
   | "idle"
@@ -225,64 +229,60 @@ export function MobilePairingCard({
     }
 
     let cancelled = false;
-    const unlisteners: (() => void)[] = [];
+    const listeners = createPairingListenerLifecycle();
 
-    listen<{ sas: string }>("pairing-sas-received", (event) => {
-      if (!cancelled && pairingActiveRef.current) {
-        setSasCode(event.payload.sas);
-        setStep("sas");
-      }
-    }).then((fn) => {
-      if (cancelled) fn();
-      else unlisteners.push(fn);
-    });
-
-    listen("pairing-complete", () => {
-      if (!cancelled && pairingActiveRef.current) {
-        pairingActiveRef.current = false;
-        setStep("done");
-      }
-    }).then((fn) => {
-      if (cancelled) fn();
-      else unlisteners.push(fn);
-    });
-
-    listen<{ reason: string }>("pairing-aborted", (event) => {
-      if (!cancelled && pairingActiveRef.current) {
-        pairingActiveRef.current = false;
-        setError(`Pairing stopped: ${event.payload.reason}`);
-        setStep("error");
-      }
-    }).then((fn) => {
-      if (cancelled) fn();
-      else unlisteners.push(fn);
-    });
-
-    listen<{ message: string }>("pairing-error", (event) => {
-      if (!cancelled && pairingActiveRef.current) {
-        pairingActiveRef.current = false;
-        if (isPairingSessionTimeout(event.payload.message)) {
-          setQrUri(null);
-          setSasCode(null);
-          setError(null);
-          setStep("expired");
-          return;
+    listeners.add(
+      listen<{ sas: string }>("pairing-sas-received", (event) => {
+        if (!cancelled && pairingActiveRef.current) {
+          setSasCode(event.payload.sas);
+          setStep("sas");
         }
+      }),
+    );
 
-        setError(pairingErrorMessage(event.payload.message));
-        setStep("error");
-      }
-    }).then((fn) => {
-      if (cancelled) fn();
-      else unlisteners.push(fn);
-    });
+    listeners.add(
+      listen("pairing-complete", () => {
+        if (!cancelled && pairingActiveRef.current) {
+          pairingActiveRef.current = false;
+          setStep("done");
+        }
+      }),
+    );
+
+    listeners.add(
+      listen<{ reason: string }>("pairing-aborted", (event) => {
+        if (!cancelled && pairingActiveRef.current) {
+          pairingActiveRef.current = false;
+          setError(`Pairing stopped: ${event.payload.reason}`);
+          setStep("error");
+        }
+      }),
+    );
+
+    listeners.add(
+      listen<{ message: string }>("pairing-error", (event) => {
+        if (!cancelled && pairingActiveRef.current) {
+          pairingActiveRef.current = false;
+          if (isPairingSessionTimeout(event.payload.message)) {
+            setQrUri(null);
+            setSasCode(null);
+            setError(null);
+            setStep("expired");
+            return;
+          }
+
+          setError(pairingErrorMessage(event.payload.message));
+          setStep("error");
+        }
+      }),
+    );
 
     return () => {
       cancelled = true;
       ++requestIdRef.current;
       pairingActiveRef.current = false;
-      for (const fn of unlisteners) fn();
-      if (stepRef.current !== "idle" && stepRef.current !== "done") {
+      listeners.dispose();
+      if (shouldCancelPairingOnCleanup(stepRef.current)) {
         cancelPairing().catch(() => {});
       }
     };

@@ -8,8 +8,8 @@ import { parseTrack } from "@/features/tracks/eventCodec";
 import type { Track } from "@/features/tracks/types";
 import { KINDS, MESSAGE_KINDS } from "@/shared/domain/eventKinds";
 import { latestByCoordinate } from "@/shared/domain/eventTags";
-import { relayWsUrl } from "@/shared/lib/relay-url";
-import { queryRelay } from "./relaySession";
+import { relayHttpBaseUrl } from "@/shared/lib/relay-url";
+import { queryRelayHttp } from "./relayHttp";
 import { openPairedSigner } from "./signer";
 
 export type WorkConsoleData = {
@@ -27,7 +27,7 @@ export async function loadWorkConsoleData(): Promise<WorkConsoleData> {
   }
   const signer = await openPairedSigner();
   try {
-    const events = await queryRelay(relayWsUrl(), signer, [
+    const events = await queryRelayHttp(relayHttpBaseUrl(), signer, [
       { kinds: [KINDS.channelMetadata], limit: 300 },
       { kinds: MESSAGE_KINDS, limit: 500 },
       { kinds: [KINDS.calendarDate, KINDS.calendarTime], limit: 500 },

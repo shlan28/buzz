@@ -342,6 +342,7 @@ curl --fail --silent --show-error \
 | --- | --- |
 | `app.achoverse.xyz` 打不开 | Cloudflare Pages 自定义域名状态和 DNS，不是本机 3200 端口 |
 | Web 能打开但 Relay 数据失败 | `https://achoverse.xyz/health`、3200 端口和 cloudflared |
+| Web `/query` 显示 `Load failed` | `.env` 的 `BUZZ_CORS_ORIGINS` 必须同时包含 `https://app.achoverse.xyz`；OPTIONS 响应必须返回对应 `Access-Control-Allow-Origin` |
 | Pair Link 连接失败 | 5000 端口、`/pair` ingress、Pair Link 是否过期 |
 | SAS 两边不一致 | 立即拒绝，确认 Web 是最新版，重新生成 Pair Link；不得绕过 SAS |
 | SAS 一致但 signer 超时 | 5001 端口、`/signer` ingress、Desktop 是否仍在运行 |
