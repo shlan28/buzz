@@ -154,7 +154,7 @@ Settings 按钮改为真实 `/app/settings` 导航，页面保持 Desktop 的“
 - [x] `web/tests/e2e/desktop-parity.visual.spec.ts`：建立 1366x768 light/dark 截图基线与硬几何断言。
 - [x] `web/tests/e2e/ipad-layout.spec.ts`：覆盖 1180x820、820x1180 和紧凑宽度无横向溢出。
 - [x] `web/playwright.config.ts`：把消息、Settings 和视觉回归纳入 smoke/iPad project。
-- [ ] `docs/2026-08-08-web-desktop-feature-parity-remediation-plan.md`：部署后补写公网部署号和 commit。
+- [x] `docs/2026-08-08-web-desktop-feature-parity-remediation-plan.md`：已记录公网部署号和 commit。
 
 ## 九点一、验证记录
 
@@ -163,6 +163,15 @@ Settings 按钮改为真实 `/app/settings` 导航，页面保持 Desktop 的“
 - Desktop Remote Signer 定向 Rust 测试 8 项通过；
 - 视觉基线固定 Desktop 的 40px top chrome、300px 展开侧栏、48px 折叠侧栏、16px content surface 圆角和 light/dark 外观；
 - 真实公网发送仍需部署新 Web、重启包含新白名单的 Desktop 后，用当前配对身份分别向 Channel 和 Agent DM 做一次人工端到端验收。
+
+## 九点二、发布记录
+
+- 实现 commit：`51deb7f35 feat(web): add desktop-parity work console`；
+- Cloudflare Pages 部署：`8b68f1a2`；
+- 单次部署地址：`https://8b68f1a2.achoverse-app.pages.dev`；
+- 长期入口：`https://app.achoverse.xyz`；
+- 生产 HTML 已确认加载 `index-DJwntci2.js`，与单次部署地址一致；
+- Desktop dev 已重新编译启动，使用 `wss://achoverse.xyz` 和 `BUZZ_DEV_INSTANCE_SLUG=dev`。
 
 ## 十、验收标准
 
