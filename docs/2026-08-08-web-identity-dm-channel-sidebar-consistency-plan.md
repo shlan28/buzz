@@ -376,7 +376,7 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - [x] `web/src/features/messages/channelMessageSession.ts`：实现当前 Channel 的实时订阅、验签、断线重连和事件触发 catch-up。
 - [ ] `web/src/features/messages/useChannelMessages.ts`：合并初始快照、发送回显与实时回复，并在 channel id 变化时切换订阅。
 - [ ] `web/src/features/messages/useMessageDelivery.ts`：管理按 channel 隔离的 signing、accepted、waiting、still-waiting、failed 状态与 event-id 去重。
-- [ ] `web/src/features/messages/MessageDeliveryStatus.tsx`：呈现发送、已发送、等待回复、超时和失败重试状态，保持 Desktop 消息元信息样式。
+- [x] `web/src/features/messages/MessageDeliveryStatus.tsx`：呈现发送、已发送、等待回复、超时和失败重试状态，保持 Desktop 消息元信息样式。
 - [x] `web/src/features/messages/useMessageScroll.ts`：实现 Desktop 32px 贴底阈值、首次/切换定位和一次性发送贴底策略。
 - [ ] `web/src/shared/api/communitySession.ts`：保留已有工作数据投影，补查 assignee profile 与 Relay 签发的最新 task execution state。
 - [ ] `web/src/shared/hooks/WorkConsoleProvider.tsx`：建立持久共享状态、请求去重、last-good snapshot 和身份 reset。
@@ -386,7 +386,7 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - [x] `web/src/features/sidebar/WebAppSidebar.tsx`：保留 DM 头像和导航图标，并向 DM/当前用户头像传递真实 `isAgent` 身份。
 - [ ] `web/src/features/settings/SettingsPage.tsx`：保留已完成的真实用户 profile，并让 Settings 主内容区域使用统一内容面板背景语义。
 - [ ] `web/src/features/inbox/InboxPage.tsx`：移除页面级 Shell，消费共享 Provider。
-- [ ] `web/src/features/channels/ChannelsPage.tsx`：统一 conversation gutter，并接入乐观消息、真实 event id、DM 等待回复、失败草稿与重试交互。
+- [x] `web/src/features/channels/ChannelsPage.tsx`：统一 conversation gutter，并接入乐观消息、真实 event id、DM 等待回复、失败草稿与重试交互。
 - [x] `web/src/features/calendar/CalendarPage.tsx`：对齐 Sidebar/Toolbar、Day/Week 与 Month 的 `/60` 轻量结构线并保持白色详情画布。
 - [x] `web/src/features/tasks/TasksPage.tsx`：复刻 Desktop 列/卡片视觉层级，增加 Track 筛选、Assignee/Status/Track 分组、空列开关及 URL search 同步。
 - [ ] `web/src/features/tasks/types.ts`：对齐 Desktop Task priority、due timestamp 与 TaskExecution 类型，使用明确 null 语义。
@@ -406,8 +406,8 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - [ ] `web/tests/e2e/message-timeline.spec.ts`：用乱序、同秒、reply、delete、edit、reaction fixture 对照 Desktop 投影与 row 顺序。
 - [ ] `web/tests/e2e/message-presentation.spec.ts`：覆盖 Agent 头像、图片失败回退、Markdown/GFM、危险输入和 iPad 横向溢出。
 - [ ] `web/tests/e2e/desktop-parity.visual.spec.ts`：覆盖内容画布、Sidebar、导航图标及 Calendar Day/Week/Month 在 Light/Dark 下的边框透明度。
-- [ ] `web/tests/helpers/desktopParityFixtures.ts`：增加 profile、未加入、已归档和隐藏 DM fixture。
-- [ ] `docs/2026-08-08-web-identity-dm-channel-sidebar-consistency-plan.md`：记录验证、部署号和 commit。
+- [ ] `web/tests/helpers/desktopParityFixtures.ts`：增加 profile、未加入、已归档和隐藏 DM fixture；已增加消息发布 E2E seam。
+- [x] `docs/2026-08-08-web-identity-dm-channel-sidebar-consistency-plan.md`：记录验证、部署号和 commit。
 
 ## 八、验收标准
 
@@ -461,3 +461,8 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - Agent/User 无图片回退分别使用 primary/secondary；DM/Channel 首次进入定位底部；Calendar 三种视图结构线已弱化。
 - Web check 通过；本轮相关 Chrome/iPad 用例全部通过，完整矩阵 70/71 首轮通过，唯一外部 GitHub 新窗口超时用例单独复跑通过。
 - Cloudflare Pages 部署：`26490388`，生产域名确认加载 `index-Dn7rCuJO.js` 与 `index-peKl3Z-b.css`。
+- 本轮实现 commit：`4299002f8 feat(web): show message delivery progress`。
+- DM/Channel 消息区与 Composer 统一为 8px/12px 响应式 gutter，取消 `max-w-4xl` 和消息行额外内缩；视觉快照已按新边界更新。
+- Web 发布后立即插入真实 event id 的本人消息，并依次呈现 `Signing and sending`、`Sent`、`Waiting for <Agent>`；30 秒无回复进入持续等待，失败保留草稿并提供 Retry。
+- Web check、production/E2E build 通过；Chrome、iPad 横屏、iPad 竖屏完整矩阵 74/74 通过。
+- Cloudflare Pages 部署：`f5b02516`，部署地址确认加载 `index-Yz1W82Jw.js` 与 `index-CICNeRpj.css`；公网入口为 `https://app.achoverse.xyz`。
