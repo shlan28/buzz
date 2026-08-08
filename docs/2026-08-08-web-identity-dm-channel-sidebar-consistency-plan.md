@@ -1,5 +1,5 @@
 > 更新日期：2026-08-08
-> 更新说明：在已部署的身份、DM 和实时消息修复基础上，补充 Agent/User 默认头像身份色、消息 Markdown、会话底部定位与统一窄边距、安全内容面板、Calendar 轻边框、导航图标及 Task 完整呈现要求。
+> 更新说明：在已部署的身份、DM 和实时消息修复基础上，补充 Agent/User 默认头像、消息 Markdown、会话底部定位、统一窄边距与发送/等待回复状态、安全内容面板、Calendar 轻边框及 Task 完整呈现要求。
 
 # Web 身份、DM、Channel 与 Sidebar 一致性修复方案
 
@@ -181,6 +181,35 @@ Desktop 时间线采用接近全宽的小 gutter：滚动区 `px-2`、消息 row
 
 建议共享 gutter 为窄屏 8px、常规宽度 12px，输入框和消息 hover row 的外沿必须像素级一致。安全区仍由页面根部 `env(safe-area-inset-*)` 负责，不能在会话内部重复叠加。
 
+### 1.19 DM 发送后缺少可视化反馈
+
+Web 当前只有 `sending: boolean`，效果仅是暂时禁用 textarea 和发送按钮；Relay 接受后立即清除该状态并执行全量 refresh，没有乐观消息、送达元信息或等待回复提示。网络和远程 signer 稍慢时，用户会觉得点击没有生效；发送完成但 Agent 尚未回复时，页面又恢复成完全静止。
+
+Web 应建立明确的发送状态机：
+
+```text
+idle
+  -> signing-and-sending
+  -> accepted / failed
+accepted
+  -> optimistic message shown with sent acknowledgement
+  -> waiting-for-reply (DM with another participant)
+  -> replied / still-waiting
+```
+
+产品语义：
+
+- 点击发送后立即保留消息内容并显示 `正在签名并发送…`，防止重复提交；
+- Relay 返回已接受后，用真实签名 event id 将本人消息立即合并到当前时间线，显示短暂 `已发送`，不能等待全量查询；
+- Relay 回放同一个 event id 时只去重/确认，不生成第二条消息；
+- 一对一或群组 DM 在已发送后显示 `等待 <参与者> 回复…`；普通 Channel 只显示发送状态，不假设某个 Agent 必须回复；
+- 收到 createdAt 晚于本次发送、作者不是当前用户的当前 Channel 新消息后，清除等待状态；
+- 30 秒后文案变为 `仍在等待回复`，这是等待超时而不是发送失败；切换 Channel 后状态按 channel id 保留或恢复，不能串到别的会话；
+- signer、Relay、HTTP 或验签失败时不清空草稿，显示可读错误和 `重试`；重试复用正文与 mention pubkeys，但生成新的签名事件，避免重复复用旧 AUTH；
+- 页面刷新后不能凭空恢复“正在工作”状态；只可根据 Relay 已确认消息展示已发送内容。
+
+Desktop 本地 Agent observer 能提供真实 working signal，但 Web 当前没有该远程事件源。因此本轮文案使用 `等待回复`，不能虚假显示 `Agent 正在思考/工作`。后续只有接入经过验证的 typing/observer 事件后，才升级为真实 working indicator。
+
 ## 二、产品目标
 
 - Sidebar profile 显示当前 Buzz 用户真实名字与头像；
@@ -202,6 +231,7 @@ Desktop 时间线采用接近全宽的小 gutter：滚动区 `px-2`、消息 row
 - 首次进入或切换 DM/Channel 时默认显示最新消息，阅读历史时不被实时回复强制拉回底部。
 - Calendar Day、Week、Month 使用 Desktop 的轻量结构线与小时刻度，白色画布上不再出现重网格。
 - DM/Channel 移除宽屏最大宽度限制，消息与输入框使用同一窄 gutter 并严格对齐。
+- DM 发送后立即显示签名/发送、乐观消息、已发送、等待回复或失败重试状态，不再出现无反馈空窗。
 
 ## 三、统一数据模型
 
@@ -321,6 +351,10 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - 消息列表和 Composer 不再包含 `max-w-4xl` 居中约束；常规宽度左右 gutter 约 12px，紧凑宽度约 8px。
 - 消息 hover row、日期分隔、空状态、mention 浮层和输入框外框的左右边界一致，误差不超过 1px。
 - 1366px Desktop、iPad 横屏和竖屏下，会话正文可用宽度明显增加且无页面级横向溢出。
+- 点击发送后一个渲染帧内出现发送状态；Relay 接受后本人消息立即按真实 event id 回显并显示 `已发送`。
+- Relay 回放不得重复乐观消息；DM 收到对方更新消息后清除等待状态，30 秒无回复改为 `仍在等待回复`。
+- 失败时草稿、mentions 和错误信息保留，可明确重试；Channel 切换时各会话状态互不污染。
+- 普通 Channel 不显示虚假的 Agent working；没有验证信号时统一使用 `等待回复` 语义。
 
 ## 七、Todo List
 
@@ -341,6 +375,8 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - [ ] `web/src/features/messages/DayDivider.tsx`：按 Desktop 时间格式与布局渲染日期分隔。
 - [x] `web/src/features/messages/channelMessageSession.ts`：实现当前 Channel 的实时订阅、验签、断线重连和事件触发 catch-up。
 - [ ] `web/src/features/messages/useChannelMessages.ts`：合并初始快照、发送回显与实时回复，并在 channel id 变化时切换订阅。
+- [ ] `web/src/features/messages/useMessageDelivery.ts`：管理按 channel 隔离的 signing、accepted、waiting、still-waiting、failed 状态与 event-id 去重。
+- [ ] `web/src/features/messages/MessageDeliveryStatus.tsx`：呈现发送、已发送、等待回复、超时和失败重试状态，保持 Desktop 消息元信息样式。
 - [x] `web/src/features/messages/useMessageScroll.ts`：实现 Desktop 32px 贴底阈值、首次/切换定位和一次性发送贴底策略。
 - [ ] `web/src/shared/api/communitySession.ts`：保留已有工作数据投影，补查 assignee profile 与 Relay 签发的最新 task execution state。
 - [ ] `web/src/shared/hooks/WorkConsoleProvider.tsx`：建立持久共享状态、请求去重、last-good snapshot 和身份 reset。
@@ -350,7 +386,7 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - [x] `web/src/features/sidebar/WebAppSidebar.tsx`：保留 DM 头像和导航图标，并向 DM/当前用户头像传递真实 `isAgent` 身份。
 - [ ] `web/src/features/settings/SettingsPage.tsx`：保留已完成的真实用户 profile，并让 Settings 主内容区域使用统一内容面板背景语义。
 - [ ] `web/src/features/inbox/InboxPage.tsx`：移除页面级 Shell，消费共享 Provider。
-- [ ] `web/src/features/channels/ChannelsPage.tsx`：保留头像、Markdown 和滚动锚点，移除 `max-w-4xl`，让时间线、日期、mention 与 Composer 使用同一窄 gutter。
+- [ ] `web/src/features/channels/ChannelsPage.tsx`：统一 conversation gutter，并接入乐观消息、真实 event id、DM 等待回复、失败草稿与重试交互。
 - [x] `web/src/features/calendar/CalendarPage.tsx`：对齐 Sidebar/Toolbar、Day/Week 与 Month 的 `/60` 轻量结构线并保持白色详情画布。
 - [x] `web/src/features/tasks/TasksPage.tsx`：复刻 Desktop 列/卡片视觉层级，增加 Track 筛选、Assignee/Status/Track 分组、空列开关及 URL search 同步。
 - [ ] `web/src/features/tasks/types.ts`：对齐 Desktop Task priority、due timestamp 与 TaskExecution 类型，使用明确 null 语义。
@@ -364,6 +400,7 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - [ ] `web/tests/e2e/avatar-identity.spec.ts`：覆盖 Agent/User 默认色、真实图片优先、图片失败回退及跨 Sidebar/消息/mention 的一致性。
 - [ ] `web/tests/e2e/message-scroll.spec.ts`：覆盖长 DM 首次进入、会话切换、底部新消息、历史阅读不抢位、发送贴底、异步行高和 iPad viewport。
 - [ ] `web/tests/e2e/message-layout.spec.ts`：覆盖 Desktop/iPad 三种视口的消息行与输入框边界对齐、可用宽度和无横向溢出。
+- [ ] `web/tests/e2e/message-delivery.spec.ts`：覆盖慢 signer、Relay 接受、乐观去重、DM 回复、30 秒等待、失败重试、Channel 隔离和刷新边界。
 - [x] `web/tests/e2e/work-console.spec.ts`：覆盖 Task 完整卡片、Track 筛选、三种分组、Board/List、会话底部定位和 Agent/User 默认头像色。
 - [ ] `web/tests/e2e/message-mentions.spec.ts`：覆盖 Channel `@Agent` 候选、键盘/触控选择、p tag、同名歧义和 DM 自动 recipient。
 - [ ] `web/tests/e2e/message-timeline.spec.ts`：用乱序、同秒、reply、delete、edit、reaction fixture 对照 Desktop 投影与 row 顺序。
@@ -392,6 +429,7 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - 首次进入长 DM/Channel 时直接看到最新消息；实时回复、发送、历史阅读与布局变化遵循 Desktop 的锚点策略；
 - Calendar Day、Week、Month 的结构线、小时刻度、事件强调和 hover 层级与 Desktop 一致；
 - DM/Channel 的时间线和 Composer 全宽利用率与 Desktop 一致，左右留白缩小且两者边界像素级对齐；
+- DM 发送全过程始终有准确可视状态，乐观回显与 Relay 真实事件去重，等待回复和发送失败不会混淆；
 - 完整 Chrome、iPad 横屏、iPad 竖屏 E2E 与视觉回归通过后再部署。
 
 ## 九、建设性建议
