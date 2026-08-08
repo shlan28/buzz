@@ -36,7 +36,10 @@ export function DesktopParityAppShell({
       className="buzz-theme-gradient-layer relative flex h-dvh min-h-0 w-full flex-col overflow-hidden text-foreground"
       data-testid="desktop-parity-app-shell"
     >
-      <header className="relative flex h-10 shrink-0 items-center bg-transparent px-3 text-sidebar-foreground">
+      <header
+        className="relative flex h-10 shrink-0 items-center bg-transparent px-3 text-sidebar-foreground"
+        data-testid="app-top-chrome"
+      >
         <div className="flex items-center gap-0.5">
           <ChromeButton label="Toggle Sidebar">
             <PanelLeftClose aria-hidden="true" className="size-4" />
@@ -54,7 +57,10 @@ export function DesktopParityAppShell({
       </header>
 
       <div className="flex min-h-0 flex-1">
-        <aside className="flex w-[300px] shrink-0 flex-col bg-transparent text-sidebar-foreground max-[699px]:w-12">
+        <aside
+          className="flex w-[300px] shrink-0 flex-col bg-transparent text-sidebar-foreground max-[699px]:w-12"
+          data-testid="app-sidebar"
+        >
           <div className="mx-[3px] shrink-0 px-2 pb-2 pt-3 max-[699px]:hidden">
             <div className="flex h-8 items-center gap-2 rounded-md bg-black/5 px-2 text-sidebar-foreground/55 dark:bg-white/5">
               <Search aria-hidden="true" className="size-4" />
@@ -127,7 +133,11 @@ export function DesktopParityAppShell({
           </div>
         </aside>
 
-        <main className="relative z-10 mb-2 ml-px mr-2 mt-px flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl bg-background shadow-content-edge">
+        <main
+          className="relative z-10 mb-2 ml-px mr-2 mt-px flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl bg-background shadow-content-edge"
+          data-buzz-content-surface
+          data-testid="content-surface"
+        >
           {children}
         </main>
       </div>

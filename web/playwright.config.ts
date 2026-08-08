@@ -23,6 +23,20 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
       },
     },
+    {
+      name: "ipad-landscape",
+      testMatch: "**/pwa-shell.spec.ts",
+      use: {
+        ...devices["iPad Pro 11 landscape"],
+      },
+    },
+    {
+      name: "ipad-portrait",
+      testMatch: "**/pwa-shell.spec.ts",
+      use: {
+        ...devices["iPad Pro 11"],
+      },
+    },
   ],
   webServer: {
     command: "pnpm exec vite preview --port 4173 --strictPort --host 127.0.0.1",
