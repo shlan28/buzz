@@ -1,6 +1,8 @@
 export const KINDS = {
+  profile: 0,
   channelMetadata: 39_000,
   channelMembership: 39_002,
+  dmVisibility: 30_622,
   channelMessage: 9,
   agentMessage: 40_002,
   agentProfile: 10_100,

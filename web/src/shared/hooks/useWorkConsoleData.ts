@@ -15,38 +15,58 @@ export type WorkConsoleState =
       refreshError?: string;
     };
 
+let sharedState: WorkConsoleState = { status: "loading" };
+let activeLoad: Promise<void> | undefined;
+const listeners = new Set<(state: WorkConsoleState) => void>();
+
+function publish(state: WorkConsoleState) {
+  sharedState = state;
+  for (const listener of listeners) listener(state);
+}
+
 export function useWorkConsoleData() {
-  const [state, setState] = useState<WorkConsoleState>({ status: "loading" });
-  const retainedData = useRef<WorkConsoleData | undefined>(undefined);
+  const [state, setState] = useState<WorkConsoleState>(sharedState);
+  const retainedData = useRef<WorkConsoleData | undefined>(
+    sharedState.status === "ready" ? sharedState.data : undefined,
+  );
   const refresh = useCallback(async () => {
-    setState((current) => {
-      if (current.status !== "ready") return { status: "loading" };
-      return { status: "ready", data: current.data, refreshing: true };
-    });
-    try {
-      const data = await loadWorkConsoleData();
-      retainedData.current = data;
-      setState({ status: "ready", data });
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Could not load Buzz data.";
-      if (retainedData.current) {
-        setState({
-          status: "ready",
-          data: retainedData.current,
-          refreshError: message,
-        });
-        return;
+    if (activeLoad) return activeLoad;
+    publish(
+      sharedState.status === "ready"
+        ? { status: "ready", data: sharedState.data, refreshing: true }
+        : { status: "loading" },
+    );
+    activeLoad = (async () => {
+      try {
+        const data = await loadWorkConsoleData();
+        retainedData.current = data;
+        publish({ status: "ready", data });
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Could not load Buzz data.";
+        const retained =
+          retainedData.current ??
+          (sharedState.status === "ready" ? sharedState.data : undefined);
+        publish(
+          retained
+            ? { status: "ready", data: retained, refreshError: message }
+            : message === "PAIR_REQUIRED"
+              ? { status: "pair-required" }
+              : { status: "error", message },
+        );
+      } finally {
+        activeLoad = undefined;
       }
-      setState(
-        message === "PAIR_REQUIRED"
-          ? { status: "pair-required" }
-          : { status: "error", message },
-      );
-    }
+    })();
+    return activeLoad;
   }, []);
   useEffect(() => {
-    void refresh();
+    listeners.add(setState);
+    setState(sharedState);
+    if (sharedState.status === "loading" && !activeLoad) void refresh();
+    return () => {
+      listeners.delete(setState);
+    };
   }, [refresh]);
   return { state, refresh };
 }

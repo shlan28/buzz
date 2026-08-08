@@ -27,6 +27,10 @@ export function parseChannel(event: NostrEvent): Channel | null {
     participantPubkeys: event.tags
       .filter((tag) => tag[0] === "p" && tag[1])
       .map((tag) => tag[1]),
+    isMember: false,
+    archivedAt:
+      firstTag(event.tags, "archived") === "true" ? event.created_at : null,
+    displayName: name,
     updatedAt: event.created_at,
   };
 }

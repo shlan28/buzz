@@ -7,7 +7,14 @@ import {
 import { parseTask } from "../../src/features/tasks/eventCodec";
 import { parseTrack } from "../../src/features/tracks/eventCodec";
 import { latestByCoordinate } from "../../src/shared/domain/eventTags";
+import {
+  buildProfileLookup,
+  parseProfile,
+  profileLabel,
+} from "../../src/features/profile/eventCodec";
+import { channelDisplayName } from "../../src/features/channels/channelLabels";
 import type { NostrEvent } from "../../src/shared/lib/nostr-client";
+import { sortMessagesForTimeline } from "../../src/shared/api/communitySession";
 
 function event(
   kind: number,
@@ -40,6 +47,55 @@ test("parses channel and scoped messages while rejecting missing scope", () => {
     "Hello",
   );
   expect(parseMessage(event(9, [], "leak"))).toBeNull();
+});
+
+test("resolves current-user and generic DM labels from latest profiles", () => {
+  const user = "11".repeat(32);
+  const agent = "22".repeat(32);
+  const profiles = buildProfileLookup([
+    {
+      ...event(0, [], JSON.stringify({ display_name: "Old Hermes" }), 90),
+      pubkey: agent,
+    },
+    {
+      ...event(
+        0,
+        [["auth", user, "sig", "relay"]],
+        JSON.stringify({ display_name: "Hermes", name: "hermes" }),
+        100,
+      ),
+      pubkey: agent,
+    },
+  ]);
+  expect(parseProfile({ ...event(0, [], "{}"), pubkey: user })).not.toBeNull();
+  expect(profileLabel(profiles[agent], agent)).toBe("Hermes");
+  const dm = parseChannel(
+    event(39_000, [
+      ["d", "11111111-1111-4111-8111-111111111111"],
+      ["name", "dm"],
+      ["t", "dm"],
+      ["p", user],
+      ["p", agent],
+    ]),
+  );
+  expect(dm && channelDisplayName(dm, user, profiles)).toBe("Hermes");
+  expect(profiles[agent].isAgent).toBe(true);
+});
+
+test("deduplicates and stably orders timeline messages by timestamp then id", () => {
+  const base = {
+    channelId: "channel",
+    author: "aa".repeat(32),
+    content: "message",
+  };
+  expect(
+    sortMessagesForTimeline([
+      { ...base, id: "b", createdAt: 101 },
+      { ...base, id: "z", createdAt: 100 },
+      { ...base, id: "a", createdAt: 101 },
+      { ...base, id: "a", createdAt: 101 },
+    ]).map((message) => message.id),
+  ).toEqual(["z", "a", "b"]);
 });
 
 test("parses date and time calendar events and rejects invalid dates", () => {

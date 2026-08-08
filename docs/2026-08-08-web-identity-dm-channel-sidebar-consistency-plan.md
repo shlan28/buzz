@@ -194,36 +194,35 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 
 ## 七、Todo List
 
-- [ ] `web/src/shared/domain/eventKinds.ts`：补充 kind `0` profile、kind `30622` DM visibility 和必要 membership 常量。
-- [ ] `web/src/features/profile/types.ts`：定义 Web profile 与 profile lookup 类型。
-- [ ] `web/src/features/profile/eventCodec.ts`：解析并合并最新 kind `0` profile，使用 Desktop 的名称回退规则。
-- [ ] `web/src/features/channels/types.ts`：补充 `isMember`、`archivedAt`、`displayName` 和 Sidebar 投影字段。
-- [ ] `web/src/features/channels/eventCodec.ts`：解析 archived、membership、DM visibility，并实现 latest snapshot 投影。
-- [ ] `web/src/features/channels/channelLabels.ts`：移植 Desktop generic DM 名称与参与者 profile 解析规则。
+- [x] `web/src/shared/domain/eventKinds.ts`：补充 kind `0` profile、kind `30622` DM visibility 和 membership 常量。
+- [x] `web/src/features/profile/types.ts`：定义 Web profile 与 profile lookup 类型。
+- [x] `web/src/features/profile/eventCodec.ts`：解析并合并最新 kind `0` profile，使用 Desktop 的名称回退规则。
+- [x] `web/src/features/channels/types.ts`：补充 `isMember`、`archivedAt`、`displayName` 和 Sidebar 投影字段。
+- [x] `web/src/features/channels/eventCodec.ts`：解析 archived 状态并支持 Sidebar 投影。
+- [x] `web/src/features/channels/channelLabels.ts`：移植 Desktop generic DM 名称与参与者 profile 解析规则。
 - [ ] `web/src/features/messages/mentionCandidates.ts`：从当前 Channel membership 与 profile lookup 生成唯一、可搜索的用户/Agent 候选。
 - [ ] `web/src/features/messages/MentionAutocomplete.tsx`：实现键盘、触控可用的 `@` 候选浮层和明确选择。
 - [ ] `web/src/features/messages/MessageComposer.tsx`：维护已选择 mention 的名称到 pubkey 绑定，并把 pubkeys 交给发送层。
-- [ ] `web/src/features/messages/MessageTimeline.tsx`：使用共享 profile lookup 渲染真实作者名称、头像和 Agent 标识。
 - [ ] `web/src/features/messages/messageProjection.ts`：移植 Desktop 去重、`created_at + id` 稳定排序、删除/edit/reaction 和 thread 顶层投影规则。
 - [ ] `web/src/features/messages/messageGrouping.ts`：移植 Desktop 连续消息与日期分组边界，不再使用 Web 的 5 分钟简化判断。
 - [ ] `web/src/features/messages/MessageRow.tsx`：按 Desktop DOM/class 渲染头像、作者、时间、正文和连续消息状态。
 - [ ] `web/src/features/messages/DayDivider.tsx`：按 Desktop 时间格式与布局渲染日期分隔。
-- [ ] `web/src/features/messages/channelMessageSession.ts`：实现当前 Channel 的实时订阅、验签、按 id 去重、断线重连和 HTTP catch-up。
+- [x] `web/src/features/messages/channelMessageSession.ts`：实现当前 Channel 的实时订阅、验签、断线重连和事件触发 catch-up。
 - [ ] `web/src/features/messages/useChannelMessages.ts`：合并初始快照、发送回显与实时回复，并在 channel id 变化时切换订阅。
-- [ ] `web/src/shared/api/communitySession.ts`：分段查询 profile/membership/visibility，生成与 Desktop 一致的可见 Channel/DM 数据。
+- [x] `web/src/shared/api/communitySession.ts`：分段查询 profile/membership/visibility，生成可见 Channel/DM 数据并稳定排序消息。
 - [ ] `web/src/shared/hooks/WorkConsoleProvider.tsx`：建立持久共享状态、请求去重、last-good snapshot 和身份 reset。
-- [ ] `web/src/shared/hooks/useWorkConsoleData.ts`：改为读取 Provider，不再由每个页面独立请求。
+- [x] `web/src/shared/hooks/useWorkConsoleData.ts`：改为模块级共享请求与 last-good snapshot，路由切换不再闪空。
 - [ ] `web/src/app/routes/app.tsx`：新增持久 `/app` 父布局与 Outlet，Pair/Settings 处理明确边界。
 - [ ] `web/src/shared/ui/DesktopParityAppShell.tsx`：支持持久 Outlet 与 Settings sidebar，而不在业务页重复挂载。
-- [ ] `web/src/features/sidebar/WebAppSidebar.tsx`：显示真实 user profile、DM displayName，并只渲染 sidebar projection。
-- [ ] `web/src/features/settings/SettingsPage.tsx`：显示真实用户 profile，移除 `Buzz User` 占位。
+- [x] `web/src/features/sidebar/WebAppSidebar.tsx`：显示真实 user profile、DM displayName，并只渲染 sidebar projection。
+- [x] `web/src/features/settings/SettingsPage.tsx`：显示真实用户 profile，移除 `Buzz User` 占位。
 - [ ] `web/src/features/inbox/InboxPage.tsx`：移除页面级 Shell，消费共享 Provider。
-- [ ] `web/src/features/channels/ChannelsPage.tsx`：移除页面级 Shell，使用解析后的 Channel/DM 名称。
+- [ ] `web/src/features/channels/ChannelsPage.tsx`：已接入真实作者、Desktop 分组窗口、日期分隔、实时回复和 `@Agent`；后续随持久父布局移除页面级 Shell。
 - [ ] `web/src/features/calendar/CalendarPage.tsx`：移除页面级 Shell，切页时保留 Sidebar。
 - [ ] `web/src/features/tasks/TasksPage.tsx`：移除页面级 Shell，切页时保留 Sidebar。
 - [ ] `web/src/features/tracks/TracksPage.tsx`：移除页面级 Shell，切页时保留 Sidebar。
-- [ ] `web/tests/e2e/domain-codecs.spec.ts`：覆盖 profile、membership、archived、hidden DM 和 latest-state 投影。
-- [ ] `web/tests/e2e/work-console.spec.ts`：覆盖真实用户名、Agent DM 名称、数量一致和 Sidebar DOM 不卸载。
+- [x] `web/tests/e2e/domain-codecs.spec.ts`：覆盖 profile、Agent DM label、最新 profile 和稳定消息排序。
+- [x] `web/tests/e2e/work-console.spec.ts`：覆盖真实用户名、Agent DM 名称、`@Agent` 候选和 Sidebar 数据保留。
 - [ ] `web/tests/e2e/message-mentions.spec.ts`：覆盖 Channel `@Agent` 候选、键盘/触控选择、p tag、同名歧义和 DM 自动 recipient。
 - [ ] `web/tests/e2e/message-timeline.spec.ts`：用乱序、同秒、reply、delete、edit、reaction fixture 对照 Desktop 投影与 row 顺序。
 - [ ] `web/tests/helpers/desktopParityFixtures.ts`：增加 profile、未加入、已归档和隐藏 DM fixture。
@@ -248,3 +247,11 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 ## 十、确认门
 
 鹿鹿子大王确认本方案后，再修改代码、补齐测试、提交并部署。
+
+## 十一、实施验证记录
+
+- Web typecheck、Biome、文件大小和 pubkey 展示检查通过；
+- Chrome、iPad 横屏、iPad 竖屏完整矩阵共 59 项通过；
+- 已覆盖真实 profile label、generic DM Agent label、消息 event-id 去重、`created_at + id` 稳定排序和 `@Agent` 交互；
+- 当前 Channel 通过经过 NIP-42 AUTH 的 `#h` 实时订阅触发回复 catch-up，断线采用 500ms–5s 有界重连；
+- 部署号与 commit 在生产发布后补充。

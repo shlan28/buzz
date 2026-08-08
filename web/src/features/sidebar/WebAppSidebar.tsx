@@ -13,6 +13,7 @@ import {
 import type { ReactNode } from "react";
 import { useWorkConsoleData } from "@/shared/hooks/useWorkConsoleData";
 import { cn } from "@/shared/lib/cn";
+import { profileLabel } from "@/features/profile/eventCodec";
 
 const primary = [
   { href: "/app/inbox", icon: Inbox, label: "Inbox" },
@@ -27,6 +28,10 @@ export function WebAppSidebar({ collapsed = false }: { collapsed?: boolean }) {
   });
   const { state } = useWorkConsoleData();
   const channels = state.status === "ready" ? state.data.channels : [];
+  const currentProfile =
+    state.status === "ready" ? state.data.currentProfile : undefined;
+  const currentPubkey = state.status === "ready" ? state.data.userPubkey : "";
+  const userLabel = profileLabel(currentProfile, currentPubkey || "Buzz");
   const dms = channels.filter((channel) => channel.channelType === "dm");
   const publicChannels = channels.filter(
     (channel) => channel.channelType !== "dm",
@@ -112,7 +117,7 @@ export function WebAppSidebar({ collapsed = false }: { collapsed?: boolean }) {
           to="/app/settings"
         >
           <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-sidebar-accent text-xs font-semibold">
-            BU
+            {userLabel.slice(0, 2).toUpperCase()}
           </span>
           <span
             className={cn(
@@ -121,7 +126,7 @@ export function WebAppSidebar({ collapsed = false }: { collapsed?: boolean }) {
             )}
           >
             <span className="block truncate text-sm font-semibold">
-              Buzz User
+              {userLabel}
             </span>
             <span className="block truncate text-xs text-sidebar-foreground/60">
               Achoverse
@@ -173,6 +178,7 @@ function ChannelLink({
     name: string;
     channelType: "stream" | "forum" | "dm";
     visibility: "open" | "private";
+    displayName: string;
   };
   collapsed: boolean;
   pathname: string;
@@ -200,7 +206,7 @@ function ChannelLink({
       <span
         className={cn("truncate max-[699px]:sr-only", collapsed && "sr-only")}
       >
-        {channel.name}
+        {channel.displayName}
       </span>
     </Link>
   );

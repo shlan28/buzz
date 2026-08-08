@@ -5,6 +5,9 @@ export type Channel = {
   channelType: "stream" | "forum" | "dm";
   visibility: "open" | "private";
   participantPubkeys: string[];
+  isMember: boolean;
+  archivedAt: number | null;
+  displayName: string;
   updatedAt: number;
 };
 export type Message = {

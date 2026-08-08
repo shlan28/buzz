@@ -17,6 +17,8 @@ import {
 } from "@/shared/storage/deviceCredentials";
 import { useTheme } from "@/shared/theme/ThemeProvider";
 import { DesktopParityAppShell } from "@/shared/ui/DesktopParityAppShell";
+import { useWorkConsoleData } from "@/shared/hooks/useWorkConsoleData";
+import { profileLabel } from "@/features/profile/eventCodec";
 
 type Section = "profile" | "appearance" | "connection" | "device" | "desktop";
 const sections = [
@@ -31,6 +33,8 @@ export function SettingsPage() {
   const navigate = useNavigate();
   const [section, setSection] = useState<Section>("profile");
   const { theme, setTheme } = useTheme();
+  const { state: workState } = useWorkConsoleData();
+  const workData = workState.status === "ready" ? workState.data : undefined;
   const [credential, setCredential] =
     useState<Awaited<ReturnType<typeof loadRemoteSignerCredential>>>();
   const [relayOnline, setRelayOnline] = useState<boolean>();
@@ -96,7 +100,13 @@ export function SettingsPage() {
               title="Profile"
               description="Your paired Buzz identity on this browser."
             >
-              <SettingRow label="Display name" value="Buzz User" />
+              <SettingRow
+                label="Display name"
+                value={profileLabel(
+                  workData?.currentProfile,
+                  workData?.userPubkey ?? "",
+                )}
+              />
               <SettingRow
                 label="User pubkey"
                 value={credential?.userPubkey ?? "Not paired"}

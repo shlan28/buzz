@@ -11,6 +11,12 @@ test("renders real work-console views from one authenticated data model", async 
   await expect(page.getByRole("link", { name: "Hermes" })).toBeVisible();
   await page.getByRole("link", { name: "Hermes" }).click();
   await expect(page.getByPlaceholder("Message Hermes")).toBeVisible();
+  await page.getByPlaceholder("Message Hermes").fill("@");
+  await expect(page.getByTestId("mention-autocomplete")).toContainText(
+    "Hermes",
+  );
+  await page.getByRole("button", { name: /Hermes/ }).click();
+  await expect(page.getByPlaceholder("Message Hermes")).toHaveValue("@Hermes ");
   await page.getByRole("link", { name: "Inbox" }).click();
   await expect(page.getByTestId("inbox-screen")).toBeVisible();
   await page.getByRole("link", { name: "Calendar" }).click();
