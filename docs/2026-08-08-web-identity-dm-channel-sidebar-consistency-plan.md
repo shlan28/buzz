@@ -312,3 +312,5 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - Tasks、Tracks Sidebar 图标已分别替换为 Desktop 使用的 `ListTodo` 与 `Route`。
 - Buzz Light 的 content surface 与内部详情画布统一为白色；Buzz Dark 使用 Desktop 的暖黑内容背景。
 - Web check、E2E build 通过；Chrome、iPad 横屏、iPad 竖屏完整矩阵 62 项通过。
+- 本轮实现 commit：`12fb89756 fix(web): match desktop message presentation`；
+- Cloudflare Pages 部署：`0c218edf`，生产域名确认加载 `index-DqqnDaEf.js` 与 `index-CgyV829m.css`。
