@@ -1,7 +1,7 @@
 # Buzz Web/PWA iPad 控制台方案
 
 > 更新日期：2026-08-08
-> 更新说明：开始实现 Desktop Web Pair 模式与 Remote Signer；Remote Signer 改为复用 buzz-pair-relay 的安全单播核心、使用独立 5001 监听器和 `/signer` 路由，与短时 Pair 端口隔离。
+> 更新说明：开始实现 Desktop Web Pair 模式与 Remote Signer；Remote Signer 改为复用 buzz-pair-relay 的安全单播核心、使用独立 5001 监听器和 `/signer` 路由，与短时 Pair 端口隔离。追加 SAS 互操作修复：Web 必须使用原始 secp256k1 ECDH X 坐标派生 SAS，不能误用已经过 `nip44-v2` HKDF-Extract 的 conversation key。
 
 ## 一、产品结论
 
@@ -644,7 +644,11 @@ Task Progress:
 ### Phase 2：Pair 与远程签名
 
 - [x] `web/src/features/pairing/types.ts`：定义 NIP-AB、NIP-46、SAS 和设备状态类型。
-- [x] `web/src/features/pairing/pairingCrypto.ts`：实现浏览器端 ECDH、HKDF、NIP-44 和会话密钥边界。
+- [x] `web/src/features/pairing/pairingCrypto.ts`：将 SAS 输入修正为原始 secp256k1 ECDH X 坐标，NIP-44 消息加密仍使用 conversation key。
+- [x] `web/package.json`：显式声明 secp256k1 互操作依赖，不从 nostr-tools 内部实现跨包导入。
+- [x] `pnpm-lock.yaml`：锁定 SAS 互操作依赖版本。
+- [x] `web/tests/e2e/pairing-crypto.spec.ts`：用 buzz-core 公开固定向量锁定 ECDH、SAS `863346` 和 transcript hash。
+- [x] `web/playwright.config.ts`：将 Pair 密码学互操测试纳入 smoke 门禁。
 - [x] `web/src/features/pairing/pairingSession.ts`：实现 NIP-AB target 状态机和重复事件幂等。
 - [x] `web/src/features/pairing/PairPage.tsx`：实现链接导入、SAS、确认、拒绝、signer 激活和错误恢复。
 - [x] `web/src/shared/api/nip46Client.ts`：实现远程 signer 请求、响应验证、超时和连接错误。

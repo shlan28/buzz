@@ -18,7 +18,11 @@ export default defineConfig({
   projects: [
     {
       name: "smoke",
-      testMatch: ["**/smoke.spec.ts", "**/pwa-shell.spec.ts"],
+      testMatch: [
+        "**/smoke.spec.ts",
+        "**/pwa-shell.spec.ts",
+        "**/pairing-crypto.spec.ts",
+      ],
       use: {
         ...devices["Desktop Chrome"],
       },

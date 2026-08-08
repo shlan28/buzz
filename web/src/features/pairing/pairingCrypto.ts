@@ -1,4 +1,4 @@
-import { nip44 } from "nostr-tools";
+import { secp256k1 } from "@noble/curves/secp256k1.js";
 
 import type { PairingQrPayload } from "./types";
 
@@ -89,11 +89,16 @@ export async function derivePairingProofs(
     new Uint8Array(),
     "nostr-pair-session-id",
   );
-  const sharedKey = nip44.v2.utils.getConversationKey(
-    privateKey,
-    qr.sourcePubkey,
-  );
-  const sasInput = await hkdf(sharedKey, qr.sessionSecret, "nostr-pair-sas-v1");
+  // NIP-AB derives SAS from the raw secp256k1 ECDH X coordinate. Do not use
+  // nip44.getConversationKey here: that value has already been HKDF-extracted
+  // with the `nip44-v2` salt and therefore cannot interoperate with buzz-core.
+  const compressedSourcePubkey = new Uint8Array(33);
+  compressedSourcePubkey[0] = 2;
+  compressedSourcePubkey.set(hexToBytes(qr.sourcePubkey), 1);
+  const sharedX = secp256k1
+    .getSharedSecret(privateKey, compressedSourcePubkey)
+    .subarray(1, 33);
+  const sasInput = await hkdf(sharedX, qr.sessionSecret, "nostr-pair-sas-v1");
   const code =
     (((sasInput[0] << 24) |
       (sasInput[1] << 16) |
