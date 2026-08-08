@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { Hash, MoreHorizontal, Search } from "lucide-react";
 
 import { DesktopParityAppShell } from "@/shared/ui/DesktopParityAppShell";
@@ -48,6 +48,12 @@ function ChannelsShellPreview() {
                 the Desktop visual system; no identity secret is stored in the
                 browser.
               </p>
+              <Link
+                className="mx-auto mt-4 flex h-9 w-fit items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                to="/app/pair"
+              >
+                Pair with Mac
+              </Link>
             </div>
           </div>
         </section>

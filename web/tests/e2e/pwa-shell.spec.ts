@@ -57,3 +57,17 @@ test("keeps the Desktop visual language on compact iPad layouts", async ({
   );
   await expect(page.locator("body")).toHaveCSS("overflow-x", "hidden");
 });
+
+test("opens the secure Mac pairing flow", async ({ page }) => {
+  await page.goto("/app/channels");
+  await page.getByRole("link", { name: "Pair with Mac" }).click();
+
+  await expect(page).toHaveURL(/\/app\/pair$/);
+  await expect(
+    page.getByRole("heading", { name: "Connect this browser" }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Desktop pairing link")).toBeVisible();
+  await expect(
+    page.getByText(/private key never enters the browser/i),
+  ).toBeVisible();
+});

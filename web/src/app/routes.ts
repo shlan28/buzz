@@ -7,4 +7,5 @@ export const routes = rootRoute("root.tsx", [
   route("/repos/$repoId", "repos.$repoId.tsx"),
   route("/repos/$repoId/blob/$", "repos.$repoId.blob.$.tsx"),
   route("/app/channels", "app.channels.tsx"),
+  route("/app/pair", "app.pair.tsx"),
 ]);

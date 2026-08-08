@@ -9,6 +9,7 @@ import { Route as reposRouteImport } from "./routes/repos";
 import { Route as indexRouteImport } from "./routes/index";
 import { Route as reposDotrepoIdRouteImport } from "./routes/repos.$repoId";
 import { Route as inviteDotcodeRouteImport } from "./routes/invite.$code";
+import { Route as appDotpairRouteImport } from "./routes/app.pair";
 import { Route as appDotchannelsRouteImport } from "./routes/app.channels";
 import { Route as reposDotrepoIdDotblobDotsplatRouteImport } from "./routes/repos.$repoId.blob.$";
 
@@ -32,6 +33,11 @@ const inviteDotcodeRoute = inviteDotcodeRouteImport.update({
   path: "/invite/$code",
   getParentRoute: () => rootRouteImport,
 } as any);
+const appDotpairRoute = appDotpairRouteImport.update({
+  id: "/app/pair",
+  path: "/app/pair",
+  getParentRoute: () => rootRouteImport,
+} as any);
 const appDotchannelsRoute = appDotchannelsRouteImport.update({
   id: "/app/channels",
   path: "/app/channels",
@@ -48,6 +54,7 @@ export interface FileRoutesByFullPath {
   "/": typeof indexRoute;
   "/repos": typeof reposRoute;
   "/app/channels": typeof appDotchannelsRoute;
+  "/app/pair": typeof appDotpairRoute;
   "/invite/$code": typeof inviteDotcodeRoute;
   "/repos/$repoId": typeof reposDotrepoIdRoute;
   "/repos/$repoId/blob/$": typeof reposDotrepoIdDotblobDotsplatRoute;
@@ -56,6 +63,7 @@ export interface FileRoutesByTo {
   "/": typeof indexRoute;
   "/repos": typeof reposRoute;
   "/app/channels": typeof appDotchannelsRoute;
+  "/app/pair": typeof appDotpairRoute;
   "/invite/$code": typeof inviteDotcodeRoute;
   "/repos/$repoId": typeof reposDotrepoIdRoute;
   "/repos/$repoId/blob/$": typeof reposDotrepoIdDotblobDotsplatRoute;
@@ -65,6 +73,7 @@ export interface FileRoutesById {
   "/": typeof indexRoute;
   "/repos": typeof reposRoute;
   "/app/channels": typeof appDotchannelsRoute;
+  "/app/pair": typeof appDotpairRoute;
   "/invite/$code": typeof inviteDotcodeRoute;
   "/repos/$repoId": typeof reposDotrepoIdRoute;
   "/repos/$repoId/blob/$": typeof reposDotrepoIdDotblobDotsplatRoute;
@@ -75,6 +84,7 @@ export interface FileRouteTypes {
     | "/"
     | "/repos"
     | "/app/channels"
+    | "/app/pair"
     | "/invite/$code"
     | "/repos/$repoId"
     | "/repos/$repoId/blob/$";
@@ -83,6 +93,7 @@ export interface FileRouteTypes {
     | "/"
     | "/repos"
     | "/app/channels"
+    | "/app/pair"
     | "/invite/$code"
     | "/repos/$repoId"
     | "/repos/$repoId/blob/$";
@@ -91,6 +102,7 @@ export interface FileRouteTypes {
     | "/"
     | "/repos"
     | "/app/channels"
+    | "/app/pair"
     | "/invite/$code"
     | "/repos/$repoId"
     | "/repos/$repoId/blob/$";
@@ -100,6 +112,7 @@ export interface RootRouteChildren {
   indexRoute: typeof indexRoute;
   reposRoute: typeof reposRoute;
   appDotchannelsRoute: typeof appDotchannelsRoute;
+  appDotpairRoute: typeof appDotpairRoute;
   inviteDotcodeRoute: typeof inviteDotcodeRoute;
   reposDotrepoIdRoute: typeof reposDotrepoIdRoute;
   reposDotrepoIdDotblobDotsplatRoute: typeof reposDotrepoIdDotblobDotsplatRoute;
@@ -135,6 +148,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof inviteDotcodeRouteImport;
       parentRoute: typeof rootRouteImport;
     };
+    "/app/pair": {
+      id: "/app/pair";
+      path: "/app/pair";
+      fullPath: "/app/pair";
+      preLoaderRoute: typeof appDotpairRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
     "/app/channels": {
       id: "/app/channels";
       path: "/app/channels";
@@ -156,6 +176,7 @@ const rootRouteChildren: RootRouteChildren = {
   indexRoute: indexRoute,
   reposRoute: reposRoute,
   appDotchannelsRoute: appDotchannelsRoute,
+  appDotpairRoute: appDotpairRoute,
   inviteDotcodeRoute: inviteDotcodeRoute,
   reposDotrepoIdRoute: reposDotrepoIdRoute,
   reposDotrepoIdDotblobDotsplatRoute: reposDotrepoIdDotblobDotsplatRoute,
