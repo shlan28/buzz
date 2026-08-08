@@ -28,6 +28,7 @@ import {
 import { SettingsOptionGroup, SettingsOptionRow } from "./SettingsOptionGroup";
 import { SettingsSectionHeader } from "./SettingsSectionHeader";
 import { writeTextToClipboard } from "@/shared/lib/clipboard";
+import { cn } from "@/shared/lib/cn";
 
 type PairingStep =
   | "idle"
@@ -38,6 +39,8 @@ type PairingStep =
   | "transferring"
   | "done"
   | "error";
+
+type PairingMode = "mobile" | "web";
 
 function pairingErrorMessage(error: unknown) {
   const message =
@@ -178,6 +181,7 @@ export function MobilePairingCard({
   const [qrUri, setQrUri] = useState<string | null>(null);
   const [sasCode, setSasCode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<PairingMode>("mobile");
   const requestIdRef = useRef(0);
   const pairingActiveRef = useRef(false);
   const stepRef = useRef(step);
@@ -191,7 +195,7 @@ export function MobilePairingCard({
     setSasCode(null);
     setError(null);
 
-    startPairing().then(
+    startPairing(mode).then(
       (uri) => {
         if (requestId === requestIdRef.current) {
           setQrUri(uri);
@@ -206,7 +210,7 @@ export function MobilePairingCard({
         }
       },
     );
-  }, []);
+  }, [mode]);
 
   useEffect(() => {
     ++requestIdRef.current;
@@ -330,12 +334,12 @@ export function MobilePairingCard({
   return (
     <section className="min-w-0" data-testid="settings-mobile">
       <SettingsSectionHeader
-        title="Mobile"
+        title="Pair a device"
         description={
           <>
-            Connect the Buzz mobile app to this relay by scanning a QR code. The
-            connection is secured with end-to-end encryption and a verification
-            code.
+            Connect Buzz Mobile or authorize the Web control console. Web
+            pairing uses a revocable remote signer and never transfers your user
+            private key.
           </>
         }
       />
@@ -345,6 +349,27 @@ export function MobilePairingCard({
         data-testid="mobile-pairing-card"
       >
         <SettingsOptionRow className="flex-col items-stretch justify-start gap-3 p-4">
+          <div className="grid grid-cols-2 rounded-lg bg-muted p-1">
+            {(["mobile", "web"] as const).map((pairingMode) => (
+              <button
+                aria-pressed={mode === pairingMode}
+                className={cn(
+                  "h-8 rounded-md text-sm font-medium transition-colors",
+                  mode === pairingMode
+                    ? "bg-background text-foreground shadow-xs"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                disabled={
+                  step !== "idle" && step !== "error" && step !== "expired"
+                }
+                key={pairingMode}
+                onClick={() => setMode(pairingMode)}
+                type="button"
+              >
+                {pairingMode === "mobile" ? "Mobile" : "Web / iPad"}
+              </button>
+            ))}
+          </div>
           <div
             className="flex min-h-[266px] w-[266px] shrink-0 items-center justify-center rounded-lg border border-border/70 bg-white p-3"
             data-testid="mobile-pairing-qr-container"
@@ -400,7 +425,7 @@ export function MobilePairingCard({
                 </Button>
               ) : (
                 <p className="max-w-44 text-center text-sm text-muted-foreground">
-                  Sign in to generate a mobile pairing code.
+                  Sign in to generate a device pairing code.
                 </p>
               )
             ) : (
@@ -427,7 +452,7 @@ export function MobilePairingCard({
               variant="outline"
             >
               <Copy className="mr-1.5 h-4 w-4" />
-              Copy pairing code
+              {mode === "web" ? "Copy Web pairing link" : "Copy pairing code"}
             </Button>
           ) : null}
         </SettingsOptionRow>

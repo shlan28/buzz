@@ -8,7 +8,7 @@ use buzz_core_pkg::pairing::session::PairingSession;
 use buzz_core_pkg::pairing::types::{AbortReason, PayloadType};
 use futures_util::{SinkExt, StreamExt};
 use nostr::ToBech32;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::mpsc;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
@@ -33,6 +33,23 @@ struct PairingErrorPayload {
     message: String,
 }
 
+#[derive(Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PairingMode {
+    Mobile,
+    Web,
+}
+
+struct PreparedPairingPayload {
+    payload_type: PayloadType,
+    content: Zeroizing<String>,
+}
+
+struct WebSignerAuthorization {
+    client_pubkey: Option<String>,
+    _secret: Zeroizing<String>,
+}
+
 /// Managed Tauri state for an active pairing session.
 pub struct PairingHandle {
     session: Arc<tokio::sync::Mutex<Option<PairingSession>>>,
@@ -40,9 +57,11 @@ pub struct PairingHandle {
     cancel: std::sync::Mutex<Option<CancellationToken>>,
     /// Send JSON-serialized events to the background WS task for relay publication.
     outbound_tx: std::sync::Mutex<Option<mpsc::Sender<String>>>,
-    /// Pre-built payload string (contains nsec) to send after SAS confirmation.
-    /// Wrapped in Zeroizing so the nsec is cleared from memory on drop.
-    payload: std::sync::Mutex<Option<Zeroizing<String>>>,
+    /// Pre-built payload to send after SAS confirmation. Secret-bearing content
+    /// is wrapped in `Zeroizing` so it is cleared from memory on drop.
+    payload: std::sync::Mutex<Option<PreparedPairingPayload>>,
+    /// Pending Web signer authorization, bound to the verified Pair target.
+    web_signer: std::sync::Mutex<Option<WebSignerAuthorization>>,
 }
 
 impl PairingHandle {
@@ -53,6 +72,7 @@ impl PairingHandle {
             cancel: std::sync::Mutex::new(None),
             outbound_tx: std::sync::Mutex::new(None),
             payload: std::sync::Mutex::new(None),
+            web_signer: std::sync::Mutex::new(None),
         }
     }
 
@@ -60,6 +80,7 @@ impl PairingHandle {
         *self.cancel.lock().unwrap_or_else(|e| e.into_inner()) = None;
         *self.outbound_tx.lock().unwrap_or_else(|e| e.into_inner()) = None;
         *self.payload.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        *self.web_signer.lock().unwrap_or_else(|e| e.into_inner()) = None;
     }
 }
 
@@ -73,6 +94,7 @@ pub async fn start_pairing(
     app: AppHandle,
     state: State<'_, AppState>,
     pairing: State<'_, PairingHandle>,
+    mode: PairingMode,
 ) -> Result<String, String> {
     let task_generation = pairing
         .generation
@@ -88,10 +110,6 @@ pub async fn start_pairing(
     }
 
     let keys = state.signing_keys()?;
-    let nsec = keys
-        .secret_key()
-        .to_bech32()
-        .map_err(|e| format!("encode nsec: {e}"))?;
     let pubkey_hex = keys.public_key().to_hex();
 
     let ws_url = relay_ws_url_with_override(&state);
@@ -108,18 +126,49 @@ pub async fn start_pairing(
     let (session, qr_payload) = PairingSession::new_source(pairing_relay_url.clone());
     let qr_uri = encode_qr(&qr_payload);
 
-    let payload_json = serde_json::json!({
-        "relayUrl": http_url,
-        "pubkey": pubkey_hex,
-        "nsec": nsec,
-    });
+    let prepared_payload = match mode {
+        PairingMode::Mobile => PreparedPairingPayload {
+            payload_type: PayloadType::Custom,
+            content: Zeroizing::new(
+                serde_json::json!({
+                    "relayUrl": http_url,
+                    "pubkey": pubkey_hex,
+                    "nsec": keys
+                        .secret_key()
+                        .to_bech32()
+                        .map_err(|e| format!("encode nsec: {e}"))?,
+                })
+                .to_string(),
+            ),
+        },
+        PairingMode::Web => {
+            let signer_secret =
+                Zeroizing::new(nostr::Keys::generate().secret_key().to_secret_hex());
+            let signer_relay_url = format!("{}/signer", ws_url.trim_end_matches('/'));
+            let encoded_signer_relay: String =
+                url::form_urlencoded::byte_serialize(signer_relay_url.as_bytes()).collect();
+            let bunker_uri = format!(
+                "bunker://{}?relay={}&secret={}",
+                pubkey_hex,
+                encoded_signer_relay,
+                signer_secret.as_str()
+            );
+            *pairing.web_signer.lock().map_err(|e| e.to_string())? = Some(WebSignerAuthorization {
+                client_pubkey: None,
+                _secret: Zeroizing::new(signer_secret.to_string()),
+            });
+            PreparedPairingPayload {
+                payload_type: PayloadType::Bunker,
+                content: Zeroizing::new(bunker_uri),
+            }
+        }
+    };
 
     {
         let mut s = pairing.session.lock().await;
         *s = Some(session);
     }
-    *pairing.payload.lock().map_err(|e| e.to_string())? =
-        Some(Zeroizing::new(payload_json.to_string()));
+    *pairing.payload.lock().map_err(|e| e.to_string())? = Some(prepared_payload);
 
     let (outbound_tx, outbound_rx) = mpsc::channel::<String>(16);
     let cancel = CancellationToken::new();
@@ -159,6 +208,22 @@ pub async fn confirm_pairing_sas(pairing: State<'_, PairingHandle>) -> Result<()
         event_to_relay_json(&event)
     };
 
+    let client_pubkey = {
+        let guard = pairing.session.lock().await;
+        guard
+            .as_ref()
+            .and_then(PairingSession::peer_pubkey)
+            .map(|pubkey| pubkey.to_hex())
+    };
+    if let Some(authorization) = pairing
+        .web_signer
+        .lock()
+        .map_err(|e| e.to_string())?
+        .as_mut()
+    {
+        authorization.client_pubkey = client_pubkey;
+    }
+
     tx.send(sas_confirm_json)
         .await
         .map_err(|_| "failed to send sas-confirm")?;
@@ -174,7 +239,7 @@ pub async fn confirm_pairing_sas(pairing: State<'_, PairingHandle>) -> Result<()
         let mut guard = pairing.session.lock().await;
         let session = guard.as_mut().ok_or("no active pairing session")?;
         let event = session
-            .send_payload(PayloadType::Custom, payload)
+            .send_payload(payload.payload_type, payload.content)
             .map_err(|e| e.to_string())?;
         event_to_relay_json(&event)
     };

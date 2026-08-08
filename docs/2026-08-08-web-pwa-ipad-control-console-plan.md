@@ -1,7 +1,7 @@
 # Buzz Web/PWA iPad 控制台方案
 
 > 更新日期：2026-08-08
-> 更新说明：根据产品确认将“与 Desktop 客户端视觉完全一致”提升为硬约束；移除独立 NavigationRail 视觉路线，改为复刻 Desktop AppShell、Sidebar、内容表面和业务页面；经协议复核补充专用 Remote Signer 通道，明确现有短时 Pair Relay 和主业务 Relay 均不能直接承担长期 NIP-46。
+> 更新说明：开始实现 Desktop Web Pair 模式；补充 PairingSession 设备公钥读取、Desktop Mobile/Web 模式选择和 bunker payload 生成文件，明确 signer route 上线前不重新打包。
 
 ## 一、产品结论
 
@@ -652,6 +652,9 @@ Task Progress:
 - [ ] `web/src/shared/storage/deviceCredentials.ts`：保存可撤销 device key和临时会话模式。
 - [ ] `web/src/features/settings/PairedDeviceSettings.tsx`：展示本 Web 设备和清除操作。
 - [ ] `desktop/src-tauri/src/commands/pairing.rs`：增加 NIP-46 signer Pair payload，不再为 Web 发送 nsec。
+- [x] `crates/buzz-core/src/pairing/session.rs`：向 Desktop Pair source 暴露已验证 target 设备公钥。
+- [x] `desktop/src/shared/api/tauri.ts`：为 Pair 命令增加 Mobile/Web 模式类型。
+- [x] `desktop/src/features/settings/ui/MobilePairingCard.tsx`：增加 Web Pair 选择、复制链接和安全说明。
 - [ ] `desktop/src-tauri/src/commands/remote_signer.rs`：实现设备授权、kind/tag policy、签名和撤销。
 - [ ] `desktop/src/features/settings/PairedWebDevices.tsx`：展示权限、在线状态、最后使用和撤销。
 - [ ] `crates/buzz-relay/src/api/remote_signer.rs`：提供仅转发 `24133`、无持久化、严格单播的 signer WebSocket route。
