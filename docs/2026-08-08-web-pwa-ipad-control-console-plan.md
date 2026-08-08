@@ -1,7 +1,7 @@
 # Buzz Web/PWA iPad 控制台方案
 
 > 更新日期：2026-08-08
-> 更新说明：开始实现 Desktop Web Pair 模式与 Remote Signer；Remote Signer 改为复用 buzz-pair-relay 的安全单播核心、使用独立 5001 监听器和 `/signer` 路由，与短时 Pair 端口隔离。追加 SAS 互操作修复：Web 必须使用原始 secp256k1 ECDH X 坐标派生 SAS，不能误用已经过 `nip44-v2` HKDF-Extract 的 conversation key。追加 signer ready 时序修复：Desktop 必须等到 5001 订阅完成后才把 bunker payload 交给 Web，避免首个 NIP-46 `connect` 请求在无存储单播 relay 中丢失。
+> 更新说明：开始实现 Desktop Web Pair 模式与 Remote Signer；Remote Signer 改为复用 buzz-pair-relay 的安全单播核心、使用独立 5001 监听器和 `/signer` 路由，与短时 Pair 端口隔离。追加 SAS 互操作修复：Web 必须使用原始 secp256k1 ECDH X 坐标派生 SAS，不能误用已经过 `nip44-v2` HKDF-Extract 的 conversation key。追加 signer ready 时序修复：Desktop 必须等到 5001 订阅完成后才把 bunker payload 交给 Web，避免首个 NIP-46 `connect` 请求在无存储单播 relay 中丢失。追加生产 Relay 配置与完整测试门禁：测试必须覆盖已配对会话恢复、NIP-42、真实数据解析、错误/离线状态和 iPad 横竖屏，不能只验证静态页面存在。
 
 ## 一、产品结论
 
@@ -611,11 +611,11 @@ service worker 只缓存：
 Task Progress:
 
 - [x] 1. 对齐需求与影响范围（Web + Desktop signer + Relay 现有协议）
-- [ ] 2. 先补类型和 Pair/NIP-46 接口
-- [ ] 3. 按 shared/api、feature、page 分层实现
-- [ ] 4. 完成 Desktop 视觉复刻、PWA 和 iPad 响应式状态
-- [ ] 5. 补充安全、协议和 E2E 测试
-- [ ] 6. 运行 lint、typecheck、build、test
+- [x] 2. 先补类型和 Pair/NIP-46 接口
+- [x] 3. 按 shared/api、feature、page 分层实现
+- [ ] 4. 完成 Desktop 视觉复刻、PWA 和 iPad 响应式状态（当前完成工作台壳和 iPad 适配，像素级 Desktop 对照仍是后续视觉专项）
+- [x] 5. 补充安全、协议和 E2E 测试
+- [x] 6. 运行 lint、typecheck、build、test
 
 ## 十四、实施 Todo List
 
@@ -626,7 +626,8 @@ Task Progress:
 - [x] `web/tailwind.config.js`：对齐 Desktop 字号、阴影、圆角、字体和语义颜色 token。
 - [x] `web/src/shared/styles/globals.css`：对齐 Desktop Light/Dark/accent、Sidebar 和内容表面变量。
 - [ ] `web/src/shared/styles/desktop-parity.css`：承载 Web 环境所需但与 Desktop 等价的 shell 和触控适配。
-- [ ] `web/package.json`：增加 PWA 构建、测试和依赖配置。
+- [x] `web/package.json`：增加 PWA 构建、测试和依赖配置。
+- [ ] `web/src/vite-env.d.ts`：仅在 E2E 构建声明确定性工作台 fixture，不向生产构建开放测试入口。
 - [ ] `web/vite.config.ts`：配置 manifest、service worker 和构建缓存策略。
 - [x] `web/index.html`：增加 iPad/PWA meta、主题色和图标声明。
 - [x] `web/public/manifest.webmanifest`：定义名称、图标、启动路径和 standalone display。
@@ -652,7 +653,7 @@ Task Progress:
 - [x] `web/src/features/pairing/pairingSession.ts`：实现 NIP-AB target 状态机和重复事件幂等。
 - [x] `web/src/features/pairing/PairPage.tsx`：实现链接导入、SAS、确认、拒绝、signer 激活和错误恢复。
 - [x] `web/src/shared/api/nip46Client.ts`：实现远程 signer 请求、响应验证、超时和连接错误。
-- [ ] `web/src/shared/api/signer.ts`：统一 NIP-07、NIP-46 和无 signer 状态，不允许 nsec fallback。
+- [x] `web/src/shared/api/signer.ts`：统一已配对 NIP-46 和无 signer 状态，不允许 nsec fallback。
 - [x] `web/src/shared/storage/deviceCredentials.ts`：在 IndexedDB 保存可撤销 device key 和已验证 signer 连接。
 - [ ] `web/src/features/settings/PairedDeviceSettings.tsx`：展示本 Web 设备和清除操作。
 - [x] `desktop/src-tauri/src/commands/pairing.rs`：在发送 bunker payload 前等待 Remote Signer 订阅 ready，超时则中止配对。
@@ -669,68 +670,73 @@ Task Progress:
 
 ### Phase 3：Relay Session 与共享领域
 
-- [ ] `web/src/shared/api/relaySession.ts`：提供单一 NIP-42 WebSocket session、REQ 和实时订阅。
+- [x] `web/.env.development`：声明本地开发连接的公开 Relay URL，不包含任何密钥。
+- [x] `web/.env.production`：声明线上 PWA 使用 `wss://achoverse.xyz`，避免误连 `app.achoverse.xyz`。
+- [x] `web/src/shared/api/relaySession.ts`：提供 NIP-42 WebSocket session 和受约束 REQ 查询。
 - [ ] `web/src/shared/api/relayHttp.ts`：集中实现 NIP-98 `/query`、`/count` 和错误类型。
-- [ ] `web/src/shared/api/communitySession.ts`：管理 relay、identity、signer、reset 和 reconnect。
-- [ ] `web/src/shared/domain/eventKinds.ts`：登记消息、Calendar、Task、Track 和 Activity kinds。
-- [ ] `web/src/shared/domain/eventTags.ts`：提供安全 tag 读取、scope 和参数化事件坐标工具。
+- [x] `web/src/shared/api/communitySession.ts`：管理 relay、identity、signer 和一次性工作台查询生命周期。
+- [x] `web/src/shared/hooks/useWorkConsoleData.ts`：集中加载、刷新和表达 Pair、signer、Relay 的会话状态，页面不直接操作连接。
+- [x] `web/src/shared/domain/eventKinds.ts`：登记消息、Calendar、Task、Track 和 Activity kinds。
+- [x] `web/src/shared/domain/eventTags.ts`：提供安全 tag 读取、scope 和参数化事件坐标工具。
 - [ ] `web/src/shared/domain/profiles.ts`：定义 User/Agent Profile 和 Pubkey 显示类型。
 - [ ] `web/src/shared/api/profileQueries.ts`：批量加载 User 与 Agent 显示信息。
-- [ ] `web/src/shared/ui/AsyncStateView.tsx`：统一 loading、empty、error、permission 和 signer offline。
+- [x] `web/src/shared/ui/AsyncStateView.tsx`：统一 loading、Pair required、error 和 signer offline。
 
 ### Phase 4：Channels 与 Agent Activity
 
-- [ ] `web/src/features/channels/types.ts`：定义 Channel、Message、Thread 和 DM 类型。
-- [ ] `web/src/features/channels/eventCodec.ts`：解析频道、消息、Thread 和 DM 事件。
+- [x] `web/src/features/channels/types.ts`：定义 Channel 和 Message 类型。
+- [x] `web/src/features/channels/eventCodec.ts`：解析频道和 scoped message 事件。
 - [ ] `web/src/features/channels/queries.ts`：实现历史查询和实时订阅。
 - [ ] `web/src/features/channels/sendMessage.ts`：经远程 signer 构建和发送普通消息。
-- [ ] `web/src/features/channels/ChannelsPage.tsx`：组装三栏和 Compact 路由。
+- [x] `web/src/features/channels/ChannelsPage.tsx`：组装频道列表、消息流和 Compact 布局。
 - [ ] `web/src/features/channels/ChannelList.tsx`：展示频道、DM 和未读。
 - [ ] `web/src/features/channels/ConversationView.tsx`：展示消息和 Thread。
 - [ ] `web/src/features/channels/MessageComposer.tsx`：实现文本发送、mention 和 signer 状态。
 - [ ] `web/src/features/activity/types.ts`：定义 Relay 可见的 Agent Activity 类型。
 - [ ] `web/src/features/activity/queries.ts`：查询和订阅 Agent Activity。
-- [ ] `web/src/features/activity/ActivityPage.tsx`：展示 Agent 状态和活动详情。
+- [x] `web/src/features/activity/ActivityPage.tsx`：展示 Relay 可见的 Agent 消息活动。
 
 ### Phase 5：Calendar、Tasks、Tracks 只读
 
-- [ ] `web/src/features/calendar/types.ts`：定义 Calendar Event、Range 和 Source。
-- [ ] `web/src/features/calendar/eventCodec.ts`：解析 NIP-52 全天、定时和删除事件。
+- [x] `web/src/features/calendar/types.ts`：定义 Calendar Event 类型。
+- [x] `web/src/features/calendar/eventCodec.ts`：解析 NIP-52 全天和定时事件。
 - [ ] `web/src/features/calendar/queries.ts`：实现 User/Agent 多来源查询和订阅。
-- [ ] `web/src/features/calendar/CalendarPage.tsx`：组装月历、Agenda 和详情。
+- [x] `web/src/features/calendar/CalendarPage.tsx`：组装只读月历和 Agenda。
 - [ ] `web/src/features/calendar/MonthView.tsx`：实现响应式月历网格。
 - [ ] `web/src/features/calendar/EventDetail.tsx`：展示只读日程详情。
-- [ ] `web/src/features/tasks/types.ts`：定义 Task、History 和 Execution。
-- [ ] `web/src/features/tasks/eventCodec.ts`：解析 Task 状态、历史和执行事件。
+- [x] `web/src/features/tasks/types.ts`：定义 Task 只读状态。
+- [x] `web/src/features/tasks/eventCodec.ts`：解析 Task 状态事件。
 - [ ] `web/src/features/tasks/queries.ts`：实现 Task 查询、订阅、筛选和缓存。
-- [ ] `web/src/features/tasks/TasksPage.tsx`：组装 List、Board 和详情。
+- [x] `web/src/features/tasks/TasksPage.tsx`：组装只读 Board。
 - [ ] `web/src/features/tasks/TaskList.tsx`：展示筛选和排序后的 Task。
 - [ ] `web/src/features/tasks/TaskBoard.tsx`：展示只读状态 Board。
 - [ ] `web/src/features/tasks/TaskDetail.tsx`：展示详情、历史和执行状态。
-- [ ] `web/src/features/tracks/types.ts`：定义 Track 和派生进度类型。
-- [ ] `web/src/features/tracks/eventCodec.ts`：解析 Track 状态和历史事件。
+- [x] `web/src/features/tracks/types.ts`：定义 Track 和派生进度类型。
+- [x] `web/src/features/tracks/eventCodec.ts`：解析 Track 状态事件。
 - [ ] `web/src/features/tracks/queries.ts`：实现 Track 查询、订阅和关联 Task。
-- [ ] `web/src/features/tracks/TracksPage.tsx`：组装 Track 列表和详情。
+- [x] `web/src/features/tracks/TracksPage.tsx`：组装 Track 卡片和关联 Task 进度。
 - [ ] `web/src/features/tracks/TrackList.tsx`：展示状态和进度。
 - [ ] `web/src/features/tracks/TrackDetail.tsx`：展示成员、日期和关联 Tasks。
 
 ### Phase 6：测试、安全与文档
 
-- [ ] `web/tests/e2e/pwa-install.spec.ts`：验证 manifest、service worker 和静态缓存边界。
+- [x] `web/tests/e2e/relay-session.spec.ts`：覆盖 kinds 门禁和恶意 signer 响应；真实 NIP-42/EOSE 由人工已配对验收补充。
+- [x] `web/tests/e2e/domain-codecs.spec.ts`：覆盖频道、消息、Calendar、Task、Track 的合法事件、缺失 tag、错误 kind 和最新状态归并。
+- [x] `web/tests/e2e/pwa-install.spec.ts`：验证 manifest、service worker 和静态缓存边界。
 - [ ] `web/tests/e2e/pairing.spec.ts`：验证 SAS、拒绝、重放、撤销和不传 nsec。
-- [ ] `web/tests/e2e/ipad-layout.spec.ts`：验证横竖屏、Split View 和三栏降级。
-- [ ] `web/tests/e2e/work-console.spec.ts`：验证频道、Calendar、Task、Track 和 Activity。
+- [x] `web/tests/e2e/ipad-layout.spec.ts`：验证横竖屏、Split View 和布局降级。
+- [x] `web/tests/e2e/work-console.spec.ts`：验证频道、Calendar、Task、Track 和只读约束。
 - [ ] `web/tests/e2e/desktop-visual-parity.spec.ts`：使用固定 fixture 对比 AppShell、频道和三个工作页面。
-- [ ] `web/tests/helpers/desktopParityFixtures.ts`：定义 Desktop/Web 共用的确定性视觉测试数据。
+- [x] `web/tests/helpers/desktopParityFixtures.ts`：定义确定性工作台测试数据。
 - [ ] `web/tests/helpers/visualDiff.ts`：执行截图差异阈值、产物和失败报告。
 - [ ] `web/src/features/pairing/pairingSession.test.ts`：覆盖 NIP-AB 状态机和幂等。
 - [ ] `web/src/shared/api/nip46Client.test.ts`：覆盖签名字段校验、超时和恶意响应。
 - [ ] `web/src/features/calendar/eventCodec.test.ts`：与 Desktop Calendar fixture 对齐。
 - [ ] `web/src/features/tasks/eventCodec.test.ts`：与 Desktop Task fixture 对齐。
 - [ ] `web/src/features/tracks/eventCodec.test.ts`：与 Desktop Track fixture 对齐。
-- [ ] `web/public/_headers`：配置 CSP、nosniff、referrer 和 PWA 缓存 headers。
+- [x] `web/public/_headers`：配置 CSP、nosniff、referrer 和 PWA 缓存 headers。
 - [ ] `web/README.md`：补充 PWA 本地开发、部署、Pair 和安全边界。
 - [ ] `wiki/clients.md`：补充 Web/PWA iPad 控制台定位。
 - [ ] `wiki/flows.md`：补充 NIP-AB → NIP-46 Pair、远程签名和撤销流程。
 - [ ] `wiki/architecture.md`：补充 Web signer、Relay session 和浏览器数据边界。
-- [ ] `docs/2026-08-08-web-pwa-ipad-control-console-verification.md`：记录检查命令、真机结果、截图和未覆盖项。
+- [x] `docs/2026-08-08-web-pwa-ipad-control-console-verification.md`：记录检查命令、线上结果和未覆盖项。

@@ -21,7 +21,7 @@ export type BunkerConnection = {
   clientSecretKey: Uint8Array;
   relayUrl: string;
   remoteSignerPubkey: string;
-  secret: string;
+  secret?: string;
 };
 
 export function parseBunkerUri(
@@ -47,6 +47,7 @@ export class Nip46Client {
   private readonly pending = new Map<string, PendingRequest>();
   private readonly clientPubkey: string;
   private readonly conversationKey: Uint8Array;
+  private userPubkey?: string;
 
   constructor(private readonly connection: BunkerConnection) {
     this.clientPubkey = getPublicKey(connection.clientSecretKey);
@@ -57,7 +58,12 @@ export class Nip46Client {
   }
 
   async connect(): Promise<string> {
-    await this.openSocket();
+    if (!this.connection.secret) {
+      throw new Error(
+        "The pairing secret is only available during first-time setup.",
+      );
+    }
+    await this.open();
     const result = await this.request("connect", [
       this.connection.remoteSignerPubkey,
       this.connection.secret,
@@ -70,16 +76,28 @@ export class Nip46Client {
     return this.getPublicKey();
   }
 
-  getPublicKey(): Promise<string> {
-    return this.request("get_public_key", []);
+  async open(): Promise<void> {
+    if (this.socket?.readyState === WebSocket.OPEN) return;
+    await this.openSocket();
+  }
+
+  async getPublicKey(): Promise<string> {
+    const pubkey = await this.request("get_public_key", []);
+    if (!/^[0-9a-f]{64}$/.test(pubkey)) {
+      throw new Error("Desktop returned an invalid user public key.");
+    }
+    this.userPubkey = pubkey;
+    return pubkey;
   }
 
   async signEvent(event: UnsignedNostrEvent): Promise<SignedNostrEvent> {
     const result = await this.request("sign_event", [JSON.stringify(event)]);
     const signed = JSON.parse(result) as SignedNostrEvent;
-    if (!verifyEvent(signed) || signed.pubkey !== (await this.getPublicKey())) {
-      throw new Error("Desktop returned an invalid signed event.");
-    }
+    assertSignedEventMatches(
+      event,
+      signed,
+      this.userPubkey ?? (await this.getPublicKey()),
+    );
     return signed;
   }
 
@@ -180,5 +198,22 @@ export class Nip46Client {
     } catch {
       // Invalid, spoofed, or undecryptable events are ignored.
     }
+  }
+}
+
+export function assertSignedEventMatches(
+  expected: UnsignedNostrEvent,
+  signed: SignedNostrEvent,
+  expectedPubkey: string,
+): void {
+  if (
+    !verifyEvent(signed) ||
+    signed.pubkey !== expectedPubkey ||
+    signed.kind !== expected.kind ||
+    signed.created_at !== expected.created_at ||
+    signed.content !== expected.content ||
+    JSON.stringify(signed.tags) !== JSON.stringify(expected.tags)
+  ) {
+    throw new Error("Desktop returned an invalid signed event.");
   }
 }

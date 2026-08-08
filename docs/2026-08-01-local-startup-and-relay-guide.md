@@ -1,5 +1,5 @@
 > 更新日期：2026-08-08
-> 更新说明：在 Desktop dev 启动说明基础上，增加 Web/PWA 本地开发、Pair/Remote Signer、Cloudflare Tunnel 公网入口、Cloudflare Pages 线上部署、版本验证和排障流程。
+> 更新说明：在 Desktop dev 启动说明基础上，增加 Web/PWA 本地开发、Pair/Remote Signer、Cloudflare Tunnel 公网入口、Cloudflare Pages 线上部署、版本验证和排障流程；补充配对后真实工作数据加载、完整 E2E 矩阵和 signer 离线恢复说明。
 
 # Buzz 本地启动与 Web 部署指南
 
@@ -16,6 +16,7 @@ Web 界面不直接获取用户私钥。首次使用时，用户在 Desktop 生�
 - Web 保存本设备可撤销的 device key 和 Remote Signer 连接信息；
 - Desktop 保留 user key，并只为已授权的 Web 设备执行白名单签名；
 - Relay 负责数据与实时事件；
+- Web 使用同一 User Pubkey 完成 Relay NIP-42 AUTH，读取 Channels、消息、Calendar、Tasks、Tracks 和 Agent Activity；
 - Pair 和 Remote Signer 使用独立的短时/单播通道，不把私钥发到 Pages 或 Relay 数据库。
 
 ## 二、当前运行配置
@@ -261,7 +262,14 @@ pnpm check
 pnpm test:e2e:smoke
 ```
 
-`test:e2e:smoke` 会先生成 `web/dist`，并验证 PWA shell、iPad 布局、Pair 入口和 NIP-AB SAS 互操向量。任一命令失败都不应继续部署。
+`test:e2e:smoke` 会先生成 E2E 专用 `web/dist`，并验证 PWA shell、iPad 布局、Pair 入口、NIP-AB SAS 互操向量、NIP-46 返回值防篡改、Relay 查询约束、领域事件解析和五个工作台入口。正式部署前再执行一次 `pnpm build`，确保测试 fixture 不进入生产产物。任一命令失败都不应继续部署。
+
+完整 iPad 横屏、竖屏矩阵使用：
+
+```bash
+pnpm test:e2e
+pnpm build
+```
 
 ### 6.2 发布生产版
 
@@ -337,6 +345,8 @@ curl --fail --silent --show-error \
 | Pair Link 连接失败 | 5000 端口、`/pair` ingress、Pair Link 是否过期 |
 | SAS 两边不一致 | 立即拒绝，确认 Web 是最新版，重新生成 Pair Link；不得绕过 SAS |
 | SAS 一致但 signer 超时 | 5001 端口、`/signer` ingress、Desktop 是否仍在运行 |
+| Pair 成功但页面没有数据 | 先刷新 `/app/channels`；确认 Desktop signer 在线、`VITE_RELAY_URL=wss://achoverse.xyz`，再检查 Relay AUTH 和浏览器控制台；不要重新导入 user nsec |
+| 重启 Desktop 后 Web 提示 signer 离线 | 当前授权由 Desktop 进程持有；重新打开 Desktop，若授权记录已失效则生成新的 Web Pair Link 重新配对 |
 | Pages 单次地址是新版，自定义域名是旧版 | 对比 hashed asset，等待边缘更新或使用查询参数再验证 |
 | Wrangler 提示未登录 | 执行 `npx --yes wrangler login` 重新授权 |
 

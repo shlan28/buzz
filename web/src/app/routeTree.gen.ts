@@ -9,8 +9,12 @@ import { Route as reposRouteImport } from "./routes/repos";
 import { Route as indexRouteImport } from "./routes/index";
 import { Route as reposDotrepoIdRouteImport } from "./routes/repos.$repoId";
 import { Route as inviteDotcodeRouteImport } from "./routes/invite.$code";
+import { Route as appDottracksRouteImport } from "./routes/app.tracks";
+import { Route as appDottasksRouteImport } from "./routes/app.tasks";
 import { Route as appDotpairRouteImport } from "./routes/app.pair";
 import { Route as appDotchannelsRouteImport } from "./routes/app.channels";
+import { Route as appDotcalendarRouteImport } from "./routes/app.calendar";
+import { Route as appDotactivityRouteImport } from "./routes/app.activity";
 import { Route as reposDotrepoIdDotblobDotsplatRouteImport } from "./routes/repos.$repoId.blob.$";
 
 const reposRoute = reposRouteImport.update({
@@ -33,6 +37,16 @@ const inviteDotcodeRoute = inviteDotcodeRouteImport.update({
   path: "/invite/$code",
   getParentRoute: () => rootRouteImport,
 } as any);
+const appDottracksRoute = appDottracksRouteImport.update({
+  id: "/app/tracks",
+  path: "/app/tracks",
+  getParentRoute: () => rootRouteImport,
+} as any);
+const appDottasksRoute = appDottasksRouteImport.update({
+  id: "/app/tasks",
+  path: "/app/tasks",
+  getParentRoute: () => rootRouteImport,
+} as any);
 const appDotpairRoute = appDotpairRouteImport.update({
   id: "/app/pair",
   path: "/app/pair",
@@ -41,6 +55,16 @@ const appDotpairRoute = appDotpairRouteImport.update({
 const appDotchannelsRoute = appDotchannelsRouteImport.update({
   id: "/app/channels",
   path: "/app/channels",
+  getParentRoute: () => rootRouteImport,
+} as any);
+const appDotcalendarRoute = appDotcalendarRouteImport.update({
+  id: "/app/calendar",
+  path: "/app/calendar",
+  getParentRoute: () => rootRouteImport,
+} as any);
+const appDotactivityRoute = appDotactivityRouteImport.update({
+  id: "/app/activity",
+  path: "/app/activity",
   getParentRoute: () => rootRouteImport,
 } as any);
 const reposDotrepoIdDotblobDotsplatRoute =
@@ -53,8 +77,12 @@ const reposDotrepoIdDotblobDotsplatRoute =
 export interface FileRoutesByFullPath {
   "/": typeof indexRoute;
   "/repos": typeof reposRoute;
+  "/app/activity": typeof appDotactivityRoute;
+  "/app/calendar": typeof appDotcalendarRoute;
   "/app/channels": typeof appDotchannelsRoute;
   "/app/pair": typeof appDotpairRoute;
+  "/app/tasks": typeof appDottasksRoute;
+  "/app/tracks": typeof appDottracksRoute;
   "/invite/$code": typeof inviteDotcodeRoute;
   "/repos/$repoId": typeof reposDotrepoIdRoute;
   "/repos/$repoId/blob/$": typeof reposDotrepoIdDotblobDotsplatRoute;
@@ -62,8 +90,12 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   "/": typeof indexRoute;
   "/repos": typeof reposRoute;
+  "/app/activity": typeof appDotactivityRoute;
+  "/app/calendar": typeof appDotcalendarRoute;
   "/app/channels": typeof appDotchannelsRoute;
   "/app/pair": typeof appDotpairRoute;
+  "/app/tasks": typeof appDottasksRoute;
+  "/app/tracks": typeof appDottracksRoute;
   "/invite/$code": typeof inviteDotcodeRoute;
   "/repos/$repoId": typeof reposDotrepoIdRoute;
   "/repos/$repoId/blob/$": typeof reposDotrepoIdDotblobDotsplatRoute;
@@ -72,8 +104,12 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport;
   "/": typeof indexRoute;
   "/repos": typeof reposRoute;
+  "/app/activity": typeof appDotactivityRoute;
+  "/app/calendar": typeof appDotcalendarRoute;
   "/app/channels": typeof appDotchannelsRoute;
   "/app/pair": typeof appDotpairRoute;
+  "/app/tasks": typeof appDottasksRoute;
+  "/app/tracks": typeof appDottracksRoute;
   "/invite/$code": typeof inviteDotcodeRoute;
   "/repos/$repoId": typeof reposDotrepoIdRoute;
   "/repos/$repoId/blob/$": typeof reposDotrepoIdDotblobDotsplatRoute;
@@ -83,8 +119,12 @@ export interface FileRouteTypes {
   fullPaths:
     | "/"
     | "/repos"
+    | "/app/activity"
+    | "/app/calendar"
     | "/app/channels"
     | "/app/pair"
+    | "/app/tasks"
+    | "/app/tracks"
     | "/invite/$code"
     | "/repos/$repoId"
     | "/repos/$repoId/blob/$";
@@ -92,8 +132,12 @@ export interface FileRouteTypes {
   to:
     | "/"
     | "/repos"
+    | "/app/activity"
+    | "/app/calendar"
     | "/app/channels"
     | "/app/pair"
+    | "/app/tasks"
+    | "/app/tracks"
     | "/invite/$code"
     | "/repos/$repoId"
     | "/repos/$repoId/blob/$";
@@ -101,8 +145,12 @@ export interface FileRouteTypes {
     | "__root__"
     | "/"
     | "/repos"
+    | "/app/activity"
+    | "/app/calendar"
     | "/app/channels"
     | "/app/pair"
+    | "/app/tasks"
+    | "/app/tracks"
     | "/invite/$code"
     | "/repos/$repoId"
     | "/repos/$repoId/blob/$";
@@ -111,8 +159,12 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   indexRoute: typeof indexRoute;
   reposRoute: typeof reposRoute;
+  appDotactivityRoute: typeof appDotactivityRoute;
+  appDotcalendarRoute: typeof appDotcalendarRoute;
   appDotchannelsRoute: typeof appDotchannelsRoute;
   appDotpairRoute: typeof appDotpairRoute;
+  appDottasksRoute: typeof appDottasksRoute;
+  appDottracksRoute: typeof appDottracksRoute;
   inviteDotcodeRoute: typeof inviteDotcodeRoute;
   reposDotrepoIdRoute: typeof reposDotrepoIdRoute;
   reposDotrepoIdDotblobDotsplatRoute: typeof reposDotrepoIdDotblobDotsplatRoute;
@@ -148,6 +200,20 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof inviteDotcodeRouteImport;
       parentRoute: typeof rootRouteImport;
     };
+    "/app/tracks": {
+      id: "/app/tracks";
+      path: "/app/tracks";
+      fullPath: "/app/tracks";
+      preLoaderRoute: typeof appDottracksRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/app/tasks": {
+      id: "/app/tasks";
+      path: "/app/tasks";
+      fullPath: "/app/tasks";
+      preLoaderRoute: typeof appDottasksRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
     "/app/pair": {
       id: "/app/pair";
       path: "/app/pair";
@@ -160,6 +226,20 @@ declare module "@tanstack/react-router" {
       path: "/app/channels";
       fullPath: "/app/channels";
       preLoaderRoute: typeof appDotchannelsRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/app/calendar": {
+      id: "/app/calendar";
+      path: "/app/calendar";
+      fullPath: "/app/calendar";
+      preLoaderRoute: typeof appDotcalendarRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/app/activity": {
+      id: "/app/activity";
+      path: "/app/activity";
+      fullPath: "/app/activity";
+      preLoaderRoute: typeof appDotactivityRouteImport;
       parentRoute: typeof rootRouteImport;
     };
     "/repos/$repoId/blob/$": {
@@ -175,8 +255,12 @@ declare module "@tanstack/react-router" {
 const rootRouteChildren: RootRouteChildren = {
   indexRoute: indexRoute,
   reposRoute: reposRoute,
+  appDotactivityRoute: appDotactivityRoute,
+  appDotcalendarRoute: appDotcalendarRoute,
   appDotchannelsRoute: appDotchannelsRoute,
   appDotpairRoute: appDotpairRoute,
+  appDottasksRoute: appDottasksRoute,
+  appDottracksRoute: appDottracksRoute,
   inviteDotcodeRoute: inviteDotcodeRoute,
   reposDotrepoIdRoute: reposDotrepoIdRoute,
   reposDotrepoIdDotblobDotsplatRoute: reposDotrepoIdDotblobDotsplatRoute,

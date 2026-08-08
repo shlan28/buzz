@@ -22,6 +22,11 @@ export default defineConfig({
         "**/smoke.spec.ts",
         "**/pwa-shell.spec.ts",
         "**/pairing-crypto.spec.ts",
+        "**/domain-codecs.spec.ts",
+        "**/work-console.spec.ts",
+        "**/pwa-install.spec.ts",
+        "**/ipad-layout.spec.ts",
+        "**/relay-session.spec.ts",
       ],
       use: {
         ...devices["Desktop Chrome"],
@@ -29,14 +34,22 @@ export default defineConfig({
     },
     {
       name: "ipad-landscape",
-      testMatch: "**/pwa-shell.spec.ts",
+      testMatch: [
+        "**/pwa-shell.spec.ts",
+        "**/work-console.spec.ts",
+        "**/ipad-layout.spec.ts",
+      ],
       use: {
         ...devices["iPad Pro 11 landscape"],
       },
     },
     {
       name: "ipad-portrait",
-      testMatch: "**/pwa-shell.spec.ts",
+      testMatch: [
+        "**/pwa-shell.spec.ts",
+        "**/work-console.spec.ts",
+        "**/ipad-layout.spec.ts",
+      ],
       use: {
         ...devices["iPad Pro 11"],
       },

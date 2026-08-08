@@ -10,6 +10,7 @@ import {
   Search,
   Settings,
   Waypoints,
+  Activity,
 } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -22,6 +23,7 @@ const destinations = [
   { href: "/app/calendar", icon: CalendarDays, label: "Calendar" },
   { href: "/app/tasks", icon: CheckSquare2, label: "Tasks" },
   { href: "/app/tracks", icon: Waypoints, label: "Tracks" },
+  { href: "/app/activity", icon: Activity, label: "Activity" },
 ] as const;
 
 export function DesktopParityAppShell({
@@ -75,23 +77,13 @@ export function DesktopParityAppShell({
             {destinations.map(({ href, icon: Icon, label }) => {
               const active =
                 pathname === href || pathname.startsWith(`${href}/`);
-              const disabled = href !== "/app/channels";
               const row = (
                 <>
                   <Icon aria-hidden="true" className="size-4 shrink-0" />
                   <span className="truncate max-[699px]:sr-only">{label}</span>
                 </>
               );
-              return disabled ? (
-                <div
-                  aria-disabled="true"
-                  className="flex h-8 items-center gap-2 rounded-md px-2 text-sm text-sidebar-foreground/40 max-[699px]:justify-center"
-                  key={href}
-                  title={`${label} — coming next`}
-                >
-                  {row}
-                </div>
-              ) : (
+              return (
                 <Link
                   aria-current={active ? "page" : undefined}
                   className={cn(
