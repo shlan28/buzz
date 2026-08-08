@@ -164,7 +164,10 @@ Web 的错误提示按事实区分：
 - 公网双连接复现确认 signer relay 对第二条相同 `#p` 订阅返回 `CLOSED: #p already has a live subscriber`；
 - Web typecheck、Biome、文件大小和 pubkey 展示检查通过；
 - Chrome smoke 共 35 项通过，包含 EOSE/CLOSED 协议测试、消息安全测试、工作台与 Settings 回归；
-- 完整 iPad 矩阵与公网部署在实现 commit 后执行并记录。
+- 完整 Chrome、iPad 横屏、iPad 竖屏矩阵共 57 项通过；
+- 在线连接修复 commit：`97e94d3b3 fix(web): reuse the remote signer session`；
+- Cloudflare Pages 部署：`5e7d5086`，生产域名确认加载 `index-CXvXKbz3.js`；
+- Pair/Signer sidecar 已重启清理旧订阅，Desktop signer 自动恢复后仅保留一条长连接。
 
 ## 九、确认门
 
