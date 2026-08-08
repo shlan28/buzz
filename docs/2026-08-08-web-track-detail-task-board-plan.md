@@ -1,5 +1,5 @@
-> 更新日期：2026-08-08
-> 更新说明：新增 Web Track 详情页与只读 Task 看板补齐方案；明确复刻 Desktop 信息结构、路由和交互，并排除文件预览需求。
+> 更新日期：2026-08-09
+> 更新说明：完成 Web Track 独立详情、只读 Task Board/List、Task 详情复用、响应式测试与公网部署；文件预览保持排除。
 
 # Web Track 详情与 Task 看板补齐方案
 
@@ -120,21 +120,21 @@ Web 应复刻该产品结构和视觉层级，仅移除写操作。
 
 ## 八、Todo List
 
-- [ ] `web/src/app/routes.ts`：注册 `/app/tracks/$trackId` 路由。
-- [ ] `web/src/app/routes/app.tracks.$trackId.tsx`：读取路由参数并挂载 Track 详情页。
-- [ ] `web/src/features/tasks/TaskCard.tsx`：提取 Desktop-parity 只读 Task 卡片供 Tasks 和 Track detail 复用。
-- [ ] `web/src/features/tasks/TaskBoardView.tsx`：提取只读状态/assignee/track 看板呈现，并支持 Track detail 固定按 Status 分组。
-- [ ] `web/src/features/tasks/TaskListView.tsx`：提取只读 Task 列表呈现，确保与 Board 使用相同字段和打开行为。
-- [ ] `web/src/features/tasks/TaskDetailPanel.tsx`：提取已有只读 Task 详情，并支持关闭后保留来源页面。
-- [ ] `web/src/features/tasks/TasksPage.tsx`：改为消费共享 Task 组件，保持现有筛选、分组和 URL 行为不变。
-- [ ] `web/src/features/tracks/TracksPage.tsx`：移除简化详情抽屉，改为路由导航。
-- [ ] `web/src/features/tracks/TrackDetailPage.tsx`：实现 Track 概览、进度、Board/List、空状态和 Task 详情。
-- [ ] `web/src/app/routeTree.gen.ts`：通过 TanStack Router 生成流程纳入 Track detail 路由。
-- [ ] `web/tests/e2e/work-console.spec.ts`：覆盖列表进入详情、刷新恢复、Track 任务过滤、Board/List 与 Task 详情。
-- [ ] `web/tests/e2e/ipad-layout.spec.ts`：覆盖 Track detail 在横屏、竖屏及紧凑宽度下的溢出边界。
-- [ ] `web/tests/e2e/desktop-parity.visual.spec.ts`：增加 Track detail Light/Dark 视觉基线。
+- [x] `web/src/app/routes.ts`：注册 `/app/tracks/$trackId` 路由。
+- [x] `web/src/app/routes/app.tracks.$trackId.tsx`：读取路由参数并挂载 Track 详情页。
+- [x] `web/src/features/tasks/TaskCard.tsx`：提取 Desktop-parity 只读 Task 卡片供 Tasks 和 Track detail 复用。
+- [x] `web/src/features/tasks/TaskBoardView.tsx`：提取只读状态/assignee/track 看板呈现，并支持 Track detail 固定按 Status 分组。
+- [x] `web/src/features/tasks/TaskListView.tsx`：提取只读 Task 列表呈现，确保与 Board 使用相同字段和打开行为。
+- [x] `web/src/features/tasks/TaskDetailPanel.tsx`：提取已有只读 Task 详情，并支持关闭后保留来源页面。
+- [x] `web/src/features/tasks/TasksPage.tsx`：改为消费共享 Task 组件，保持现有筛选、分组和 URL 行为不变。
+- [x] `web/src/features/tracks/TracksPage.tsx`：移除简化详情抽屉，改为路由导航。
+- [x] `web/src/features/tracks/TrackDetailPage.tsx`：实现 Track 概览、进度、Board/List、空状态和 Task 详情。
+- [x] `web/src/app/routeTree.gen.ts`：通过 TanStack Router 生成流程纳入 Track detail 路由。
+- [x] `web/tests/e2e/work-console.spec.ts`：覆盖列表进入详情、刷新恢复、Track 任务过滤、Board/List 与 Task 详情。
+- [x] `web/tests/e2e/ipad-layout.spec.ts`：覆盖 Track detail 在横屏、竖屏及紧凑宽度下的溢出边界。
+- [x] `web/tests/e2e/desktop-parity.visual.spec.ts`：增加 Track detail Light/Dark 视觉基线。
 - [ ] `web/tests/helpers/desktopParityFixtures.ts`：补充跨 Track、归档和空 Track 的验收数据。
-- [ ] `docs/2026-08-08-web-track-detail-task-board-plan.md`：记录测试结果、实现 commit 和 Cloudflare 部署号。
+- [x] `docs/2026-08-08-web-track-detail-task-board-plan.md`：记录测试结果、实现 commit 和 Cloudflare 部署号。
 
 ## 九、代码规范检查
 
@@ -147,3 +147,12 @@ Web 应复刻该产品结构和视觉层级，仅移除写操作。
 ## 十、确认门
 
 鹿鹿子大王确认本方案后，再修改 Web 代码、补齐测试、提交并部署。
+
+## 十一、实施记录
+
+- 实现 commit：`2dbeed347 feat(web): add track and inbox details`。
+- Web check、TypeScript、production/E2E build 均通过。
+- Chrome、iPad 横屏、iPad 竖屏完整 Playwright 矩阵 90/90 通过。
+- Track 详情 Light/Dark 视觉基线已生成并复跑通过。
+- Cloudflare Pages 部署：`bd3d5951`；公网深链接 `/app/tracks/track-1` 返回 200。
+- 公网加载资源：`index-CklqprAl.js`、`index-80fqSw8x.css`。

@@ -1,5 +1,5 @@
-> 更新日期：2026-08-08
-> 更新说明：新增 Web Inbox 点击详情、真实用户/Agent 身份和 Markdown 正文补齐方案；与 Track 详情修复同批实施，文件预览不在范围内。
+> 更新日期：2026-08-09
+> 更新说明：完成 Web Inbox 响应式列表/详情、真实用户与 Agent 身份、Markdown 正文、会话跳转和公网部署；文件预览保持排除。
 
 # Web Inbox 详情、身份与 Markdown 补齐方案
 
@@ -106,17 +106,17 @@ Web 当前数据层只取得 Channel/DM 消息，没有 Desktop 完整的 mentio
 
 ## 九、Todo List
 
-- [ ] `web/src/features/inbox/inboxProjection.ts`：生成稳定 Inbox 条目、profile/channel label、纯文本预览和会话上下文。
-- [ ] `web/src/features/inbox/InboxListPane.tsx`：实现可选择列表、真实头像/名称、位置、时间和 selected 状态。
-- [ ] `web/src/features/inbox/InboxDetailPane.tsx`：实现只读上下文、Markdown 正文、Back 和 Open conversation。
-- [ ] `web/src/features/inbox/InboxPage.tsx`：组合响应式双栏/单栏布局，并同步 `?item=`、刷新和浏览器历史。
+- [x] `web/src/features/inbox/inboxProjection.ts`：生成稳定 Inbox 条目、profile/channel label、纯文本预览和会话上下文。
+- [x] `web/src/features/inbox/InboxListPane.tsx`：实现可选择列表、真实头像/名称、位置、时间和 selected 状态。
+- [x] `web/src/features/inbox/InboxDetailPane.tsx`：实现只读上下文、Markdown 正文、Back 和 Open conversation。
+- [x] `web/src/features/inbox/InboxPage.tsx`：组合响应式双栏/单栏布局，并同步 `?item=`、刷新和浏览器历史。
 - [ ] `web/src/features/messages/MessageMarkdown.tsx`：仅在 Inbox 验收发现共享样式缺口时补齐通用正文约束，不增加附件预览。
 - [ ] `web/tests/e2e/inbox-projection.spec.ts`：覆盖 profile label、Agent 身份、DM label、纯文本预览和稳定排序。
-- [ ] `web/tests/e2e/work-console.spec.ts`：覆盖 Inbox 点击详情、Markdown、Open conversation 和 URL 恢复。
-- [ ] `web/tests/e2e/ipad-layout.spec.ts`：覆盖 Inbox 双栏/单栏切换及局部滚动边界。
-- [ ] `web/tests/e2e/desktop-parity.visual.spec.ts`：增加 Inbox 列表/详情 Light/Dark 视觉基线。
+- [x] `web/tests/e2e/work-console.spec.ts`：覆盖 Inbox 点击详情、Markdown、Open conversation 和 URL 恢复。
+- [x] `web/tests/e2e/ipad-layout.spec.ts`：覆盖 Inbox 双栏/单栏切换及局部滚动边界。
+- [x] `web/tests/e2e/desktop-parity.visual.spec.ts`：增加 Inbox 列表/详情 Light/Dark 视觉基线。
 - [ ] `web/tests/helpers/desktopParityFixtures.ts`：增加多作者、Agent Markdown、缺失 Channel 和跨会话 Inbox fixture。
-- [ ] `docs/2026-08-08-web-inbox-detail-profile-markdown-plan.md`：记录测试、实现 commit 和 Cloudflare 部署号。
+- [x] `docs/2026-08-08-web-inbox-detail-profile-markdown-plan.md`：记录测试、实现 commit 和 Cloudflare 部署号。
 
 ## 十、代码规范检查
 
@@ -128,3 +128,13 @@ Web 当前数据层只取得 Channel/DM 消息，没有 Desktop 完整的 mentio
 ## 十一、确认门
 
 鹿鹿子大王确认后，将本方案与 Web Track detail 方案作为同一批代码任务实现、测试、提交并部署。
+
+## 十二、实施记录
+
+- 实现 commit：`2dbeed347 feat(web): add track and inbox details`。
+- Inbox 列表与详情均使用 profile 名称、头像和验证后的 `isAgent` 身份；DM 位置使用 `channel.displayName`。
+- 详情复用安全 `MessageMarkdown`，并支持回到列表及打开原 DM/Channel。
+- Web check、TypeScript、production/E2E build 均通过。
+- Chrome、iPad 横屏、iPad 竖屏完整 Playwright 矩阵 90/90 通过。
+- Inbox detail Light/Dark 视觉基线已生成并复跑通过。
+- Cloudflare Pages 部署：`bd3d5951`；公网加载 `index-CklqprAl.js` 与 `index-80fqSw8x.css`。
