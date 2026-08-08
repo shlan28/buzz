@@ -1,5 +1,5 @@
 > 更新日期：2026-08-08
-> 更新说明：在已部署的身份、DM 和实时消息修复基础上，补充 Agent/User 默认头像身份色、消息 Markdown、会话首次进入底部定位、安全内容面板、Calendar 三视图轻边框、导航图标，以及 Task 完整呈现与分组筛选要求。
+> 更新说明：在已部署的身份、DM 和实时消息修复基础上，补充 Agent/User 默认头像身份色、消息 Markdown、会话底部定位与统一窄边距、安全内容面板、Calendar 轻边框、导航图标及 Task 完整呈现要求。
 
 # Web 身份、DM、Channel 与 Sidebar 一致性修复方案
 
@@ -173,6 +173,14 @@ Web 的 Day、Week、Month 网格目前都使用不透明 `border-border`，在�
 
 Web 应复刻这一层级：结构分隔线使用 `/60`，小时刻度线使用 `/50`，事件块继续保留清晰的 primary 左边框；今天、选中事件和 hover 通过背景色表达，不能再靠加重网格边框。Day 与 Week 共用同一 TimeGrid 规则，Month 单独覆盖 7×6 网格，三种视图都要在 Light/Dark 下验收。
 
+### 1.18 DM/Channel 消息与输入框左右留白过宽
+
+Web 当前为消息列表和 Composer 分别套了 `mx-auto max-w-4xl px-5`。在 Desktop 宽屏或 iPad 横屏上，`max-w-4xl` 会产生大块无效留白；消息行内部又额外 `px-2`，导致消息正文边界和输入框边界看似相近但并未精确对齐。
+
+Desktop 时间线采用接近全宽的小 gutter：滚动区 `px-2`、消息 row `mx-1`，Composer 也只保留必要的外侧触控间距。Web 本轮移除消息区与输入区的居中最大宽度，建立一个共享的 conversation gutter。消息时间线容器、日期分隔、空状态、mention 浮层和 Composer 外框都以同一左右边界为准；消息 row 内部的头像与正文间距保持 Desktop 结构，不把内容贴到屏幕边缘。
+
+建议共享 gutter 为窄屏 8px、常规宽度 12px，输入框和消息 hover row 的外沿必须像素级一致。安全区仍由页面根部 `env(safe-area-inset-*)` 负责，不能在会话内部重复叠加。
+
 ## 二、产品目标
 
 - Sidebar profile 显示当前 Buzz 用户真实名字与头像；
@@ -193,6 +201,7 @@ Web 应复刻这一层级：结构分隔线使用 `/60`，小时刻度线使用 
 - 无真实头像时 Agent 使用 primary 默认头像、普通 User 使用 secondary，所有页面保持一致。
 - 首次进入或切换 DM/Channel 时默认显示最新消息，阅读历史时不被实时回复强制拉回底部。
 - Calendar Day、Week、Month 使用 Desktop 的轻量结构线与小时刻度，白色画布上不再出现重网格。
+- DM/Channel 移除宽屏最大宽度限制，消息与输入框使用同一窄 gutter 并严格对齐。
 
 ## 三、统一数据模型
 
@@ -309,6 +318,9 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - Markdown/图片异步增高、iPad viewport/软键盘变化时，贴底状态继续落在底部，历史阅读状态保持原锚点。
 - Calendar Sidebar/Toolbar/Day/Week/Month 结构线计算颜色为 `border/60`，小时刻度为 `border/50`；事件 primary 边框不被弱化。
 - 三种 Calendar 视图在 Light/Dark 与 iPad 横竖屏下均保持可辨识但不抢眼的网格层级。
+- 消息列表和 Composer 不再包含 `max-w-4xl` 居中约束；常规宽度左右 gutter 约 12px，紧凑宽度约 8px。
+- 消息 hover row、日期分隔、空状态、mention 浮层和输入框外框的左右边界一致，误差不超过 1px。
+- 1366px Desktop、iPad 横屏和竖屏下，会话正文可用宽度明显增加且无页面级横向溢出。
 
 ## 七、Todo List
 
@@ -338,7 +350,7 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - [x] `web/src/features/sidebar/WebAppSidebar.tsx`：保留 DM 头像和导航图标，并向 DM/当前用户头像传递真实 `isAgent` 身份。
 - [ ] `web/src/features/settings/SettingsPage.tsx`：保留已完成的真实用户 profile，并让 Settings 主内容区域使用统一内容面板背景语义。
 - [ ] `web/src/features/inbox/InboxPage.tsx`：移除页面级 Shell，消费共享 Provider。
-- [x] `web/src/features/channels/ChannelsPage.tsx`：保留统一头像与 Markdown，传递真实 `isAgent`，并接入首次/切换/发送/实时消息滚动锚点。
+- [ ] `web/src/features/channels/ChannelsPage.tsx`：保留头像、Markdown 和滚动锚点，移除 `max-w-4xl`，让时间线、日期、mention 与 Composer 使用同一窄 gutter。
 - [x] `web/src/features/calendar/CalendarPage.tsx`：对齐 Sidebar/Toolbar、Day/Week 与 Month 的 `/60` 轻量结构线并保持白色详情画布。
 - [x] `web/src/features/tasks/TasksPage.tsx`：复刻 Desktop 列/卡片视觉层级，增加 Track 筛选、Assignee/Status/Track 分组、空列开关及 URL search 同步。
 - [ ] `web/src/features/tasks/types.ts`：对齐 Desktop Task priority、due timestamp 与 TaskExecution 类型，使用明确 null 语义。
@@ -351,6 +363,7 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - [ ] `web/tests/e2e/task-presentation.spec.ts`：覆盖完整卡片字段、Agent assignee 默认色、三种分组、列排序、URL 恢复、Track 筛选和 execution 防伪。
 - [ ] `web/tests/e2e/avatar-identity.spec.ts`：覆盖 Agent/User 默认色、真实图片优先、图片失败回退及跨 Sidebar/消息/mention 的一致性。
 - [ ] `web/tests/e2e/message-scroll.spec.ts`：覆盖长 DM 首次进入、会话切换、底部新消息、历史阅读不抢位、发送贴底、异步行高和 iPad viewport。
+- [ ] `web/tests/e2e/message-layout.spec.ts`：覆盖 Desktop/iPad 三种视口的消息行与输入框边界对齐、可用宽度和无横向溢出。
 - [x] `web/tests/e2e/work-console.spec.ts`：覆盖 Task 完整卡片、Track 筛选、三种分组、Board/List、会话底部定位和 Agent/User 默认头像色。
 - [ ] `web/tests/e2e/message-mentions.spec.ts`：覆盖 Channel `@Agent` 候选、键盘/触控选择、p tag、同名歧义和 DM 自动 recipient。
 - [ ] `web/tests/e2e/message-timeline.spec.ts`：用乱序、同秒、reply、delete、edit、reaction fixture 对照 Desktop 投影与 row 顺序。
@@ -378,6 +391,7 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - 无真实头像时 Agent 与 User 可通过一致的 primary/secondary 默认头像视觉区分，且身份判断不依赖名称猜测；
 - 首次进入长 DM/Channel 时直接看到最新消息；实时回复、发送、历史阅读与布局变化遵循 Desktop 的锚点策略；
 - Calendar Day、Week、Month 的结构线、小时刻度、事件强调和 hover 层级与 Desktop 一致；
+- DM/Channel 的时间线和 Composer 全宽利用率与 Desktop 一致，左右留白缩小且两者边界像素级对齐；
 - 完整 Chrome、iPad 横屏、iPad 竖屏 E2E 与视觉回归通过后再部署。
 
 ## 九、建设性建议
