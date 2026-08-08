@@ -358,6 +358,7 @@ pub fn run() {
         .manage(BuilderlabSession::default())
         .manage(BuilderlabLogin::default())
         .manage(commands::pairing::PairingHandle::new())
+        .manage(commands::remote_signer::RemoteSignerHandle::new())
         .setup(move |app| {
             let app_handle = app.handle().clone();
 
@@ -874,6 +875,7 @@ pub fn run() {
             start_pairing,
             confirm_pairing_sas,
             cancel_pairing,
+            revoke_web_signer,
             apply_workspace,
             validate_repos_dir,
             get_active_workspace,

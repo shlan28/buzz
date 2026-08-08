@@ -56,6 +56,7 @@ mod relay_members;
 #[cfg(test)]
 mod relay_members_tests;
 mod relay_reconnect;
+pub mod remote_signer;
 mod social;
 mod team_snapshot;
 mod teams;
@@ -108,6 +109,7 @@ pub use project_terminal::*;
 pub use qr_download::*;
 pub use relay_members::*;
 pub use relay_reconnect::*;
+pub use remote_signer::*;
 pub use social::*;
 pub use team_snapshot::*;
 pub use teams::*;

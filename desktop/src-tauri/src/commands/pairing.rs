@@ -16,6 +16,7 @@ use tokio_util::sync::CancellationToken;
 use zeroize::Zeroizing;
 
 use crate::app_state::AppState;
+use crate::commands::remote_signer::RemoteSignerHandle;
 use crate::relay::{relay_api_base_url_with_override, relay_ws_url_with_override};
 
 #[derive(Serialize, Clone)]
@@ -46,8 +47,8 @@ struct PreparedPairingPayload {
 }
 
 struct WebSignerAuthorization {
-    client_pubkey: Option<String>,
-    _secret: Zeroizing<String>,
+    secret: Zeroizing<String>,
+    relay_url: String,
 }
 
 /// Managed Tauri state for an active pairing session.
@@ -154,8 +155,8 @@ pub async fn start_pairing(
                 signer_secret.as_str()
             );
             *pairing.web_signer.lock().map_err(|e| e.to_string())? = Some(WebSignerAuthorization {
-                client_pubkey: None,
-                _secret: Zeroizing::new(signer_secret.to_string()),
+                secret: Zeroizing::new(signer_secret.to_string()),
+                relay_url: signer_relay_url,
             });
             PreparedPairingPayload {
                 payload_type: PayloadType::Bunker,
@@ -193,7 +194,11 @@ pub async fn start_pairing(
 
 /// User confirmed the SAS codes match. Sends sas-confirm + payload.
 #[tauri::command]
-pub async fn confirm_pairing_sas(pairing: State<'_, PairingHandle>) -> Result<(), String> {
+pub async fn confirm_pairing_sas(
+    state: State<'_, AppState>,
+    pairing: State<'_, PairingHandle>,
+    remote_signer: State<'_, RemoteSignerHandle>,
+) -> Result<(), String> {
     let tx = pairing
         .outbound_tx
         .lock()
@@ -210,18 +215,16 @@ pub async fn confirm_pairing_sas(pairing: State<'_, PairingHandle>) -> Result<()
 
     let client_pubkey = {
         let guard = pairing.session.lock().await;
-        guard
-            .as_ref()
-            .and_then(PairingSession::peer_pubkey)
-            .map(|pubkey| pubkey.to_hex())
+        guard.as_ref().and_then(PairingSession::peer_pubkey)
     };
-    if let Some(authorization) = pairing
-        .web_signer
-        .lock()
-        .map_err(|e| e.to_string())?
-        .as_mut()
-    {
-        authorization.client_pubkey = client_pubkey;
+    if let Some(authorization) = pairing.web_signer.lock().map_err(|e| e.to_string())?.take() {
+        let client_pubkey = client_pubkey.ok_or("paired Web device has no verified public key")?;
+        remote_signer.authorize(
+            state.signing_keys()?,
+            authorization.relay_url,
+            client_pubkey,
+            authorization.secret,
+        )?;
     }
 
     tx.send(sas_confirm_json)

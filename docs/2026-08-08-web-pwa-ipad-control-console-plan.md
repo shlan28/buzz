@@ -651,11 +651,13 @@ Task Progress:
 - [ ] `web/src/shared/api/signer.ts`：统一 NIP-07、NIP-46 和无 signer 状态，不允许 nsec fallback。
 - [ ] `web/src/shared/storage/deviceCredentials.ts`：保存可撤销 device key和临时会话模式。
 - [ ] `web/src/features/settings/PairedDeviceSettings.tsx`：展示本 Web 设备和清除操作。
-- [ ] `desktop/src-tauri/src/commands/pairing.rs`：增加 NIP-46 signer Pair payload，不再为 Web 发送 nsec。
+- [x] `desktop/src-tauri/src/commands/pairing.rs`：增加 NIP-46 signer Pair payload，不再为 Web 发送 nsec。
 - [x] `crates/buzz-core/src/pairing/session.rs`：向 Desktop Pair source 暴露已验证 target 设备公钥。
 - [x] `desktop/src/shared/api/tauri.ts`：为 Pair 命令增加 Mobile/Web 模式类型。
 - [x] `desktop/src/features/settings/ui/MobilePairingCard.tsx`：增加 Web Pair 选择、复制链接和安全说明。
-- [ ] `desktop/src-tauri/src/commands/remote_signer.rs`：实现设备授权、kind/tag policy、签名和撤销。
+- [x] `desktop/src-tauri/src/commands/remote_signer.rs`：实现设备授权、首版 AUTH 签名 policy 和运行时撤销。
+- [x] `desktop/src-tauri/src/commands/mod.rs`：导出 Remote Signer 命令与受管状态。
+- [x] `desktop/src-tauri/src/lib.rs`：注册 Remote Signer 受管状态和撤销命令。
 - [ ] `desktop/src/features/settings/PairedWebDevices.tsx`：展示权限、在线状态、最后使用和撤销。
 - [x] `crates/buzz-pair-relay/src/lib.rs`：参数化安全单播策略，分别承载 24134 Pair 与 24133 signer。
 - [x] `crates/buzz-pair-relay/src/main.rs`：增加独立 Remote Signer 监听器。
