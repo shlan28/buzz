@@ -1,5 +1,5 @@
 > 更新日期：2026-08-08
-> 更新说明：在已部署的身份、DM 和实时消息修复基础上，补充 Agent 头像、消息 Markdown、安全内容面板、导航图标，以及 Task 卡片层级和按 Track 筛选的一致性要求。
+> 更新说明：在已部署的身份、DM 和实时消息修复基础上，补充 Agent 头像、消息 Markdown、安全内容面板、导航图标，以及 Task 卡片完整信息、视觉层级和按 Track 筛选的一致性要求。
 
 # Web 身份、DM、Channel 与 Sidebar 一致性修复方案
 
@@ -127,6 +127,22 @@ Web Task Board 当前把白色卡片直接放在白色内容画布上，使用 `
 
 Web 还缺少 Desktop 顶部的 `Filter by track`：当存在 Track 时显示下拉框，默认 `All tracks`，选择后只显示 `task.trackId` 精确匹配的任务，并同时作用于 Board 与 List。选择应写入 `track` URL search，刷新、前进后退和分享链接后仍能恢复；清除筛选则移除该参数。Track 本身存在但当前没有任务时，应显示明确空状态，而不是悄悄退回全部任务。
 
+### 1.14 Task 卡片内容不完整
+
+Web 卡片目前只有标题、可选描述、全部 labels 和 priority，缺少 Desktop 的主要工作状态信息。Desktop `TaskCard` 的固定信息结构为：
+
+1. 标题，两行截断；
+2. 描述，两行且保留固定高度，无描述时显示弱化的 `No description`；
+3. 状态 badge；
+4. 执行状态为 queued、running、failed 时显示 execution badge；
+5. Track 名称；
+6. 最多两个 labels，超出显示 `+N`；
+7. 非 `none` priority，urgent 使用 destructive 色；
+8. due date，逾期使用警告图标和 destructive 色；
+9. assignee 名称与 person/Agent 图标，Agent 额外标记 `· Agent`。
+
+Web 已解析 status、priority、assignee、due、trackId 和 labels，但还没有把 Track id 映射为名称，也没有为 task assignee 补齐 profile lookup；kind `30501` task execution state 也尚未进入 Web 工作数据。因此本轮需要补齐数据投影后再复刻卡片，不能用公钥截断或写死占位冒充 Desktop 信息。执行状态必须只接受 Relay 签发的最新 replaceable state，不能信任任意作者伪造的 kind `30501`。
+
 ## 二、产品目标
 
 - Sidebar profile 显示当前 Buzz 用户真实名字与头像；
@@ -143,6 +159,7 @@ Web 还缺少 Desktop 顶部的 `Filter by track`：当存在 Track 时显示下
 - 浅色模式主内容和所有右侧详情区域为白色，深色模式保持 Desktop 暖黑内容画布。
 - Tasks 使用 `ListTodo`、Tracks 使用 `Route`，尺寸和导航状态与 Desktop 一致。
 - Task Board 的列背景、卡片边框、阴影和 hover 层级与 Desktop 一致；可按 Track 筛选 Board 与 List。
+- Task 卡片完整显示 Desktop 的描述、状态、执行状态、Track、标签计数、优先级、到期日和 assignee 信息。
 
 ## 三、统一数据模型
 
@@ -243,10 +260,14 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - 存在 Track 时显示 `Filter by track`，默认 `All tracks`；选择 Track 后 Board、List 仅显示匹配 `trackId` 的任务。
 - Track 筛选同步到 URL `track` 参数，刷新和浏览器前进后退可恢复；清除后移除参数。
 - 所选 Track 没有任务时显示筛选空状态；任务没有 `trackId` 时不进入任一具体 Track 筛选结果。
+- Task 卡片各字段顺序、两行截断、描述占位与 Desktop 一致；labels 最多两个并显示剩余数量。
+- Track id 映射为 Track 名称；assignee pubkey 映射为真实 profile 名称和 Agent/person 类型，不显示截断公钥作为正常结果。
+- due date 使用本地日期并区分逾期；priority 为 `none` 时隐藏、urgent 使用警告色。
+- queued、running、failed execution badge 只来自 Relay 签发的最新 kind `30501`；伪造作者和旧状态必须忽略。
 
 ## 七、Todo List
 
-- [x] `web/src/shared/domain/eventKinds.ts`：补充 kind `0` profile、kind `30622` DM visibility 和 membership 常量。
+- [ ] `web/src/shared/domain/eventKinds.ts`：保留已有 profile/visibility 常量，并补充 Desktop 的 kind `30501` task execution state。
 - [x] `web/src/features/profile/types.ts`：定义 Web profile 与 profile lookup 类型。
 - [x] `web/src/features/profile/eventCodec.ts`：解析并合并最新 kind `0` profile，使用 Desktop 的名称回退规则。
 - [x] `web/src/features/channels/types.ts`：补充 `isMember`、`archivedAt`、`displayName` 和 Sidebar 投影字段。
@@ -263,7 +284,7 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - [ ] `web/src/features/messages/DayDivider.tsx`：按 Desktop 时间格式与布局渲染日期分隔。
 - [x] `web/src/features/messages/channelMessageSession.ts`：实现当前 Channel 的实时订阅、验签、断线重连和事件触发 catch-up。
 - [ ] `web/src/features/messages/useChannelMessages.ts`：合并初始快照、发送回显与实时回复，并在 channel id 变化时切换订阅。
-- [x] `web/src/shared/api/communitySession.ts`：分段查询 profile/membership/visibility，生成可见 Channel/DM 数据并稳定排序消息。
+- [ ] `web/src/shared/api/communitySession.ts`：保留已有工作数据投影，补查 assignee profile 与 Relay 签发的最新 task execution state。
 - [ ] `web/src/shared/hooks/WorkConsoleProvider.tsx`：建立持久共享状态、请求去重、last-good snapshot 和身份 reset。
 - [x] `web/src/shared/hooks/useWorkConsoleData.ts`：改为模块级共享请求与 last-good snapshot，路由切换不再闪空。
 - [ ] `web/src/app/routes/app.tsx`：新增持久 `/app` 父布局与 Outlet，Pair/Settings 处理明确边界。
@@ -274,9 +295,13 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - [ ] `web/src/features/channels/ChannelsPage.tsx`：接入统一头像与 MessageMarkdown，并在后续持久父布局中移除页面级 Shell。
 - [ ] `web/src/features/calendar/CalendarPage.tsx`：移除页面级 Shell、保留 Sidebar，并让 Calendar 画布和事件详情使用统一内容面板背景语义。
 - [ ] `web/src/features/tasks/TasksPage.tsx`：复刻 Desktop 列/卡片视觉层级，增加 Track 下拉筛选与 URL search 同步，并在后续移除页面级 Shell。
+- [ ] `web/src/features/tasks/types.ts`：对齐 Desktop Task priority、due timestamp 与 TaskExecution 类型，使用明确 null 语义。
+- [ ] `web/src/features/tasks/eventCodec.ts`：对齐 Desktop Task 字段解析，并严格解析、验证最新 task execution state。
+- [ ] `web/src/features/tasks/taskPresentation.ts`：提供 Track 名称、assignee profile、due/overdue 和状态 badge 的 browser-safe 纯呈现投影。
 - [ ] `web/src/features/tracks/TracksPage.tsx`：移除页面级 Shell、保留 Sidebar，并让 Track 列表与右侧详情使用统一内容面板背景语义。
 - [x] `web/src/shared/styles/globals.css`：增加 Desktop Light 白色内容面板和 Dark 暖黑画布语义，并补齐消息 Markdown 排版规则。
 - [x] `web/tests/e2e/domain-codecs.spec.ts`：覆盖 profile、Agent DM label、最新 profile 和稳定消息排序。
+- [ ] `web/tests/e2e/task-presentation.spec.ts`：覆盖完整卡片字段、无描述、标签折叠、逾期、Agent assignee、Track 名称和 execution 防伪。
 - [ ] `web/tests/e2e/work-console.spec.ts`：在现有身份、消息呈现测试上补充 Task 卡片边框/hover、Track 筛选、空状态、URL 恢复及 Board/List 一致性。
 - [ ] `web/tests/e2e/message-mentions.spec.ts`：覆盖 Channel `@Agent` 候选、键盘/触控选择、p tag、同名歧义和 DM 自动 recipient。
 - [ ] `web/tests/e2e/message-timeline.spec.ts`：用乱序、同秒、reply、delete、edit、reaction fixture 对照 Desktop 投影与 row 顺序。
@@ -300,6 +325,7 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - 浅色模式主内容及右侧详情为白色、深色模式保持暖黑，Sidebar 和层级色不受影响；
 - Tasks 与 Tracks 的 Sidebar 图标、尺寸、激活态和折叠态与 Desktop 一致；
 - Task 卡片边框、阴影、列背景与 Desktop 一致，且 Track 筛选在 Board、List、刷新和浏览器历史中行为一致；
+- Task 卡片在相同 fixture 下与 Desktop 显示相同的信息集合、顺序、状态颜色和缺省规则；
 - 完整 Chrome、iPad 横屏、iPad 竖屏 E2E 与视觉回归通过后再部署。
 
 ## 九、建设性建议
