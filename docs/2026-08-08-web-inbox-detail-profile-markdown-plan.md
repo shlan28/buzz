@@ -184,20 +184,20 @@ Desktop 列表使用非交互 Markdown 预览，并在固定高度内裁切。�
 
 ## 十五、二次修复 Todo List
 
-- [ ] `web/src/features/channels/types.ts`：为 Message 保留只读 `kind` 与 `tags`。
-- [ ] `web/src/features/channels/eventCodec.ts`：把已验签事件的 kind/tags 投影到 Message。
-- [ ] `web/src/shared/ui/ProfileAvatar.tsx`：支持识别默认占位头像并回退 initials，不影响真实自定义头像。
-- [ ] `web/src/features/messages/MessageMarkdown.tsx`：增加 Inbox 使用的 compact、non-interactive 安全预览模式。
-- [ ] `web/src/features/inbox/inboxProjection.ts`：按 DM/Thread/顶层活动聚合稳定会话，生成 Desktop 对齐的五类文字、代表消息和上下文。
-- [ ] `web/src/features/inbox/InboxListPane.tsx`：显示分类文字、非交互 Markdown 缩略、聚合时间和 Agent initials。
-- [ ] `web/src/features/inbox/InboxDetailPane.tsx`：消费聚合上下文和稳定 conversation id，不再把整个 Channel 历史误当单条 Inbox 详情。
-- [ ] `web/src/features/inbox/InboxPage.tsx`：让 `?item=` 保存稳定 conversation id，并兼容旧 event id。
-- [ ] `web/tests/helpers/desktopParityFixtures.ts`：增加 DM 历史、mention、thread、Agent update、普通 Channel 和纯色占位头像 fixture。
-- [ ] `web/tests/e2e/domain-codecs.spec.ts`：覆盖 Message kind/tags 保留与 NIP-10 root/parent 解析。
-- [ ] `web/tests/e2e/inbox-projection.spec.ts`：覆盖五类分类、会话聚合、稳定排序、旧 event id 解析和 Markdown 缩略。
-- [ ] `web/tests/e2e/work-console.spec.ts`：覆盖 Agent initials、真实头像优先、聚合行数、分类文字、选择与详情上下文。
-- [ ] `web/tests/e2e/desktop-parity.visual.spec.ts`：更新 Inbox Light/Dark 列表分类和文字缩略基线。
-- [ ] `docs/2026-08-08-web-inbox-detail-profile-markdown-plan.md`：记录二次修复测试、commit 和部署号。
+- [x] `web/src/features/channels/types.ts`：为 Message 保留只读 `kind` 与 `tags`。
+- [x] `web/src/features/channels/eventCodec.ts`：把已验签事件的 kind/tags 投影到 Message。
+- [x] `web/src/shared/ui/ProfileAvatar.tsx`：支持识别默认占位头像并回退 initials，不影响真实自定义头像。
+- [x] `web/src/features/messages/MessageMarkdown.tsx`：增加 Inbox 使用的 compact、non-interactive 安全预览模式。
+- [x] `web/src/features/inbox/inboxProjection.ts`：按 DM/Thread/顶层活动聚合稳定会话，生成 Desktop 对齐的五类文字、代表消息和上下文。
+- [x] `web/src/features/inbox/InboxListPane.tsx`：显示分类文字、非交互 Markdown 缩略、聚合时间和 Agent initials。
+- [x] `web/src/features/inbox/InboxDetailPane.tsx`：消费聚合上下文和稳定 conversation id，不再把整个 Channel 历史误当单条 Inbox 详情。
+- [x] `web/src/features/inbox/InboxPage.tsx`：让 `?item=` 保存稳定 conversation id，并兼容旧 event id。
+- [x] `web/tests/helpers/desktopParityFixtures.ts`：增加 DM 历史、Agent update、普通 Channel 和纯色占位头像 fixture。
+- [x] `web/tests/e2e/domain-codecs.spec.ts`：覆盖 Message kind/tags 保留。
+- [x] `web/tests/e2e/inbox-projection.spec.ts`：覆盖五类分类、会话聚合、稳定排序、旧 event id 解析和 NIP-10 root。
+- [x] `web/tests/e2e/work-console.spec.ts`：覆盖 Agent initials、聚合行数、分类文字、选择与详情上下文。
+- [x] `web/tests/e2e/desktop-parity.visual.spec.ts`：更新 Inbox Light/Dark 列表分类和文字缩略基线。
+- [x] `docs/2026-08-08-web-inbox-detail-profile-markdown-plan.md`：记录二次修复测试、commit 和部署号。
 
 ## 十六、二次修复验收标准
 
@@ -213,3 +213,15 @@ Desktop 列表使用非交互 Markdown 预览，并在固定高度内裁切。�
 ## 十七、二次确认门
 
 鹿鹿子大王确认以上二次修复后，再修改 Web 代码、测试、提交并部署。
+
+## 十八、二次修复实施记录
+
+- 实现 commit：`c16779be9 fix(web): align inbox conversation categories`。
+- 纯色 SVG 默认头像被识别为占位图，Agent 恢复 initials；真实非占位头像继续显示图片。
+- Web Message 保留 kind/tags；Inbox 按 DM、NIP-10 Thread 和顶层消息生成稳定 conversation id。
+- 已实现 `DM from`、`Mentioned in`、`Thread in`、`Agent update in`、`Channel update in` 五类 Desktop 风格文字。
+- 37 条 Hermes DM fixture 聚合为 1 个 Inbox 会话，旧 event-id URL 自动迁移到稳定 DM conversation id。
+- Inbox 缩略使用 compact/non-interactive 安全 Markdown；详情只消费当前聚合会话上下文。
+- Web check、TypeScript、production/E2E build 通过；完整 Chrome、iPad 横屏、iPad 竖屏矩阵 92/92 通过。
+- Inbox Light/Dark 视觉基线已更新并复跑通过。
+- Cloudflare Pages 部署：`ccefe55e`；生产域名确认加载 `index-Bmg8Gd1s.js` 与 `index-piWF0DGG.css`。
