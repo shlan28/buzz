@@ -11,6 +11,7 @@ import { latestByCoordinate } from "@/shared/domain/eventTags";
 import { relayHttpBaseUrl } from "@/shared/lib/relay-url";
 import { queryRelayHttp } from "./relayHttp";
 import { openPairedSigner } from "./signer";
+import type { NostrFilter } from "@/shared/lib/nostr-client";
 
 export type WorkConsoleData = {
   userPubkey: string;
@@ -27,13 +28,20 @@ export async function loadWorkConsoleData(): Promise<WorkConsoleData> {
   }
   const signer = await openPairedSigner();
   try {
-    const events = await queryRelayHttp(relayHttpBaseUrl(), signer, [
-      { kinds: [KINDS.channelMetadata], limit: 300 },
-      { kinds: MESSAGE_KINDS, limit: 500 },
-      { kinds: [KINDS.calendarDate, KINDS.calendarTime], limit: 500 },
-      { kinds: [KINDS.taskState], limit: 500 },
-      { kinds: [KINDS.trackState], limit: 300 },
-    ]);
+    const baseUrl = relayHttpBaseUrl();
+    const events = await queryRelayHttp(
+      baseUrl,
+      signer,
+      workConsoleCoreFilters(),
+    );
+    const calendarEvents = await queryRelayHttp(
+      baseUrl,
+      signer,
+      workConsoleCalendarFilters(),
+    ).catch((error: unknown) => {
+      console.warn("Calendar query failed without blocking other data", error);
+      return [];
+    });
     return {
       userPubkey: signer.userPubkey,
       channels: latestByCoordinate(
@@ -41,7 +49,7 @@ export async function loadWorkConsoleData(): Promise<WorkConsoleData> {
       ).filter((item) => item.name.length > 0),
       messages: events.map(parseMessage).filter(isPresent),
       calendar: latestByCoordinate(
-        events.map(parseCalendarItem).filter(isPresent),
+        calendarEvents.map(parseCalendarItem).filter(isPresent),
       ).filter((item) => item.start.getFullYear() > 2000),
       tasks: latestByCoordinate(events.map(parseTask).filter(isPresent)).filter(
         (item) => !item.archived,
@@ -53,6 +61,25 @@ export async function loadWorkConsoleData(): Promise<WorkConsoleData> {
   } finally {
     signer.close();
   }
+}
+
+export function workConsoleCoreFilters(): NostrFilter[] {
+  return [
+    { kinds: [KINDS.channelMetadata], limit: 300 },
+    { kinds: MESSAGE_KINDS, limit: 500 },
+    { kinds: [KINDS.taskState], limit: 500 },
+    { kinds: [KINDS.trackState], limit: 300 },
+  ];
+}
+
+export function workConsoleCalendarFilters(): NostrFilter[] {
+  return [
+    {
+      kinds: [KINDS.calendarDate, KINDS.calendarTime],
+      owned_authors: true,
+      limit: 500,
+    },
+  ];
 }
 
 function isPresent<T>(value: T | null): value is T {

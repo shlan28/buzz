@@ -5,8 +5,15 @@ import {
   getPublicKey,
 } from "nostr-tools/pure";
 import { assertSignedEventMatches } from "../../src/shared/api/nip46Client";
-import { makePairedNip98AuthHeader } from "../../src/shared/api/relayHttp";
+import {
+  makePairedNip98AuthHeader,
+  relayQueryErrorMessage,
+} from "../../src/shared/api/relayHttp";
 import { queryRelay } from "../../src/shared/api/relaySession";
+import {
+  workConsoleCalendarFilters,
+  workConsoleCoreFilters,
+} from "../../src/shared/api/communitySession";
 
 test("rejects open-ended Relay filters before opening a socket", async () => {
   await expect(
@@ -71,4 +78,30 @@ test("builds a payload-bound NIP-98 query authorization", async () => {
   expect(
     signed.tags.find((tag: string[]) => tag[0] === "payload")?.[1],
   ).toMatch(/^[0-9a-f]{64}$/);
+});
+
+test("surfaces the Relay error envelope instead of hiding a 403", () => {
+  expect(
+    relayQueryErrorMessage(
+      { error: "restricted: calendar authors must be self" },
+      403,
+    ),
+  ).toBe("restricted: calendar authors must be self");
+  expect(relayQueryErrorMessage({ message: "denied" }, 403)).toBe("denied");
+  expect(relayQueryErrorMessage(undefined, 403)).toBe(
+    "Relay query failed (403).",
+  );
+});
+
+test("isolates private Calendar filters from the core work console query", () => {
+  const core = workConsoleCoreFilters();
+  expect(core.flatMap((filter) => filter.kinds ?? [])).not.toContain(31_922);
+  expect(core.flatMap((filter) => filter.kinds ?? [])).not.toContain(31_923);
+  expect(workConsoleCalendarFilters()).toEqual([
+    {
+      kinds: [31_922, 31_923],
+      owned_authors: true,
+      limit: 500,
+    },
+  ]);
 });

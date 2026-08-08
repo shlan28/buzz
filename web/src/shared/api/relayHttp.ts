@@ -23,19 +23,25 @@ export async function queryRelayHttp(
   });
   const payload: unknown = await response.json().catch(() => undefined);
   if (!response.ok) {
-    const message =
-      payload &&
-      typeof payload === "object" &&
-      "message" in payload &&
-      typeof payload.message === "string"
-        ? payload.message
-        : `Relay query failed (${response.status}).`;
-    throw new Error(message);
+    throw new Error(relayQueryErrorMessage(payload, response.status));
   }
   if (!Array.isArray(payload)) {
     throw new Error("Relay returned an invalid query response.");
   }
   return payload.filter(isVerifiedEvent);
+}
+
+export function relayQueryErrorMessage(
+  payload: unknown,
+  status: number,
+): string {
+  if (payload && typeof payload === "object") {
+    for (const field of ["error", "message"] as const) {
+      const value = (payload as Record<string, unknown>)[field];
+      if (typeof value === "string" && value.trim()) return value;
+    }
+  }
+  return `Relay query failed (${status}).`;
 }
 
 export async function makePairedNip98AuthHeader(

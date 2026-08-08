@@ -18,6 +18,7 @@ export interface NostrFilter {
   since?: number;
   until?: number;
   limit?: number;
+  owned_authors?: boolean;
   [tag: `#${string}`]: string[] | undefined;
 }
 

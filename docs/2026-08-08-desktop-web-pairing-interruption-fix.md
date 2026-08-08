@@ -1,5 +1,5 @@
 > 更新日期：2026-08-08
-> 更新说明：新增 Desktop 与 Web 在 SAS 匹配后被意外中断的修复方案，聚焦事件监听器异步注册/卸载竞态、配对生命周期所有权和回归测试；真实配对成功后进一步确认主 Relay 的 NIP-42 五秒 AUTH 窗口不足以容纳公网 Remote Signer 往返，只读加载改用同身份 NIP-98 `/query`；补充 Mac signer 长连接中断后的自动重连和运行期授权保持；根据公网复测新增 Pair Relay 两分钟硬超时修复与可理解错误提示；进一步补充专用 Pair Relay 跳过无效 AUTH 探测、连接保活、offer 重试和关闭原因观测。
+> 更新说明：新增 Desktop 与 Web 在 SAS 匹配后被意外中断的修复方案，聚焦事件监听器异步注册/卸载竞态、配对生命周期所有权和回归测试；真实配对成功后进一步确认主 Relay 的 NIP-42 五秒 AUTH 窗口不足以容纳公网 Remote Signer 往返，只读加载改用同身份 NIP-98 `/query`；补充 Mac signer 长连接中断后的自动重连和运行期授权保持；根据公网复测新增 Pair Relay 两分钟硬超时修复与可理解错误提示；进一步补充专用 Pair Relay 跳过无效 AUTH 探测、连接保活、offer 重试和关闭原因观测；最终补充配对后 `/query` 403 的 Calendar ACL 根因、隔离加载和真实 Relay 错误展示。
 
 > 线上联调补充：NIP-98 `/query` 首次返回 Safari `Load failed`，根因是 Relay CORS 白名单仅包含 `https://achoverse.xyz`，未包含 Pages 域名 `https://app.achoverse.xyz`；运行配置需同时允许两者。
 
@@ -96,6 +96,19 @@ MobilePairingCard.tsx:236, 246, 257, 276
 
 产品验收目标：正常公网环境下应在数秒内出现安全码；发生一次短暂 reset 后界面保持当前安全码并显示“正在恢复连接”，恢复后继续完成，而不是要求用户从头开始。
 
+### 3.7 配对成功后数据查询 403
+
+Relay 现场日志确认 NIP-98 请求已由正确的 user pubkey 签名，但 `/query` 返回 403。Web 当前把普通频道、消息、Calendar、Task、Track 合并成一次多 filter 请求，其中私有 Calendar filter 没有 `authors`。Relay 的 Calendar ACL 要求作者必须显式限定为当前用户或该用户在服务端登记拥有的 agent；任一 filter 不合法会拒绝整个批次，因此页面看不到任何数据。
+
+修复设计：
+
+- 普通频道、消息、Task、Track 与私有 Calendar 分批查询，Calendar 拒绝不能清空其他可读数据；
+- 第一阶段 Calendar 至少显式限定当前 user pubkey；
+- 同时从已验证 agent profile/owner 关系解析 owned-agent pubkeys，再发第二个 Calendar 查询，不能信任未验证的浏览器本地配置；
+- 合并两批 Calendar 结果后按坐标取最新状态并去重；
+- Relay 错误响应同时读取 `error` 和 `message`，向用户展示真正的 ACL 原因；
+- 测试必须覆盖：无 authors 的 Calendar 返回 403、普通数据仍成功、user Calendar 成功、owned-agent Calendar 成功、Relay `error` 字段透传。
+
 ## 四、建设性建议
 
 本次先修复可复现的前端生命周期竞态，不把配对授权持久化混入同一个补丁。Desktop 重启后是否保留 Web signer 授权属于独立的设备管理设计，应单独实现持久化授权、撤销和过期策略，否则会扩大私钥签名安全边界。
@@ -126,7 +139,12 @@ MobilePairingCard.tsx:236, 246, 257, 276
 - [x] `web/src/features/pairing/types.ts`：增加恢复连接视图状态类型。
 - [x] `web/src/features/pairing/PairPage.tsx`：展示恢复状态和剩余有效期说明。
 - [x] `web/tests/e2e/pairing-crypto.spec.ts`：补充 offer 重发保持 session/key 不变及达到上限停止测试。
-- [ ] `docs/2026-08-08-desktop-web-pairing-interruption-fix.md`：记录验证结果、提交号与真实配对结果。
+- [x] `web/src/shared/api/relayHttp.ts`：解析 Relay 的 `error`/`message` 错误信封并保留 HTTP 状态。
+- [x] `web/src/shared/api/communitySession.ts`：拆分普通数据与 Calendar 查询，使 Calendar 失败不再阻断频道、Task 和 Track。
+- [x] `web/src/shared/lib/nostr-client.ts`：增加受限的 `owned_authors` Calendar 查询扩展。
+- [x] `crates/buzz-relay/src/api/bridge.rs`：用服务端注册的 owner/agent 关系展开 Calendar authors，不信任 Web 传入的 author 列表。
+- [x] `web/tests/e2e/relay-session.spec.ts`：覆盖 403 错误透传、分批查询与 Calendar owned-author 请求。
+- [x] `docs/2026-08-08-desktop-web-pairing-interruption-fix.md`：记录自动化验证、Relay 重启与 Web 部署结果；真实账号数据由用户刷新后验收。
 
 ## 八、自动化验证结果
 
@@ -137,9 +155,13 @@ MobilePairingCard.tsx:236, 246, 257, 276
 - 断线容错补丁后 Pair Relay 集成测试：54 项通过，新增浏览器应用层 Ping/Pong；
 - Desktop 专用 Pair Relay 跳过 AUTH 探测测试：1 项通过；
 - Web 配对密码学与重试边界测试：2 项通过；Desktop/Web 类型检查通过；
+- Calendar owned-author Relay ACL 测试：2 项通过，包含伪造 author 被服务端覆盖；
+- Web Relay 会话定向测试：5 项通过，包含 403 错误信封、核心/Calendar 分批与 `owned_authors` 请求；
 - Pair Relay 已重新构建并由 LaunchAgent 重启；Desktop 已热重编译；
 - Web 生产部署 `3a88f708` 已发布，`app.achoverse.xyz` 返回新资源 `index-BSGKawym.js`；
 - Web 断线容错生产部署 `09302b8a` 已发布，offer 重试会保持同一 session/key/SAS 并为 Relay 新鲜度窗口重新签名；
+- Calendar ACL 修复后主 Relay 已重新构建并重启，`https://achoverse.xyz/health` 返回 `ok`；
+- Web 生产部署 `4723c704` 已发布，`app.achoverse.xyz` 返回新资源 `index-Bel71yFo.js`；
 - `git diff --check` 通过；
 - 真实公网重新配对和数据加载仍待最终人工操作验收。
 
