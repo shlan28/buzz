@@ -39,6 +39,14 @@ export async function installWorkConsoleFixture(page: Page) {
           content: "Fixture message from Buzz",
           createdAt: 1_754_640_400,
         },
+        {
+          id: "message-2",
+          channelId: "11111111-1111-4111-8111-111111111111",
+          author: "22".repeat(32),
+          content:
+            "## Agent update\n\n- **Done**\n- `pnpm test`\n\n[Safe link](https://example.com) [Unsafe](javascript:alert(1))",
+          createdAt: 1_754_640_401,
+        },
       ],
       currentProfile: {
         pubkey: userPubkey,
@@ -63,7 +71,8 @@ export async function installWorkConsoleFixture(page: Page) {
           pubkey: "22".repeat(32),
           displayName: "Hermes",
           name: "hermes",
-          avatarUrl: null,
+          avatarUrl:
+            "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect width='32' height='32' fill='%23883fd1'/%3E%3C/svg%3E",
           nip05Handle: null,
           isAgent: true,
           updatedAt: 1_754_640_400,

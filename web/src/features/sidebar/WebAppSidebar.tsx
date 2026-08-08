@@ -1,25 +1,26 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
   CalendarDays,
-  CheckSquare2,
-  CircleDot,
   Hash,
   Inbox,
   Lock,
+  ListTodo,
+  Route,
   Search,
   Settings,
-  Waypoints,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useWorkConsoleData } from "@/shared/hooks/useWorkConsoleData";
 import { cn } from "@/shared/lib/cn";
 import { profileLabel } from "@/features/profile/eventCodec";
+import type { ProfileLookup } from "@/features/profile/types";
+import { ProfileAvatar } from "@/shared/ui/ProfileAvatar";
 
 const primary = [
   { href: "/app/inbox", icon: Inbox, label: "Inbox" },
   { href: "/app/calendar", icon: CalendarDays, label: "Calendar" },
-  { href: "/app/tasks", icon: CheckSquare2, label: "Tasks" },
-  { href: "/app/tracks", icon: Waypoints, label: "Tracks" },
+  { href: "/app/tasks", icon: ListTodo, label: "Tasks" },
+  { href: "/app/tracks", icon: Route, label: "Tracks" },
 ] as const;
 
 export function WebAppSidebar({ collapsed = false }: { collapsed?: boolean }) {
@@ -90,6 +91,10 @@ export function WebAppSidebar({ collapsed = false }: { collapsed?: boolean }) {
               key={channel.id}
               pathname={pathname}
               collapsed={collapsed}
+              currentPubkey={currentPubkey}
+              profiles={
+                state.status === "ready" ? state.data.profilesByPubkey : {}
+              }
             />
           ))}
           {!dms.length && !collapsed && <EmptyRow label="No direct messages" />}
@@ -102,6 +107,10 @@ export function WebAppSidebar({ collapsed = false }: { collapsed?: boolean }) {
               key={channel.id}
               pathname={pathname}
               collapsed={collapsed}
+              currentPubkey={currentPubkey}
+              profiles={
+                state.status === "ready" ? state.data.profilesByPubkey : {}
+              }
             />
           ))}
           {!publicChannels.length && !collapsed && (
@@ -171,7 +180,9 @@ function SidebarGroup({
 function ChannelLink({
   channel,
   collapsed,
+  currentPubkey,
   pathname,
+  profiles,
 }: {
   channel: {
     id: string;
@@ -179,30 +190,44 @@ function ChannelLink({
     channelType: "stream" | "forum" | "dm";
     visibility: "open" | "private";
     displayName: string;
+    participantPubkeys: string[];
   };
   collapsed: boolean;
+  currentPubkey: string;
   pathname: string;
+  profiles: ProfileLookup;
 }) {
   const href = `/app/channels/${channel.id}`;
-  const Icon =
-    channel.channelType === "dm"
-      ? CircleDot
-      : channel.visibility === "private"
-        ? Lock
-        : Hash;
+  const otherParticipants = channel.participantPubkeys.filter(
+    (pubkey) => pubkey.toLowerCase() !== currentPubkey.toLowerCase(),
+  );
+  const primaryParticipant = otherParticipants[0];
+  const primaryProfile = primaryParticipant
+    ? profiles[primaryParticipant.toLowerCase()]
+    : undefined;
+  const Icon = channel.visibility === "private" ? Lock : Hash;
   return (
     <Link
       className={rowClass(pathname === href)}
       params={{ channelId: channel.id }}
       to="/app/channels/$channelId"
     >
-      <Icon
-        className={cn(
-          "size-4 shrink-0",
-          channel.channelType === "dm" &&
-            "fill-emerald-500/20 text-emerald-500",
-        )}
-      />
+      {channel.channelType === "dm" ? (
+        otherParticipants.length > 1 ? (
+          <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-sidebar-accent text-2xs font-semibold">
+            {otherParticipants.length}
+          </span>
+        ) : (
+          <ProfileAvatar
+            avatarUrl={primaryProfile?.avatarUrl}
+            className="size-6 bg-sidebar-accent text-2xs"
+            label={channel.displayName}
+            testId={`dm-avatar-${channel.id}`}
+          />
+        )
+      ) : (
+        <Icon className="size-4 shrink-0" />
+      )}
       <span
         className={cn("truncate max-[699px]:sr-only", collapsed && "sr-only")}
       >

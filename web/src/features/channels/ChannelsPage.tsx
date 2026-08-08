@@ -15,6 +15,8 @@ import { AsyncStateView } from "@/shared/ui/AsyncStateView";
 import { DesktopParityAppShell } from "@/shared/ui/DesktopParityAppShell";
 import { profileLabel } from "@/features/profile/eventCodec";
 import { subscribeChannelMessages } from "@/features/messages/channelMessageSession";
+import { MessageMarkdown } from "@/features/messages/MessageMarkdown";
+import { ProfileAvatar } from "@/shared/ui/ProfileAvatar";
 
 export function ChannelsPage() {
   const { state, refresh } = useWorkConsoleData();
@@ -214,9 +216,12 @@ export function ChannelsPage() {
                               })}
                             </div>
                           ) : (
-                            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-xs font-semibold">
-                              {authorLabel.slice(0, 2).toUpperCase()}
-                            </div>
+                            <ProfileAvatar
+                              avatarUrl={authorProfile?.avatarUrl}
+                              className="size-9"
+                              label={authorLabel}
+                              testId="message-avatar"
+                            />
                           )}
                           <div className="min-w-0 flex-1">
                             {!grouped && (
@@ -231,9 +236,7 @@ export function ChannelsPage() {
                                 </time>
                               </div>
                             )}
-                            <p className="whitespace-pre-wrap break-words text-base leading-6">
-                              {message.content}
-                            </p>
+                            <MessageMarkdown content={message.content} />
                           </div>
                         </article>
                       </div>
@@ -282,9 +285,11 @@ export function ChannelsPage() {
                       }}
                       type="button"
                     >
-                      <span className="flex size-8 items-center justify-center rounded-lg bg-muted text-xs font-semibold">
-                        {label.slice(0, 2).toUpperCase()}
-                      </span>
+                      <ProfileAvatar
+                        avatarUrl={profile?.avatarUrl}
+                        className="size-8"
+                        label={label}
+                      />
                       <span className="min-w-0 flex-1 truncate text-sm font-medium">
                         {label}
                       </span>

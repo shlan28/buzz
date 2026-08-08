@@ -247,8 +247,8 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - [ ] `web/src/features/messages/messageProjection.ts`：移植 Desktop 去重、`created_at + id` 稳定排序、删除/edit/reaction 和 thread 顶层投影规则。
 - [ ] `web/src/features/messages/messageGrouping.ts`：移植 Desktop 连续消息与日期分组边界，不再使用 Web 的 5 分钟简化判断。
 - [ ] `web/src/features/messages/MessageRow.tsx`：按 Desktop DOM/class 渲染头像、作者、时间、正文和连续消息状态。
-- [ ] `web/src/features/messages/MessageMarkdown.tsx`：使用现有 Markdown 依赖实现安全协议、GFM 与 Desktop 正文组件映射。
-- [ ] `web/src/shared/ui/ProfileAvatar.tsx`：提供 profile 图片、首字母回退、加载失败和无障碍名称的统一头像组件。
+- [x] `web/src/features/messages/MessageMarkdown.tsx`：使用现有 Markdown 依赖实现安全协议、GFM 与 Desktop 正文组件映射。
+- [x] `web/src/shared/ui/ProfileAvatar.tsx`：提供 profile 图片、首字母回退、加载失败和无障碍名称的统一头像组件。
 - [ ] `web/src/features/messages/DayDivider.tsx`：按 Desktop 时间格式与布局渲染日期分隔。
 - [x] `web/src/features/messages/channelMessageSession.ts`：实现当前 Channel 的实时订阅、验签、断线重连和事件触发 catch-up。
 - [ ] `web/src/features/messages/useChannelMessages.ts`：合并初始快照、发送回显与实时回复，并在 channel id 变化时切换订阅。
@@ -257,14 +257,14 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - [x] `web/src/shared/hooks/useWorkConsoleData.ts`：改为模块级共享请求与 last-good snapshot，路由切换不再闪空。
 - [ ] `web/src/app/routes/app.tsx`：新增持久 `/app` 父布局与 Outlet，Pair/Settings 处理明确边界。
 - [ ] `web/src/shared/ui/DesktopParityAppShell.tsx`：支持持久 Outlet 与 Settings sidebar，而不在业务页重复挂载。
-- [ ] `web/src/features/sidebar/WebAppSidebar.tsx`：按 Desktop 规则显示 DM 头像/群组人数，并把 Tasks、Tracks 图标分别统一为 `ListTodo`、`Route`。
+- [x] `web/src/features/sidebar/WebAppSidebar.tsx`：按 Desktop 规则显示 DM 头像/群组人数，并把 Tasks、Tracks 图标分别统一为 `ListTodo`、`Route`。
 - [ ] `web/src/features/settings/SettingsPage.tsx`：保留已完成的真实用户 profile，并让 Settings 主内容区域使用统一内容面板背景语义。
 - [ ] `web/src/features/inbox/InboxPage.tsx`：移除页面级 Shell，消费共享 Provider。
 - [ ] `web/src/features/channels/ChannelsPage.tsx`：接入统一头像与 MessageMarkdown，并在后续持久父布局中移除页面级 Shell。
 - [ ] `web/src/features/calendar/CalendarPage.tsx`：移除页面级 Shell、保留 Sidebar，并让 Calendar 画布和事件详情使用统一内容面板背景语义。
 - [ ] `web/src/features/tasks/TasksPage.tsx`：移除页面级 Shell、保留 Sidebar，并让 Task 列表、看板与右侧详情使用统一内容面板背景语义。
 - [ ] `web/src/features/tracks/TracksPage.tsx`：移除页面级 Shell、保留 Sidebar，并让 Track 列表与右侧详情使用统一内容面板背景语义。
-- [ ] `web/src/shared/styles/globals.css`：增加 Desktop Light 白色内容面板和 Dark 暖黑画布语义，并补齐消息 Markdown 排版规则。
+- [x] `web/src/shared/styles/globals.css`：增加 Desktop Light 白色内容面板和 Dark 暖黑画布语义，并补齐消息 Markdown 排版规则。
 - [x] `web/tests/e2e/domain-codecs.spec.ts`：覆盖 profile、Agent DM label、最新 profile 和稳定消息排序。
 - [x] `web/tests/e2e/work-console.spec.ts`：覆盖真实用户名、Agent DM 名称、`@Agent` 候选和 Sidebar 数据保留。
 - [ ] `web/tests/e2e/message-mentions.spec.ts`：覆盖 Channel `@Agent` 候选、键盘/触控选择、p tag、同名歧义和 DM 自动 recipient。
@@ -308,3 +308,7 @@ Settings 使用同一个父布局，但可注入 Settings 专用 sidebar present
 - Cloudflare Pages 部署：`9eaf7013`；
 - 单次部署与生产域名均确认加载 `index-DaHiymgG.js`；
 - Desktop 与 Pair/Signer sidecar 保持运行，发布过程未重启或清除现有 Pair。
+- 本轮新增统一 `ProfileAvatar` 与安全 `MessageMarkdown`，DM Sidebar、消息行和 mention 候选已消费 Agent profile picture。
+- Tasks、Tracks Sidebar 图标已分别替换为 Desktop 使用的 `ListTodo` 与 `Route`。
+- Buzz Light 的 content surface 与内部详情画布统一为白色；Buzz Dark 使用 Desktop 的暖黑内容背景。
+- Web check、E2E build 通过；Chrome、iPad 横屏、iPad 竖屏完整矩阵 62 项通过。

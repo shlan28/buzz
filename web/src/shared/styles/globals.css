@@ -44,6 +44,8 @@
     --sidebar-ring: 225 13.56% 76.86%;
     --buzz-gradient-top: #e6e6b6;
     --buzz-gradient-bottom: #c4d0da;
+    --buzz-content-background: 0 0% 100%;
+    --buzz-content-dark: 0 0% 10.1960784314%;
   }
 
   .dark {
@@ -139,4 +141,92 @@
     var(--buzz-gradient-top),
     var(--buzz-gradient-bottom)
   );
+}
+
+:root:not(.dark) [data-buzz-content-surface] {
+  --background: var(--buzz-content-background);
+  --card: var(--buzz-content-background);
+  background-color: hsl(var(--background));
+}
+
+:root.dark [data-buzz-content-surface] {
+  --background: var(--buzz-content-dark);
+  --card: var(--buzz-content-dark);
+  background-color: hsl(var(--background));
+}
+
+.buzz-message-markdown > :first-child {
+  margin-top: 0;
+}
+
+.buzz-message-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.buzz-message-markdown p,
+.buzz-message-markdown ul,
+.buzz-message-markdown ol,
+.buzz-message-markdown blockquote,
+.buzz-message-markdown pre,
+.buzz-message-markdown table {
+  margin-block: 0.35rem;
+}
+
+.buzz-message-markdown ul {
+  list-style: disc;
+  padding-left: 1.5rem;
+}
+
+.buzz-message-markdown ol {
+  list-style: decimal;
+  padding-left: 1.5rem;
+}
+
+.buzz-message-markdown blockquote {
+  border-left: 3px solid hsl(var(--border));
+  color: hsl(var(--muted-foreground));
+  padding-left: 0.75rem;
+}
+
+.buzz-message-markdown a {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.buzz-message-markdown code {
+  border-radius: 0.25rem;
+  background: hsl(var(--muted));
+  padding: 0.1rem 0.3rem;
+  font-size: 0.875em;
+}
+
+.buzz-message-markdown pre,
+.buzz-message-markdown table {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.buzz-message-markdown pre {
+  border-radius: 0.5rem;
+  background: hsl(var(--muted));
+  padding: 0.75rem;
+}
+
+.buzz-message-markdown pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.buzz-message-markdown img {
+  max-height: 24rem;
+  max-width: min(100%, 40rem);
+  border-radius: 0.5rem;
+  object-fit: contain;
+}
+
+.buzz-message-markdown th,
+.buzz-message-markdown td {
+  border: 1px solid hsl(var(--border));
+  padding: 0.35rem 0.55rem;
 }

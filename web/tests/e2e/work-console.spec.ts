@@ -69,3 +69,48 @@ test("keeps all work views read-only", async ({ page }) => {
     ).toHaveCount(0);
   }
 });
+
+test("matches desktop message presentation and content surfaces", async ({
+  page,
+}) => {
+  await page.goto("/app/channels/11111111-1111-4111-8111-111111111111");
+
+  await expect(
+    page
+      .getByTestId("dm-avatar-11111111-1111-4111-8111-111111111111")
+      .locator("img"),
+  ).toBeVisible();
+  await expect(page.getByTestId("message-avatar").locator("img")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Agent update" }),
+  ).toBeVisible();
+  await expect(page.getByRole("listitem")).toHaveCount(2);
+  await expect(page.getByRole("link", { name: "Safe link" })).toHaveAttribute(
+    "href",
+    "https://example.com",
+  );
+  await expect(page.getByRole("link", { name: "Unsafe" })).not.toHaveAttribute(
+    "href",
+    /javascript:/,
+  );
+
+  await expect(page.getByTestId("content-surface")).toHaveCSS(
+    "background-color",
+    "rgb(255, 255, 255)",
+  );
+  await expect(
+    page.getByRole("link", { name: "Tasks" }).locator("svg"),
+  ).toHaveClass(/lucide-list-todo/);
+  await expect(
+    page.getByRole("link", { name: "Tracks" }).locator("svg"),
+  ).toHaveClass(/lucide-route/);
+
+  await page.getByRole("link", { name: "Tasks" }).click();
+  await page.getByRole("button", { name: "List view" }).click();
+  await page.getByText("Ship iPad console", { exact: true }).click();
+  await expect(
+    page.getByRole("complementary").filter({
+      has: page.getByRole("heading", { name: "Ship iPad console" }),
+    }),
+  ).toHaveCSS("background-color", "rgb(255, 255, 255)");
+});
