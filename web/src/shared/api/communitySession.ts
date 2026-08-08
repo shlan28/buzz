@@ -84,10 +84,14 @@ export async function loadWorkConsoleData(): Promise<WorkConsoleData> {
       )
       .map((channel) => ({ ...channel, isMember: true }));
     const messages = events.map(parseMessage).filter(isPresent);
+    const tasks = latestByCoordinate(
+      events.map(parseTask).filter(isPresent),
+    ).filter((item) => !item.archived);
     const profilePubkeys = new Set<string>([
       signer.userPubkey.toLowerCase(),
       ...channels.flatMap((channel) => channel.participantPubkeys),
       ...messages.map((message) => message.author),
+      ...tasks.flatMap((task) => task.assignee ?? []),
       ...Object.values(membersByChannelId).flat(),
     ]);
     const profileEvents = profilePubkeys.size
@@ -118,9 +122,7 @@ export async function loadWorkConsoleData(): Promise<WorkConsoleData> {
       calendar: latestByCoordinate(
         calendarEvents.map(parseCalendarItem).filter(isPresent),
       ).filter((item) => item.start.getFullYear() > 2000),
-      tasks: latestByCoordinate(events.map(parseTask).filter(isPresent)).filter(
-        (item) => !item.archived,
-      ),
+      tasks,
       tracks: latestByCoordinate(
         events.map(parseTrack).filter(isPresent),
       ).filter((item) => !item.archived),

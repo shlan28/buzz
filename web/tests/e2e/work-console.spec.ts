@@ -114,3 +114,68 @@ test("matches desktop message presentation and content surfaces", async ({
     }),
   ).toHaveCSS("background-color", "rgb(255, 255, 255)");
 });
+
+test("matches desktop task cards, grouping, and track filtering", async ({
+  page,
+}) => {
+  await page.goto("/app/tasks");
+  await expect(
+    page.getByRole("combobox", { name: "Group tasks by" }),
+  ).toHaveValue("assignee");
+  await expect(page.getByRole("heading", { name: "Hermes" })).toBeVisible();
+  const card = page.getByTestId("task-card-task-1");
+  await expect(card).toContainText("Complete the read-only work console");
+  await expect(card).toContainText("In progress");
+  await expect(card).toContainText("Web launch");
+  await expect(card).toContainText("+1");
+  await expect(card).toContainText("Hermes");
+  await expect(card).toContainText("Agent");
+  await page
+    .getByRole("combobox", { name: "Filter by track" })
+    .selectOption("track-1");
+  await expect(page).toHaveURL(/track=track-1/);
+  await expect(page.getByText("Untracked follow-up")).toHaveCount(0);
+  await page
+    .getByRole("combobox", { name: "Group tasks by" })
+    .selectOption("track");
+  await expect(page).toHaveURL(/group=track/);
+  await expect(page.getByRole("heading", { name: "Web launch" })).toBeVisible();
+
+  await page.getByRole("button", { name: "List view" }).click();
+  await expect(
+    page.getByText("Ship iPad console", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("Untracked follow-up")).toHaveCount(0);
+});
+
+test("opens conversations at the bottom", async ({ page }) => {
+  await page.goto("/app/channels/11111111-1111-4111-8111-111111111111");
+  const timeline = page.getByRole("region", { name: "Hermes messages" });
+  await expect(timeline.getByText("History message 36")).toBeVisible();
+  await expect
+    .poll(() =>
+      timeline.evaluate(
+        (element) =>
+          element.scrollHeight - element.clientHeight - element.scrollTop,
+      ),
+    )
+    .toBeLessThanOrEqual(1);
+});
+
+test("uses distinct fallback colors for agents and users", async ({ page }) => {
+  await page.goto("/app/channels/00000000-0000-4000-8000-000000000001");
+  await page.getByPlaceholder("Message #general").fill("@Cod");
+  const agentFallback = page
+    .getByRole("button", { name: /Codex/ })
+    .getByRole("img");
+  const userFallback = page.getByTestId("open-settings").getByRole("img");
+  const [agentColor, userColor] = await Promise.all([
+    agentFallback.evaluate(
+      (element) => getComputedStyle(element).backgroundColor,
+    ),
+    userFallback.evaluate(
+      (element) => getComputedStyle(element).backgroundColor,
+    ),
+  ]);
+  expect(agentColor).not.toBe(userColor);
+});

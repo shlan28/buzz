@@ -36,7 +36,7 @@ export function CalendarPage() {
           className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background"
           data-testid="calendar-screen"
         >
-          <aside className="w-56 shrink-0 border-r border-border p-4 max-[820px]:hidden">
+          <aside className="w-56 shrink-0 border-r border-border/60 p-4 max-[820px]:hidden">
             <div className="mb-5 flex items-center gap-2">
               <CalendarDays className="size-4" />
               <h2 className="text-sm font-semibold">Calendars</h2>
@@ -54,7 +54,7 @@ export function CalendarPage() {
                 Agent calendars
               </div>
             </div>
-            <div className="mt-8 rounded-xl border border-border p-3">
+            <div className="mt-8 rounded-xl border border-border/60 p-3">
               <p className="text-xs font-medium">Read only on Web</p>
               <p className="mt-1 text-xs leading-5 text-muted-foreground">
                 Ask an Agent or use Desktop to create and edit events.
@@ -62,7 +62,7 @@ export function CalendarPage() {
             </div>
           </aside>
           <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-            <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-4">
+            <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border/60 px-4">
               <button
                 className="rounded-md border px-3 py-1.5 text-xs hover:bg-muted"
                 onClick={() => setAnchor(new Date())}
@@ -142,10 +142,10 @@ function TimeGrid({
         gridTemplateColumns: `64px repeat(${days.length}, minmax(120px, 1fr))`,
       }}
     >
-      <div className="sticky top-0 z-10 border-b border-r bg-background" />
+      <div className="sticky top-0 z-10 border-b border-r border-border/60 bg-background" />
       {days.map((day) => (
         <div
-          className="sticky top-0 z-10 border-b border-r bg-background py-2 text-center"
+          className="sticky top-0 z-10 border-b border-r border-border/60 bg-background py-2 text-center"
           key={day.toISOString()}
         >
           <p className="text-2xs uppercase text-muted-foreground">
@@ -156,14 +156,14 @@ function TimeGrid({
       ))}
       {Array.from({ length: 12 }, (_, hour) => hour + 8).flatMap((hour) => [
         <div
-          className="h-16 border-b border-r pr-2 pt-1 text-right text-2xs text-muted-foreground"
+          className="h-16 border-b border-r border-border/60 pr-2 pt-1 text-right text-2xs text-muted-foreground"
           key={`label-${hour}`}
         >
           {String(hour).padStart(2, "0")}:00
         </div>,
         ...days.map((day) => (
           <div
-            className="relative h-16 border-b border-r"
+            className="relative h-16 border-b border-r border-border/60"
             key={`${day.toISOString()}-${hour}`}
           >
             {events
@@ -200,14 +200,17 @@ function MonthGrid({
     <div className="grid min-h-full grid-cols-7">
       {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((label) => (
         <div
-          className="border-b border-r p-2 text-center text-2xs font-medium text-muted-foreground"
+          className="border-b border-r border-border/60 p-2 text-center text-2xs font-medium text-muted-foreground"
           key={label}
         >
           {label}
         </div>
       ))}
       {days.map((day) => (
-        <div className="min-h-28 border-b border-r p-2" key={day.toISOString()}>
+        <div
+          className="min-h-28 border-b border-r border-border/60 p-2 hover:bg-muted/40"
+          key={day.toISOString()}
+        >
           <span className="text-xs">{day.getDate()}</span>
           <div className="mt-2 space-y-1">
             {events

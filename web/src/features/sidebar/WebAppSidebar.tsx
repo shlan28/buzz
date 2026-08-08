@@ -125,9 +125,12 @@ export function WebAppSidebar({ collapsed = false }: { collapsed?: boolean }) {
           data-testid="open-settings"
           to="/app/settings"
         >
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-sidebar-accent text-xs font-semibold">
-            {userLabel.slice(0, 2).toUpperCase()}
-          </span>
+          <ProfileAvatar
+            avatarUrl={currentProfile?.avatarUrl}
+            className="size-8"
+            isAgent={currentProfile?.isAgent}
+            label={userLabel}
+          />
           <span
             className={cn(
               "min-w-0 flex-1 max-[699px]:sr-only",
@@ -221,6 +224,7 @@ function ChannelLink({
           <ProfileAvatar
             avatarUrl={primaryProfile?.avatarUrl}
             className="size-6 bg-sidebar-accent text-2xs"
+            isAgent={primaryProfile?.isAgent}
             label={channel.displayName}
             testId={`dm-avatar-${channel.id}`}
           />

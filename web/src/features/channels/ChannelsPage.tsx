@@ -16,6 +16,7 @@ import { DesktopParityAppShell } from "@/shared/ui/DesktopParityAppShell";
 import { profileLabel } from "@/features/profile/eventCodec";
 import { subscribeChannelMessages } from "@/features/messages/channelMessageSession";
 import { MessageMarkdown } from "@/features/messages/MessageMarkdown";
+import { useMessageScroll } from "@/features/messages/useMessageScroll";
 import { ProfileAvatar } from "@/shared/ui/ProfileAvatar";
 
 export function ChannelsPage() {
@@ -59,6 +60,12 @@ export function ChannelsPage() {
         : [],
     [channel?.id, state],
   );
+  const messageIds = useMemo(
+    () => messages.map((message) => message.id),
+    [messages],
+  );
+  const { containerRef, onScroll, scrollToBottomOnNextUpdate } =
+    useMessageScroll(channel?.id, messageIds);
   const mentionQuery = draft.match(/(?:^|\s)@([^\s@]*)$/)?.[1]?.toLowerCase();
   const mentionCandidates = useMemo(() => {
     if (mentionQuery === undefined || state.status !== "ready" || !channel)
@@ -86,6 +93,7 @@ export function ChannelsPage() {
     if (!channel || !draft.trim() || sending || state.status !== "ready")
       return;
     setSending(true);
+    scrollToBottomOnNextUpdate();
     setSendError(undefined);
     try {
       await publishChannelMessage({
@@ -164,6 +172,8 @@ export function ChannelsPage() {
           <section
             className="min-h-0 flex-1 overflow-y-auto"
             aria-label={`${channel.displayName} messages`}
+            onScroll={onScroll}
+            ref={containerRef}
           >
             <div className="mx-auto max-w-4xl px-5 py-4">
               {messages.length ? (
@@ -219,6 +229,7 @@ export function ChannelsPage() {
                             <ProfileAvatar
                               avatarUrl={authorProfile?.avatarUrl}
                               className="size-9"
+                              isAgent={authorProfile?.isAgent}
                               label={authorLabel}
                               testId="message-avatar"
                             />
@@ -288,6 +299,7 @@ export function ChannelsPage() {
                       <ProfileAvatar
                         avatarUrl={profile?.avatarUrl}
                         className="size-8"
+                        isAgent={profile?.isAgent}
                         label={label}
                       />
                       <span className="min-w-0 flex-1 truncate text-sm font-medium">

@@ -4,6 +4,7 @@ import { cn } from "@/shared/lib/cn";
 type ProfileAvatarProps = {
   avatarUrl?: string | null;
   className?: string;
+  isAgent?: boolean;
   label: string;
   testId?: string;
 };
@@ -11,6 +12,7 @@ type ProfileAvatarProps = {
 export function ProfileAvatar({
   avatarUrl,
   className,
+  isAgent = false,
   label,
   testId,
 }: ProfileAvatarProps) {
@@ -29,7 +31,10 @@ export function ProfileAvatar({
     <span
       aria-label={label}
       className={cn(
-        "flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-xs font-semibold",
+        "flex shrink-0 items-center justify-center overflow-hidden rounded-full text-xs font-semibold",
+        isAgent
+          ? "bg-primary text-primary-foreground"
+          : "bg-secondary text-secondary-foreground",
         className,
       )}
       data-testid={testId}
