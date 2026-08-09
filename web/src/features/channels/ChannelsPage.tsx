@@ -1,4 +1,4 @@
-import { useNavigate, useParams } from "@tanstack/react-router";
+import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import {
   CircleDot,
   Hash,
@@ -15,6 +15,7 @@ import { useWorkConsoleData } from "@/shared/hooks/useWorkConsoleData";
 import { AsyncStateView } from "@/shared/ui/AsyncStateView";
 import { DesktopParityAppShell } from "@/shared/ui/DesktopParityAppShell";
 import { profileLabel } from "@/features/profile/eventCodec";
+import type { UserProfile } from "@/features/profile/types";
 import { subscribeChannelMessages } from "@/features/messages/channelMessageSession";
 import { MessageMarkdown } from "@/features/messages/MessageMarkdown";
 import {
@@ -23,18 +24,21 @@ import {
 } from "@/features/messages/MessageDeliveryStatus";
 import { useMessageScroll } from "@/features/messages/useMessageScroll";
 import { ProfileAvatar } from "@/shared/ui/ProfileAvatar";
+import { loadSearchMessageById } from "@/features/search/searchSession";
 import type { Message } from "./types";
 import { ChannelMembersPanel } from "./ChannelMembersPanel";
 
 export function ChannelsPage() {
   const { state, refresh } = useWorkConsoleData();
   const params = useParams({ strict: false }) as { channelId?: string };
+  const search = useSearch({ strict: false }) as { message?: string };
   const navigate = useNavigate();
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [mentionPubkeys, setMentionPubkeys] = useState<string[]>([]);
   const [membersChannelId, setMembersChannelId] = useState<string>();
   const [optimisticMessages, setOptimisticMessages] = useState<Message[]>([]);
+  const [locatedMessages, setLocatedMessages] = useState<Message[]>([]);
   const [deliveryByChannel, setDeliveryByChannel] = useState<
     Record<string, DeliveryState & { sentAt?: number; eventId?: string }>
   >({});
@@ -74,17 +78,57 @@ export function ChannelsPage() {
       if (message.channelId === channel?.id && !merged.has(message.id))
         merged.set(message.id, message);
     }
+    for (const message of locatedMessages) {
+      if (message.channelId === channel?.id && !merged.has(message.id))
+        merged.set(message.id, message);
+    }
     return [...merged.values()].sort(
       (left, right) =>
         left.createdAt - right.createdAt || left.id.localeCompare(right.id),
     );
-  }, [channel?.id, optimisticMessages, state]);
+  }, [channel?.id, locatedMessages, optimisticMessages, state]);
   const messageIds = useMemo(
     () => messages.map((message) => message.id),
     [messages],
   );
   const { containerRef, onScroll, scrollToBottomOnNextUpdate } =
     useMessageScroll(channel?.id, messageIds);
+  useEffect(() => {
+    const targetId = search.message;
+    if (
+      !targetId ||
+      state.status !== "ready" ||
+      messages.some((message) => message.id === targetId)
+    )
+      return;
+    let active = true;
+    void loadSearchMessageById(
+      targetId,
+      state.data.channels.map((item) => item.id),
+    ).then((message) => {
+      if (active && message?.channelId === channel?.id) {
+        setLocatedMessages((current) => [
+          ...current.filter((item) => item.id !== message.id),
+          message,
+        ]);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [channel?.id, messages, search.message, state]);
+  useEffect(() => {
+    if (!search.message || !messages.some((item) => item.id === search.message))
+      return;
+    const frame = window.requestAnimationFrame(() => {
+      document
+        .querySelector(
+          `[data-message-id="${CSS.escape(search.message ?? "")}"]`,
+        )
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [messages, search.message]);
   const delivery = channel
     ? (deliveryByChannel[channel.id] ?? { status: "idle" as const })
     : ({ status: "idle" } as const);
@@ -154,6 +198,18 @@ export function ChannelsPage() {
     }
   }, [channel, delivery, state]);
   const mentionQuery = draft.match(/(?:^|\s)@([^\s@]*)$/)?.[1]?.toLowerCase();
+  const dmParticipants =
+    channel?.channelType === "dm" && state.status === "ready"
+      ? channel.participantPubkeys
+          .filter(
+            (pubkey) =>
+              pubkey.toLowerCase() !== state.data.userPubkey.toLowerCase(),
+          )
+          .map((pubkey) => ({
+            pubkey,
+            profile: state.data.profilesByPubkey[pubkey.toLowerCase()],
+          }))
+      : [];
   const mentionCandidates = useMemo(() => {
     if (mentionQuery === undefined || state.status !== "ready" || !channel)
       return [];
@@ -255,7 +311,10 @@ export function ChannelsPage() {
         >
           <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4">
             {channel.channelType === "dm" ? (
-              <CircleDot className="size-5 text-emerald-500" />
+              <DmHeaderAvatars
+                displayName={channel.displayName}
+                participants={dmParticipants}
+              />
             ) : channel.visibility === "private" ? (
               <Lock className="size-4 text-muted-foreground" />
             ) : (
@@ -342,7 +401,8 @@ export function ChannelsPage() {
                           </div>
                         )}
                         <article
-                          className={`group flex gap-3 hover:bg-muted/30 ${grouped ? "py-0.5" : "mt-3 pt-2"}`}
+                          className={`group flex gap-3 rounded-lg transition-colors hover:bg-muted/30 ${grouped ? "py-0.5" : "mt-3 pt-2"} ${search.message === message.id ? "bg-primary/10 ring-1 ring-primary/25" : ""}`}
+                          data-message-id={message.id}
                         >
                           {grouped ? (
                             <div className="w-9 shrink-0 text-right text-3xs text-muted-foreground opacity-0 group-hover:opacity-100">
@@ -502,5 +562,58 @@ export function ChannelsPage() {
         </div>
       )}
     </DesktopParityAppShell>
+  );
+}
+
+function DmHeaderAvatars({
+  displayName,
+  participants,
+}: {
+  displayName: string;
+  participants: Array<{
+    pubkey: string;
+    profile?: UserProfile;
+  }>;
+}) {
+  if (participants.length <= 1) {
+    const participant = participants[0];
+    return (
+      <ProfileAvatar
+        avatarUrl={participant?.profile?.avatarUrl}
+        className="size-8 text-xs"
+        isAgent={participant?.profile?.isAgent}
+        label={
+          participant
+            ? profileLabel(participant.profile ?? undefined, participant.pubkey)
+            : displayName
+        }
+        testId="dm-header-avatar"
+      />
+    );
+  }
+  const visible = participants.slice(0, 3);
+  const hiddenCount = participants.length - visible.length;
+  return (
+    <div
+      aria-label={`${participants.length} DM participants`}
+      className="flex shrink-0 items-center pr-1"
+      data-testid="dm-header-avatar-stack"
+      role="img"
+    >
+      {visible.map(({ profile, pubkey }, index) => (
+        <ProfileAvatar
+          avatarUrl={profile?.avatarUrl}
+          className={`size-8 border-2 border-background text-xs ${index > 0 ? "-ml-2" : ""}`}
+          isAgent={profile?.isAgent}
+          key={pubkey}
+          label={profileLabel(profile ?? undefined, pubkey)}
+        />
+      ))}
+      {hiddenCount > 0 ? (
+        <span className="-ml-2 flex size-8 items-center justify-center rounded-full border-2 border-background bg-secondary text-2xs font-semibold text-secondary-foreground">
+          +{hiddenCount}
+        </span>
+      ) : null}
+    </div>
   );
 }

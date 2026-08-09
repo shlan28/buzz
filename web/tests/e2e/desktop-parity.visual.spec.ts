@@ -57,6 +57,34 @@ for (const theme of ["light", "dark"] as const) {
     );
   });
 
+  test(`keeps global search ${theme} appearance`, async ({ page }) => {
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await page.goto(`/app/channels?previewTheme=${theme}`);
+    await page.getByRole("button", { name: "Search Buzz" }).click();
+    await page
+      .getByRole("textbox", { name: "Search messages, channels, and people" })
+      .fill("architecture");
+    await expect(page.getByRole("option")).toBeVisible();
+    await waitForAnimations(page);
+    await expect(page.getByTestId("global-search-dialog")).toHaveScreenshot(
+      `global-search-${theme}.png`,
+      { animations: "disabled", maxDiffPixelRatio: 0.005 },
+    );
+  });
+
+  test(`keeps the DM header ${theme} appearance`, async ({ page }) => {
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await page.goto(
+      `/app/channels/11111111-1111-4111-8111-111111111111?previewTheme=${theme}`,
+    );
+    await expect(page.getByTestId("dm-header-avatar")).toBeVisible();
+    await waitForAnimations(page);
+    await expect(page.getByTestId("content-surface")).toHaveScreenshot(
+      `dm-header-${theme}.png`,
+      { animations: "disabled", maxDiffPixelRatio: 0.005 },
+    );
+  });
+
   for (const section of [
     "Appearance",
     "Connection",

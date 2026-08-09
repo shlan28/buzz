@@ -7,6 +7,17 @@ export async function installWorkConsoleFixture(page: Page) {
       await new Promise((resolve) => window.setTimeout(resolve, 100));
       return "e2e-published-message";
     };
+    window.__BUZZ_E2E_SEARCH_MESSAGES__ = [
+      {
+        id: "search-message-archive",
+        kind: 9,
+        tags: [["h", "00000000-0000-4000-8000-000000000001"]],
+        channelId: "00000000-0000-4000-8000-000000000001",
+        author: "33".repeat(32),
+        content: "Archived architecture decision from Codex",
+        createdAt: 1_754_000_000,
+      },
+    ];
     window.__BUZZ_E2E_WORK_CONSOLE_DATA__ = {
       userPubkey,
       relaySelfPubkey: "44".repeat(32),
@@ -34,6 +45,24 @@ export async function installWorkConsoleFixture(page: Page) {
           archivedAt: null,
           displayName: "Hermes",
           updatedAt: 1_754_640_401,
+        },
+        {
+          id: "22222222-2222-4222-8222-222222222222",
+          name: "Agent room",
+          about: "Group direct message",
+          channelType: "dm",
+          visibility: "private",
+          participantPubkeys: [
+            userPubkey,
+            "22".repeat(32),
+            "33".repeat(32),
+            "55".repeat(32),
+            "66".repeat(32),
+          ],
+          isMember: true,
+          archivedAt: null,
+          displayName: "Agent room",
+          updatedAt: 1_754_640_402,
         },
       ],
       messages: [
@@ -110,6 +139,15 @@ export async function installWorkConsoleFixture(page: Page) {
           isAgent: true,
           updatedAt: 1_754_640_400,
         },
+        ["55".repeat(32)]: {
+          pubkey: "55".repeat(32),
+          displayName: "Maya",
+          name: "maya",
+          avatarUrl: null,
+          nip05Handle: null,
+          isAgent: false,
+          updatedAt: 1_754_640_400,
+        },
       },
       membersByChannelId: {
         "00000000-0000-4000-8000-000000000001": [
@@ -118,6 +156,13 @@ export async function installWorkConsoleFixture(page: Page) {
           "33".repeat(32),
         ],
         "11111111-1111-4111-8111-111111111111": [userPubkey, "22".repeat(32)],
+        "22222222-2222-4222-8222-222222222222": [
+          userPubkey,
+          "22".repeat(32),
+          "33".repeat(32),
+          "55".repeat(32),
+          "66".repeat(32),
+        ],
       },
       channelMembersByChannelId: {
         "00000000-0000-4000-8000-000000000001": [
@@ -128,6 +173,13 @@ export async function installWorkConsoleFixture(page: Page) {
         "11111111-1111-4111-8111-111111111111": [
           { pubkey: userPubkey, role: "member" },
           { pubkey: "22".repeat(32), role: "bot" },
+        ],
+        "22222222-2222-4222-8222-222222222222": [
+          { pubkey: userPubkey, role: "member" },
+          { pubkey: "22".repeat(32), role: "bot" },
+          { pubkey: "33".repeat(32), role: "bot" },
+          { pubkey: "55".repeat(32), role: "member" },
+          { pubkey: "66".repeat(32), role: "member" },
         ],
       },
       calendar: [

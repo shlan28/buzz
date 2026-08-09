@@ -118,6 +118,8 @@ test("matches desktop message presentation and content surfaces", async ({
 }) => {
   await page.goto("/app/channels/11111111-1111-4111-8111-111111111111");
 
+  await expect(page.getByTestId("dm-header-avatar")).toContainText("H");
+
   await expect(
     page.getByTestId("dm-avatar-11111111-1111-4111-8111-111111111111"),
   ).toContainText("H");
@@ -154,6 +156,55 @@ test("matches desktop message presentation and content surfaces", async ({
       has: page.getByRole("heading", { name: "Ship iPad console" }),
     }),
   ).toHaveCSS("background-color", "rgb(255, 255, 255)");
+});
+
+test("searches Buzz and opens the exact historical message", async ({
+  page,
+}) => {
+  await page.goto("/app/channels");
+  await page.getByRole("button", { name: "Search Buzz" }).click();
+  const dialog = page.getByTestId("global-search-dialog");
+  const input = dialog.getByRole("textbox", {
+    name: "Search messages, channels, and people",
+  });
+  await expect(input).toBeFocused();
+  await input.fill("Hermes");
+  await expect(dialog.getByText("People")).toBeVisible();
+  await expect(
+    dialog.getByRole("option", { name: /Hermes Hermes Agent/ }),
+  ).toBeVisible();
+
+  await input.fill("architecture");
+  const result = dialog.getByRole("option", {
+    name: /Archived architecture decision from Codex/,
+  });
+  await expect(result).toBeVisible();
+  await result.click();
+  await expect(page).toHaveURL(/message=search-message-archive/);
+  const target = page.locator('[data-message-id="search-message-archive"]');
+  await expect(target).toBeVisible();
+  await expect(target).toContainText(
+    "Archived architecture decision from Codex",
+  );
+  await expect(target).toHaveClass(/ring-primary/);
+});
+
+test("opens search from the keyboard and renders group DM avatars", async ({
+  page,
+}) => {
+  await page.goto("/app/channels/22222222-2222-4222-8222-222222222222");
+  await expect(page.getByTestId("dm-header-avatar-stack")).toBeVisible();
+  await expect(
+    page.getByTestId("dm-header-avatar-stack").getByRole("img"),
+  ).toHaveCount(3);
+  await expect(page.getByTestId("dm-header-avatar-stack")).toContainText("+1");
+  await page.keyboard.press("Meta+k");
+  await expect(page.getByTestId("global-search-dialog")).toBeVisible();
+  await expect(
+    page.getByRole("textbox", {
+      name: "Search messages, channels, and people",
+    }),
+  ).toBeFocused();
 });
 
 test("matches desktop task cards, grouping, and track filtering", async ({

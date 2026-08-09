@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 import type { WorkConsoleData } from "@/shared/api/communitySession";
+import type { Message } from "@/features/channels/types";
 import type { UnsignedNostrEvent } from "@/shared/lib/nostr-signer";
 
 declare global {
@@ -12,5 +13,6 @@ declare global {
       mentionPubkeys?: string[];
     }) => Promise<string>;
     __BUZZ_E2E_EXECUTE_TASK__?: (event: UnsignedNostrEvent) => Promise<void>;
+    __BUZZ_E2E_SEARCH_MESSAGES__?: Message[];
   }
 }

@@ -19,6 +19,10 @@ export interface NostrFilter {
   until?: number;
   limit?: number;
   owned_authors?: boolean;
+  search?: string;
+  search_mode?: "fulltext" | "prefix";
+  page?: number;
+  per_page?: number;
   [tag: `#${string}`]: string[] | undefined;
 }
 

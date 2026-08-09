@@ -44,6 +44,27 @@ test("keeps Settings controls aligned on compact iPad", async ({ page }) => {
   expect(overflow).toBe(false);
 });
 
+test("keeps global search usable on compact iPad", async ({ page }) => {
+  await page.setViewportSize({ width: 600, height: 900 });
+  await page.goto("/app/channels");
+  await page.getByRole("button", { name: "Search Buzz" }).click();
+  const dialog = page.getByTestId("global-search-dialog");
+  await expect(dialog).toBeVisible();
+  const panel = dialog.locator(":scope > div");
+  const panelBox = await panel.boundingBox();
+  expect(panelBox?.width ?? 0).toBeLessThanOrEqual(568);
+  await dialog
+    .getByRole("textbox", { name: "Search messages, channels, and people" })
+    .fill("architecture");
+  await expect(dialog.getByRole("option")).toBeVisible();
+  const overflow = await page.evaluate(
+    () =>
+      document.documentElement.scrollWidth >
+      document.documentElement.clientWidth,
+  );
+  expect(overflow).toBe(false);
+});
+
 for (const path of ["/app/tracks/track-1", "/app/inbox?item=message-2"]) {
   test(`keeps ${path} inside the iPad viewport`, async ({ page }) => {
     await page.setViewportSize({ width: 820, height: 1180 });

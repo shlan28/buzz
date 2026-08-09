@@ -31,6 +31,7 @@ export default defineConfig({
         "**/inbox-projection.spec.ts",
         "**/channel-members.spec.ts",
         "**/task-execution.spec.ts",
+        "**/search-session.spec.ts",
         "**/desktop-parity.visual.spec.ts",
       ],
       use: {

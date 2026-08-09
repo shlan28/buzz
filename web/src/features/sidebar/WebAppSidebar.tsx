@@ -9,12 +9,13 @@ import {
   Search,
   Settings,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { useWorkConsoleData } from "@/shared/hooks/useWorkConsoleData";
 import { cn } from "@/shared/lib/cn";
 import { profileLabel } from "@/features/profile/eventCodec";
 import type { ProfileLookup } from "@/features/profile/types";
 import { ProfileAvatar } from "@/shared/ui/ProfileAvatar";
+import { WebGlobalSearch } from "@/features/search/WebGlobalSearch";
 
 const primary = [
   { href: "/app/inbox", icon: Inbox, label: "Inbox" },
@@ -24,6 +25,7 @@ const primary = [
 ] as const;
 
 export function WebAppSidebar({ collapsed = false }: { collapsed?: boolean }) {
+  const [searchOpen, setSearchOpen] = useState(false);
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
@@ -37,6 +39,16 @@ export function WebAppSidebar({ collapsed = false }: { collapsed?: boolean }) {
   const publicChannels = channels.filter(
     (channel) => channel.channelType !== "dm",
   );
+  useEffect(() => {
+    const openFromShortcut = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setSearchOpen(true);
+      }
+    };
+    window.addEventListener("keydown", openFromShortcut);
+    return () => window.removeEventListener("keydown", openFromShortcut);
+  }, []);
 
   return (
     <aside
@@ -47,17 +59,44 @@ export function WebAppSidebar({ collapsed = false }: { collapsed?: boolean }) {
       data-testid="app-sidebar"
     >
       <div
-        className={cn(
-          "mx-[3px] shrink-0 px-2 pb-2 pt-3 max-[699px]:hidden",
-          collapsed && "hidden",
-        )}
+        className={cn("mx-[3px] shrink-0 px-2 pb-2 pt-3", collapsed && "px-1")}
       >
-        <div className="flex h-8 items-center gap-2 rounded-md bg-black/5 px-2 text-sidebar-foreground/55 dark:bg-white/5">
+        <button
+          aria-label="Search Buzz"
+          className={cn(
+            "flex h-8 w-full items-center gap-2 rounded-md bg-black/5 px-2 text-sidebar-foreground/55 transition-colors hover:bg-black/10 hover:text-sidebar-foreground dark:bg-white/5 dark:hover:bg-white/10",
+            collapsed && "justify-center px-0",
+          )}
+          onClick={() => setSearchOpen(true)}
+          type="button"
+        >
           <Search aria-hidden="true" className="size-4" />
-          <span className="text-sm">Search</span>
-          <kbd className="ml-auto text-2xs opacity-60">⌘K</kbd>
-        </div>
+          <span
+            className={cn(
+              "text-sm max-[699px]:sr-only",
+              collapsed && "sr-only",
+            )}
+          >
+            Search
+          </span>
+          <kbd
+            className={cn(
+              "ml-auto text-2xs opacity-60 max-[699px]:hidden",
+              collapsed && "hidden",
+            )}
+          >
+            ⌘K
+          </kbd>
+        </button>
       </div>
+
+      {state.status === "ready" ? (
+        <WebGlobalSearch
+          data={state.data}
+          onOpenChange={setSearchOpen}
+          open={searchOpen}
+        />
+      ) : null}
 
       <nav
         className="min-h-0 flex-1 overflow-y-auto px-2 pb-2"
