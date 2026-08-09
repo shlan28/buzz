@@ -1,5 +1,5 @@
 > 更新日期：2026-08-09
-> 更新说明：在已部署的只读 Task/Track 页面中，新增唯一写操作 Execute 的安全方案；不开放创建、编辑、拖拽、归档或删除。
+> 更新说明：在已部署的只读 Task/Track 页面中，新增唯一写操作 Execute，并接入 Relay 可信的 Queued、Running、Finished、Failed 完整生命周期；不开放创建、编辑、拖拽、归档或删除。
 
 # Web Track 详情与 Task 看板补齐方案
 
@@ -196,17 +196,34 @@ Relay 是最终权限事实源，会验证：
 
 Web 当前数据没有完整 Agent owner/presence 权威集合，因此不能假装提前知道在线或 owner 权限。Web 只在“Task 已分配给验证 Agent且未完成”时展示 Execute，其他权限和在线错误使用 Relay 的明确返回文案。
 
-## 十四、Execute 交互
+## 十四、Execute 生命周期与可信来源
 
 - 点击后立即显示 `Sending…` 并禁用重复点击；
-- Relay 接受后显示 `Queued`，本页面生命周期内禁止重复提交；
+- Relay 接受 Execute 后会落库并生成由 Relay 签名的 kind `30501`，状态为 `queued`；
+- Agent 独占领取执行后提交 kind `42504`，Relay 验证 assigned Agent 身份后生成 `running` 状态；
+- Agent 正常结束或失败后继续提交 kind `42504`，Relay 分别生成 `finished` 或 `failed` 状态；
+- Web 查询已有 kind `30501`，并保持 live subscription；只解析 `event.pubkey === relaySelfPubkey` 的状态事件；
+- Web 使用 `d` tag 的 execution UUID 关联同一次执行，使用 `t=task-id:{taskId}` 防止跨 Task 串状态；
+- 同一 execution 只接受更晚的 Relay 状态事件；终态 `finished/failed` 不得被旧事件回退；
+- `failed` 的 Relay event content 作为失败原因展示，但必须按普通文本处理；
+- 页面刷新后，从 Relay 查询恢复当前 Task 最新一次执行状态，而不是退回未执行状态。
+
+交互展示：
+
+- 本地签名与提交期间显示 `Sending…`；
+- 收到或查询到 Relay `queued` 状态后显示 `Queued`；
+- 收到 Relay `running` 状态后显示 `Running`；
+- 收到 Relay `finished` 状态后显示 `Finished`；
+- 收到 Relay `failed` 状态后显示 `Failed` 和失败原因；
+- `Queued/Running` 禁止对同一 Task 再次 Execute；
+- `Finished/Failed` 后允许用户明确发起新的 execution UUID，作为新一次执行；
 - Relay 返回 Agent offline 时显示“Agent is offline”；
 - 403/权限拒绝显示“Only the assigned Agent or its owner may execute”；
 - 409/previous 冲突提示刷新 Task 后重试；
 - 网络结果不确定时不能自动重发，因为命令可能已经执行；
-- 草率地显示 `Running/Finished` 不可接受：本次没有接入经过 Relay 自签验证的 kind `30501` 生命周期，因此只显示请求发送与 Relay 接受状态。
+- WebSocket 断开后先重新查询 Relay 状态；查询不到时显示“状态暂不可用”，不推断 Failed，也不自动重发 Execute。
 
-建设性建议：如果后续需要 Running、Finished、Failed 和 View result in Inbox，应作为独立阶段接入 Relay self pubkey 与 kind `30501` 验签，不能根据超时或 Agent 回复猜状态。
+`Running / Finished / Failed` 不是前端计时器状态，也不是普通 Agent 消息。它们必须来自 Relay 自签的 kind `30501`，这是本次验收的硬门槛。
 
 ## 十五、Execute 数据改动
 
@@ -216,24 +233,36 @@ Web Task 投影必须保留：
 - `channelId`：用于可选 `h` scope；
 - assignee profile 的 `isAgent`：决定是否展示 Execute。
 
-执行请求使用独立 API 模块构造纯事件和发布签名事件，便于测试 tags、权限错误和“不得自动重试”。
+执行状态投影必须保留：
+
+- `executionId`：kind `30501` 的 `d` tag；
+- `taskId`：`t=task-id:*`；
+- `status`：仅接受 queued/running/finished/failed；
+- `assignee`、`owner`、`requester`；
+- `eventId` 与 `created_at`：用于状态去重和新旧排序；
+- `message`：失败原因或结果摘要；
+- `source_event`：追溯对应 request/update。
+
+执行请求使用独立 API 模块构造纯事件和发布签名事件；执行状态使用独立 parser 与 store，便于测试 tags、Relay 身份校验、断线恢复、乱序事件和“不得自动重试”。
 
 ## 十六、Execute Todo List
 
-- [ ] `web/src/shared/domain/eventKinds.ts`：增加 task execution request kind `42503`。
+- [ ] `web/src/shared/domain/eventKinds.ts`：增加 task execution request `42503` 与 Relay execution state `30501`。
 - [ ] `web/src/features/tasks/types.ts`：为 Task 增加 `eventId` 与 `channelId`。
 - [ ] `web/src/features/tasks/eventCodec.ts`：从最新 Task state 保留 event id 与 `h` channel。
 - [ ] `web/src/shared/api/publishSignedEvent.ts`：抽取 signer、NIP-98 与 `/events` 单次提交逻辑，不实现模糊失败自动重试。
 - [ ] `web/src/shared/api/messagePublish.ts`：改为消费共享签名发布函数，保持现有消息行为不变。
 - [ ] `web/src/features/tasks/taskExecution.ts`：构造并发布 kind `42503` Execute 请求，映射 offline、permission、conflict 和 delivery-unknown 错误。
-- [ ] `web/src/features/tasks/TaskExecutionControl.tsx`：只提供 Execute/Sending/Queued/错误状态。
+- [ ] `web/src/features/tasks/taskExecutionCodec.ts`：只解析 Relay self pubkey 签名的 kind `30501`，校验 execution/task/status/tags 并处理乱序。
+- [ ] `web/src/features/tasks/useTaskExecutions.ts`：初始查询并实时订阅 kind `30501`，断线重连后重新查询恢复状态。
+- [ ] `web/src/features/tasks/TaskExecutionControl.tsx`：提供 Execute/Sending/Queued/Running/Finished/Failed/状态不可用展示。
 - [ ] `web/src/features/tasks/TaskDetailPanel.tsx`：仅在未完成、未归档且 assignee 为验证 Agent 时挂载 Execute 控件。
 - [ ] `web/src/features/tasks/TasksPage.tsx`：维护当前 Task 详情的单次执行状态并调用 Execute API。
 - [ ] `web/src/features/tracks/TrackDetailPage.tsx`：让共享 Task 详情在 Track 页面具备同一 Execute 操作。
 - [ ] `web/src/vite-env.d.ts`：增加 Execute E2E 发布 seam，不暴露真实 signer key。
-- [ ] `web/tests/e2e/task-execution.spec.ts`：覆盖 kind/tags、UUID、expected event、channel scope 和错误映射。
-- [ ] `web/tests/e2e/work-console.spec.ts`：覆盖 Execute 唯一写操作、Sending、Queued、重复点击禁用及 Tasks/Track 两入口一致。
-- [ ] `web/tests/helpers/desktopParityFixtures.ts`：补充 Task event id/channel 与 Execute E2E 响应。
+- [ ] `web/tests/e2e/task-execution.spec.ts`：覆盖请求 kind/tags、UUID、expected event、channel scope、Relay self 验证、四状态、乱序/伪造状态和错误映射。
+- [ ] `web/tests/e2e/work-console.spec.ts`：覆盖 Execute 唯一写操作、完整生命周期、活动执行禁止重复、终态再次执行及 Tasks/Track 两入口一致。
+- [ ] `web/tests/helpers/desktopParityFixtures.ts`：补充 Task event id/channel、Relay self pubkey 与 Execute 生命周期 E2E 响应。
 - [ ] `docs/2026-08-08-web-track-detail-task-board-plan.md`：记录 Execute 测试、commit 和部署号。
 
 ## 十七、Execute 验收标准
@@ -242,7 +271,11 @@ Web Task 投影必须保留：
 - 已完成/归档 Task 不显示 Execute；
 - 分配给验证 Agent 的可执行 Task 在详情中显示唯一 Execute；
 - 发布事件 kind/tags 与 Desktop 完全一致；
-- Relay 接受前不能重复点击，接受后显示 Queued；
+- Relay 接受前不能重复点击，Relay 状态依次真实展示 Queued、Running、Finished/Failed；
+- 刷新页面可从 Relay 恢复最新 execution 状态；
+- 伪造 pubkey、错误 Task、非法状态和旧的乱序状态均不能改变 UI；
+- WebSocket 断开不推断失败、不自动重复执行，重连后重新查询；
+- Queued/Running 禁止重复执行，Finished/Failed 后允许创建新的 execution UUID；
 - offline、permission、state conflict 和网络不确定错误文案准确；
 - Tasks 与 Track detail 打开的同一 Task 行为一致；
 - 页面不存在任何其他新增写操作；
