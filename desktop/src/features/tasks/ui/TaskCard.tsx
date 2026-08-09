@@ -6,6 +6,7 @@ import {
   dueTimestampToLocalDate,
   isDueTimestampOverdue,
 } from "../lib/taskDates";
+import { taskExecutionPresentation } from "../lib/taskExecutionPresentation";
 import { TaskStatusBadge } from "./TaskStatusBadge";
 
 export function TaskCard({
@@ -22,6 +23,10 @@ export function TaskCard({
   trackName?: string;
 }) {
   const overdue = task.status !== "done" && isDueTimestampOverdue(task.dueDate);
+  const executionPresentation = taskExecutionPresentation(
+    task.status,
+    execution,
+  );
   return (
     <article
       className="w-full rounded-xl border border-border bg-card p-3 text-left shadow-xs transition-colors hover:border-primary/30 hover:bg-muted/30 focus-within:ring-2 focus-within:ring-ring"
@@ -46,19 +51,18 @@ export function TaskCard({
       </p>
       <span className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
         <TaskStatusBadge status={task.status} />
-        {execution?.status === "queued" ||
-        execution?.status === "running" ||
-        execution?.status === "failed" ? (
+        {executionPresentation.label ? (
           <span
             className={cn(
-              "rounded-full border border-border px-1.5 py-0.5 capitalize",
-              execution.status === "running" &&
+              "rounded-full border border-border px-1.5 py-0.5",
+              (executionPresentation.state === "running" ||
+                executionPresentation.state === "finishing") &&
                 "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300",
-              execution.status === "failed" &&
+              executionPresentation.state === "failed" &&
                 "border-destructive/30 bg-destructive/10 text-destructive",
             )}
           >
-            {execution.status}
+            {executionPresentation.label}
           </span>
         ) : null}
         {trackName ? (
