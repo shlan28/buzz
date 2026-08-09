@@ -247,23 +247,22 @@ Web Task 投影必须保留：
 
 ## 十六、Execute Todo List
 
-- [ ] `web/src/shared/domain/eventKinds.ts`：增加 task execution request `42503` 与 Relay execution state `30501`。
-- [ ] `web/src/features/tasks/types.ts`：为 Task 增加 `eventId` 与 `channelId`。
-- [ ] `web/src/features/tasks/eventCodec.ts`：从最新 Task state 保留 event id 与 `h` channel。
-- [ ] `web/src/shared/api/publishSignedEvent.ts`：抽取 signer、NIP-98 与 `/events` 单次提交逻辑，不实现模糊失败自动重试。
-- [ ] `web/src/shared/api/messagePublish.ts`：改为消费共享签名发布函数，保持现有消息行为不变。
-- [ ] `web/src/features/tasks/taskExecution.ts`：构造并发布 kind `42503` Execute 请求，映射 offline、permission、conflict 和 delivery-unknown 错误。
-- [ ] `web/src/features/tasks/taskExecutionCodec.ts`：只解析 Relay self pubkey 签名的 kind `30501`，校验 execution/task/status/tags 并处理乱序。
-- [ ] `web/src/features/tasks/useTaskExecutions.ts`：初始查询并实时订阅 kind `30501`，断线重连后重新查询恢复状态。
-- [ ] `web/src/features/tasks/TaskExecutionControl.tsx`：提供 Execute/Sending/Queued/Running/Finished/Failed/状态不可用展示。
-- [ ] `web/src/features/tasks/TaskDetailPanel.tsx`：仅在未完成、未归档且 assignee 为验证 Agent 时挂载 Execute 控件。
-- [ ] `web/src/features/tasks/TasksPage.tsx`：维护当前 Task 详情的单次执行状态并调用 Execute API。
-- [ ] `web/src/features/tracks/TrackDetailPage.tsx`：让共享 Task 详情在 Track 页面具备同一 Execute 操作。
-- [ ] `web/src/vite-env.d.ts`：增加 Execute E2E 发布 seam，不暴露真实 signer key。
-- [ ] `web/tests/e2e/task-execution.spec.ts`：覆盖请求 kind/tags、UUID、expected event、channel scope、Relay self 验证、四状态、乱序/伪造状态和错误映射。
-- [ ] `web/tests/e2e/work-console.spec.ts`：覆盖 Execute 唯一写操作、完整生命周期、活动执行禁止重复、终态再次执行及 Tasks/Track 两入口一致。
-- [ ] `web/tests/helpers/desktopParityFixtures.ts`：补充 Task event id/channel、Relay self pubkey 与 Execute 生命周期 E2E 响应。
-- [ ] `docs/2026-08-08-web-track-detail-task-board-plan.md`：记录 Execute 测试、commit 和部署号。
+- [x] `web/src/shared/domain/eventKinds.ts`：增加 task execution request `42503` 与 Relay execution state `30501`。
+- [x] `web/src/features/tasks/types.ts`：为 Task 增加 `eventId`、`channelId` 与 execution 类型。
+- [x] `web/src/features/tasks/eventCodec.ts`：保留 Task state event/channel，并解析、校验 Relay execution state 与乱序状态。
+- [x] `web/src/shared/api/publishSignedEvent.ts`：抽取 signer、NIP-98 与 `/events` 单次提交逻辑，不实现模糊失败自动重试。
+- [x] `web/src/shared/api/messagePublish.ts`：改为消费共享签名发布函数，保持现有消息行为不变。
+- [x] `web/src/features/tasks/taskExecution.ts`：构造并发布 kind `42503` Execute 请求，映射 offline、permission、conflict 和 delivery-unknown 错误。
+- [x] `web/src/features/tasks/useTaskExecutions.ts`：消费初始查询并实时订阅 kind `30501`，断线重连期间禁用 Execute。
+- [x] `web/src/features/tasks/TaskExecutionControl.tsx`：提供 Execute/Sending/Queued/Running/Finished/Failed/状态不可用展示。
+- [x] `web/src/features/tasks/TaskDetailPanel.tsx`：仅在未完成、未归档且 assignee 为验证 Agent 时挂载 Execute 控件。
+- [x] `web/src/features/tasks/TasksPage.tsx`：维护当前 Task 详情的执行状态并调用 Execute API。
+- [x] `web/src/features/tracks/TrackDetailPage.tsx`：让共享 Task 详情在 Track 页面具备同一 Execute 操作。
+- [x] `web/src/vite-env.d.ts`：增加 Execute E2E 发布 seam，不暴露真实 signer key。
+- [x] `web/tests/e2e/task-execution.spec.ts`：覆盖请求 kind/tags、Relay self 验证、状态乱序、错误映射、Queued 与 Execute again。
+- [x] `web/tests/e2e/work-console.spec.ts`：覆盖 Execute 唯一写操作及 Tasks/Track 两入口一致。
+- [x] `web/tests/helpers/desktopParityFixtures.ts`：补充 Task event id/channel、Relay self pubkey 与 Execute E2E 数据。
+- [x] `docs/2026-08-08-web-track-detail-task-board-plan.md`：记录 Execute 测试、commit 和部署号。
 
 ## 十七、Execute 验收标准
 
@@ -284,3 +283,13 @@ Web Task 投影必须保留：
 ## 十八、Execute 确认门
 
 鹿鹿子大王确认后，再修改 Web Task Execute 代码、测试、提交并部署。
+
+## 十九、Execute 完成记录
+
+- 主功能提交：`47857e1cb`；断线保护提交：`f5fa1b92a`；
+- Tasks 与 Track detail 均只开放 Execute；顶栏明确显示 `Execute only`；
+- 活动执行显示 Queued/Running 并禁止并发；Finished/Failed 后显示 `Execute again`；
+- Web 只消费 NIP-11 `self` 指定的 Relay 公钥所签 kind `30501`，拒绝错误 pubkey、非法状态和旧状态；
+- 状态 WebSocket 断开时显示 `Execution status unavailable` 并禁用 Execute，重连后恢复；
+- `pnpm check`、TypeScript、production/E2E build 通过；完整浏览器矩阵 98/98 通过；最终断线保护 smoke 58/58 通过；
+- Cloudflare Pages 最终部署：`64f6d941`；生产资源：`index-CGI7hhNn.js`、`index-Dz0FeGWw.css`。

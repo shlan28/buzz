@@ -245,12 +245,20 @@ Desktop Inbox 列表来自面向当前用户的 Feed，而不是完整消息历�
 
 ## 二十、本人消息排除 Todo List
 
-- [ ] `web/src/features/inbox/inboxProjection.ts`：以外部消息建立 Inbox 候选和代表消息，再从完整消息集补充 DM/Thread 详情上下文。
-- [ ] `web/tests/e2e/inbox-projection.spec.ts`：覆盖本人顶层消息不出现、本人 DM 回复不推进代表消息、详情仍保留本人上下文。
-- [ ] `web/tests/e2e/work-console.spec.ts`：断言本人 `Fixture message from Buzz` 不出现在 Inbox 左栏，但原 Channel 仍可正常打开。
-- [ ] `web/tests/e2e/desktop-parity.visual.spec.ts`：更新 Inbox Light/Dark 基线，确保左栏不再显示当前用户条目。
-- [ ] `docs/2026-08-08-web-inbox-detail-profile-markdown-plan.md`：记录本人消息排除验证、commit 与部署号。
+- [x] `web/src/features/inbox/inboxProjection.ts`：以外部消息建立 Inbox 候选和代表消息，再从完整消息集补充 DM/Thread 详情上下文。
+- [x] `web/tests/e2e/inbox-projection.spec.ts`：覆盖本人顶层消息不出现、本人 DM 回复不推进代表消息、详情仍保留本人上下文。
+- [x] `web/tests/e2e/work-console.spec.ts`：断言本人 `Fixture message from Buzz` 不出现在 Inbox 左栏，但原 Channel 仍可正常打开。
+- [x] `web/tests/e2e/desktop-parity.visual.spec.ts`：Inbox Light/Dark 基线复跑通过，无需更新图片。
+- [x] `docs/2026-08-08-web-inbox-detail-profile-markdown-plan.md`：记录本人消息排除验证、commit 与部署号。
 
 ## 二十一、本人消息排除确认门
 
 鹿鹿子大王确认后，再修改 Web Inbox 代码、测试、提交并部署。
+
+## 二十二、本人消息排除完成记录
+
+- 代码提交：`47857e1cb`；
+- Inbox 列表不再由当前用户消息创建条目，DM/Thread 详情仍保留本人消息上下文；
+- `inbox-projection`、work console 与 Light/Dark 视觉回归通过；
+- 完整 Chrome、iPad 横屏、iPad 竖屏矩阵：98/98 通过；
+- Cloudflare Pages 最终部署：`64f6d941`；生产资源：`index-CGI7hhNn.js`、`index-Dz0FeGWw.css`。
