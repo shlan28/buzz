@@ -41,9 +41,13 @@ export function buildInboxEntries(data: WorkConsoleData): InboxEntry[] {
   }
 
   return [...groups.entries()]
-    .map(([conversationId, unsortedMessages]) => {
+    .map<InboxEntry | null>(([conversationId, unsortedMessages]) => {
       const messages = [...unsortedMessages].sort(compareMessages);
-      const message = messages[messages.length - 1] as Message;
+      const candidates = messages.filter(
+        (item) => item.author.toLowerCase() !== data.userPubkey.toLowerCase(),
+      );
+      const message = candidates[candidates.length - 1];
+      if (!message) return null;
       const profile = data.profilesByPubkey[message.author.toLowerCase()];
       const channel = channelById.get(message.channelId);
       const authorLabel = profileLabel(profile, message.author);
@@ -60,7 +64,7 @@ export function buildInboxEntries(data: WorkConsoleData): InboxEntry[] {
         message,
         messages,
         authorLabel,
-        avatarUrl: profile?.avatarUrl,
+        avatarUrl: profile?.avatarUrl ?? null,
         isAgent: profile?.isAgent === true,
         category,
         categoryText: categoryText(category, authorLabel, channelLabel),
@@ -69,6 +73,7 @@ export function buildInboxEntries(data: WorkConsoleData): InboxEntry[] {
         preview: message.content,
       };
     })
+    .filter((entry): entry is InboxEntry => entry !== null)
     .sort((left, right) => compareMessages(right.message, left.message))
     .slice(0, 100);
 }

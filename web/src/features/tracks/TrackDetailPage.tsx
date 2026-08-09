@@ -9,6 +9,8 @@ import {
 import { TaskDetailPanel } from "@/features/tasks/TaskDetailPanel";
 import { TaskListView } from "@/features/tasks/TaskListView";
 import type { Task, TaskStatus } from "@/features/tasks/types";
+import { executeTask } from "@/features/tasks/taskExecution";
+import { useTaskExecutions } from "@/features/tasks/useTaskExecutions";
 import { useWorkConsoleData } from "@/shared/hooks/useWorkConsoleData";
 import { AsyncStateView } from "@/shared/ui/AsyncStateView";
 import { DesktopParityAppShell } from "@/shared/ui/DesktopParityAppShell";
@@ -26,6 +28,12 @@ export function TrackDetailPage({ trackId }: { trackId: string }) {
   const { state, refresh } = useWorkConsoleData();
   const [view, setView] = useState<"board" | "list">("board");
   const [selectedTaskId, setSelectedTaskId] = useState<string>();
+  const [executionPending, setExecutionPending] = useState(false);
+  const [executionError, setExecutionError] = useState<string>();
+  const executionState = useTaskExecutions(
+    state.status === "ready" ? state.data.taskExecutions : [],
+    state.status === "ready" ? state.data.relaySelfPubkey : "",
+  );
   const track =
     state.status === "ready"
       ? state.data.tracks.find((item) => item.id === trackId)
@@ -102,7 +110,7 @@ export function TrackDetailPage({ trackId }: { trackId: string }) {
                 </p>
               </div>
               <span className="rounded-full bg-muted px-2 py-1 text-2xs text-muted-foreground">
-                Read only
+                Execute only
               </span>
             </div>
             <div className="mt-3 grid gap-3 text-xs text-muted-foreground sm:grid-cols-3">
@@ -182,6 +190,44 @@ export function TrackDetailPage({ trackId }: { trackId: string }) {
               }
               onClose={() => setSelectedTaskId(undefined)}
               task={state.data.tasks.find((task) => task.id === selectedTaskId)}
+              execution={executionState.executions.get(selectedTaskId)}
+              executionError={executionError}
+              executionPending={executionPending}
+              onExecute={
+                state.data.tasks.find((task) => task.id === selectedTaskId)
+                  ?.assignee &&
+                state.data.profilesByPubkey[
+                  state.data.tasks
+                    .find((task) => task.id === selectedTaskId)
+                    ?.assignee?.toLowerCase() ?? ""
+                ]?.isAgent
+                  ? async () => {
+                      const task = state.data.tasks.find(
+                        (item) => item.id === selectedTaskId,
+                      );
+                      if (!task?.assignee) return;
+                      setExecutionPending(true);
+                      setExecutionError(undefined);
+                      try {
+                        const executionId = await executeTask(task);
+                        executionState.recordQueued({
+                          executionId,
+                          taskId: task.id,
+                          assignee: task.assignee,
+                          requester: state.data.userPubkey,
+                        });
+                      } catch (error) {
+                        setExecutionError(
+                          error instanceof Error
+                            ? error.message
+                            : "Could not execute this Task.",
+                        );
+                      } finally {
+                        setExecutionPending(false);
+                      }
+                    }
+                  : undefined
+              }
               trackName={track.name}
             />
           )}

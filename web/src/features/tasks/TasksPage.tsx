@@ -10,6 +10,8 @@ import { TaskBoardView, type TaskBoardColumn } from "./TaskBoardView";
 import { TaskDetailPanel } from "./TaskDetailPanel";
 import { TaskListView } from "./TaskListView";
 import type { Task, TaskStatus } from "./types";
+import { executeTask } from "./taskExecution";
+import { useTaskExecutions } from "./useTaskExecutions";
 
 const statuses: TaskStatus[] = [
   "backlog",
@@ -31,6 +33,12 @@ export function TasksPage() {
     parseGroup(new URLSearchParams(window.location.search).get("group")),
   );
   const [selected, setSelected] = useState<string>();
+  const [executionPending, setExecutionPending] = useState(false);
+  const [executionError, setExecutionError] = useState<string>();
+  const executionState = useTaskExecutions(
+    state.status === "ready" ? state.data.taskExecutions : [],
+    state.status === "ready" ? state.data.relaySelfPubkey : "",
+  );
   const visible = useMemo(
     () =>
       state.status === "ready"
@@ -179,7 +187,7 @@ export function TasksPage() {
               </button>
             </div>
             <span className="rounded-full bg-muted px-2 py-1 text-2xs text-muted-foreground">
-              Read only
+              Execute only
             </span>
           </header>
           {view === "board" ? (
@@ -204,6 +212,42 @@ export function TasksPage() {
                   : undefined
               }
               task={state.data.tasks.find((task) => task.id === selected)}
+              execution={executionState.executions.get(selected)}
+              executionError={executionError}
+              executionPending={executionPending}
+              onExecute={
+                canExecuteTask(
+                  state.data.tasks,
+                  state.data.profilesByPubkey,
+                  selected,
+                )
+                  ? async () => {
+                      const task = state.data.tasks.find(
+                        (item) => item.id === selected,
+                      );
+                      if (!task?.assignee) return;
+                      setExecutionPending(true);
+                      setExecutionError(undefined);
+                      try {
+                        const executionId = await executeTask(task);
+                        executionState.recordQueued({
+                          executionId,
+                          taskId: task.id,
+                          assignee: task.assignee,
+                          requester: state.data.userPubkey,
+                        });
+                      } catch (error) {
+                        setExecutionError(
+                          error instanceof Error
+                            ? error.message
+                            : "Could not execute this Task.",
+                        );
+                      } finally {
+                        setExecutionPending(false);
+                      }
+                    }
+                  : undefined
+              }
               onClose={() => setSelected(undefined)}
               trackName={
                 state.data.tasks.find((task) => task.id === selected)?.trackId
@@ -218,6 +262,17 @@ export function TasksPage() {
         </div>
       )}
     </DesktopParityAppShell>
+  );
+}
+
+function canExecuteTask(
+  tasks: Task[],
+  profiles: ProfileLookup,
+  taskId: string,
+) {
+  const task = tasks.find((item) => item.id === taskId);
+  return Boolean(
+    task?.assignee && profiles[task.assignee.toLowerCase()]?.isAgent,
   );
 }
 

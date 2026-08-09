@@ -9,6 +9,8 @@ export const KINDS = {
   calendarDate: 31_922,
   calendarTime: 31_923,
   taskState: 30_500,
+  taskExecutionState: 30_501,
+  taskExecutionRequest: 42_503,
   trackState: 30_510,
 } as const;
 

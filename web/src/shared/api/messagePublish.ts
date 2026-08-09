@@ -1,6 +1,4 @@
-import { relayHttpBaseUrl } from "@/shared/lib/relay-url";
-import { makePairedNip98AuthHeader } from "./relayHttp";
-import { openPairedSigner } from "./signer";
+import { publishSignedEvent } from "./publishSignedEvent";
 import type { UnsignedNostrEvent } from "@/shared/lib/nostr-signer";
 
 export function buildUnsignedChannelMessage(input: {
@@ -47,33 +45,5 @@ export async function publishChannelMessage(input: {
     return window.__BUZZ_E2E_PUBLISH_CHANNEL_MESSAGE__(input);
   }
   const unsigned = buildUnsignedChannelMessage(input);
-  const signer = await openPairedSigner();
-  try {
-    const event = await signer.signEvent(unsigned);
-    const url = `${relayHttpBaseUrl().replace(/\/$/, "")}/events`;
-    const body = JSON.stringify(event);
-    const authorization = await makePairedNip98AuthHeader(url, body, signer);
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: authorization,
-        "Content-Type": "application/json",
-      },
-      body,
-    });
-    const payload: unknown = await response.json().catch(() => undefined);
-    if (!response.ok) {
-      const message =
-        payload &&
-        typeof payload === "object" &&
-        "error" in payload &&
-        typeof payload.error === "string"
-          ? payload.error
-          : `Relay rejected the message (${response.status}).`;
-      throw new Error(message);
-    }
-    return event.id;
-  } finally {
-    signer.close();
-  }
+  return (await publishSignedEvent(unsigned)).eventId;
 }

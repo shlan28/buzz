@@ -5,8 +5,12 @@ import type { Channel, Message } from "@/features/channels/types";
 import { channelDisplayName } from "@/features/channels/channelLabels";
 import { buildProfileLookup } from "@/features/profile/eventCodec";
 import type { ProfileLookup, UserProfile } from "@/features/profile/types";
-import { parseTask } from "@/features/tasks/eventCodec";
-import type { Task } from "@/features/tasks/types";
+import {
+  latestTaskExecutions,
+  parseTask,
+  parseTaskExecution,
+} from "@/features/tasks/eventCodec";
+import type { Task, TaskExecution } from "@/features/tasks/types";
 import { parseTrack } from "@/features/tracks/eventCodec";
 import type { Track } from "@/features/tracks/types";
 import { KINDS, MESSAGE_KINDS } from "@/shared/domain/eventKinds";
@@ -18,6 +22,7 @@ import type { NostrFilter } from "@/shared/lib/nostr-client";
 
 export type WorkConsoleData = {
   userPubkey: string;
+  relaySelfPubkey: string;
   currentProfile?: UserProfile;
   profilesByPubkey: ProfileLookup;
   membersByChannelId: Record<string, string[]>;
@@ -25,6 +30,7 @@ export type WorkConsoleData = {
   messages: Message[];
   calendar: CalendarItem[];
   tasks: Task[];
+  taskExecutions: TaskExecution[];
   tracks: Track[];
 };
 
@@ -35,6 +41,7 @@ export async function loadWorkConsoleData(): Promise<WorkConsoleData> {
   const signer = await openPairedSigner();
   try {
     const baseUrl = relayHttpBaseUrl();
+    const relaySelfPubkey = await loadRelaySelfPubkey(baseUrl);
     const events = await queryRelayHttp(
       baseUrl,
       signer,
@@ -87,6 +94,13 @@ export async function loadWorkConsoleData(): Promise<WorkConsoleData> {
     const tasks = latestByCoordinate(
       events.map(parseTask).filter(isPresent),
     ).filter((item) => !item.archived);
+    const taskExecutions = [
+      ...latestTaskExecutions(
+        events
+          .map((event) => parseTaskExecution(event, relaySelfPubkey))
+          .filter(isPresent),
+      ).values(),
+    ];
     const profilePubkeys = new Set<string>([
       signer.userPubkey.toLowerCase(),
       ...channels.flatMap((channel) => channel.participantPubkeys),
@@ -114,6 +128,7 @@ export async function loadWorkConsoleData(): Promise<WorkConsoleData> {
     }));
     return {
       userPubkey: signer.userPubkey,
+      relaySelfPubkey,
       currentProfile: profilesByPubkey[signer.userPubkey.toLowerCase()],
       profilesByPubkey,
       membersByChannelId,
@@ -123,6 +138,7 @@ export async function loadWorkConsoleData(): Promise<WorkConsoleData> {
         calendarEvents.map(parseCalendarItem).filter(isPresent),
       ).filter((item) => item.start.getFullYear() > 2000),
       tasks,
+      taskExecutions,
       tracks: latestByCoordinate(
         events.map(parseTrack).filter(isPresent),
       ).filter((item) => !item.archived),
@@ -160,8 +176,25 @@ export function workConsoleCoreFilters(userPubkey?: string): NostrFilter[] {
       : []),
     { kinds: MESSAGE_KINDS, limit: 500 },
     { kinds: [KINDS.taskState], limit: 500 },
+    { kinds: [KINDS.taskExecutionState], limit: 500 },
     { kinds: [KINDS.trackState], limit: 300 },
   ];
+}
+
+async function loadRelaySelfPubkey(baseUrl: string): Promise<string> {
+  const response = await fetch(baseUrl, {
+    headers: { Accept: "application/nostr+json" },
+  });
+  if (!response.ok) throw new Error("Could not read Relay identity.");
+  const payload: unknown = await response.json();
+  const relaySelf =
+    payload && typeof payload === "object"
+      ? (payload as Record<string, unknown>).self
+      : undefined;
+  if (typeof relaySelf !== "string" || !/^[0-9a-f]{64}$/i.test(relaySelf)) {
+    throw new Error("Relay did not advertise a stable signing identity.");
+  }
+  return relaySelf.toLowerCase();
 }
 
 export function workConsoleCalendarFilters(): NostrFilter[] {

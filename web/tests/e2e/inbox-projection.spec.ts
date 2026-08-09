@@ -15,6 +15,7 @@ const dmId = "11111111-1111-4111-8111-111111111111";
 function data(): WorkConsoleData {
   return {
     userPubkey,
+    relaySelfPubkey: "44".repeat(32),
     currentProfile: undefined,
     profilesByPubkey: {
       [agentPubkey]: {
@@ -118,15 +119,15 @@ function data(): WorkConsoleData {
     ],
     calendar: [],
     tasks: [],
+    taskExecutions: [],
     tracks: [],
   };
 }
 
 test("groups DMs and classifies Desktop-style Inbox conversations", () => {
   const entries = buildInboxEntries(data());
-  expect(entries).toHaveLength(5);
+  expect(entries).toHaveLength(4);
   expect(entries.map((entry) => entry.categoryText)).toEqual([
-    "Channel update in #general",
     "Agent update in #general",
     "Thread in #general",
     "Mentioned in #general",
@@ -135,6 +136,27 @@ test("groups DMs and classifies Desktop-style Inbox conversations", () => {
   const dm = entries.find((entry) => entry.category === "dm");
   expect(dm?.messages.map((message) => message.id)).toEqual(["dm-1", "dm-2"]);
   expect(resolveInboxEntry(entries, "dm-1")?.conversationId).toBe(`dm:${dmId}`);
+});
+
+test("excludes self-authored candidates but retains them in conversation context", () => {
+  const fixture = data();
+  fixture.messages.push({
+    id: "dm-self-reply",
+    kind: 9,
+    tags: [["h", dmId]],
+    channelId: dmId,
+    author: userPubkey,
+    content: "My reply",
+    createdAt: 99,
+  });
+  const entries = buildInboxEntries(fixture);
+  const dm = entries.find((entry) => entry.category === "dm");
+  expect(dm?.authorLabel).toBe("Hermes");
+  expect(dm?.preview).toBe("Latest");
+  expect(dm?.messages.at(-1)?.id).toBe("dm-self-reply");
+  expect(entries.some((entry) => entry.message.author === userPubkey)).toBe(
+    false,
+  );
 });
 
 test("reads NIP-10 roots and detects solid SVG placeholders", () => {

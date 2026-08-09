@@ -9,6 +9,7 @@ export async function installWorkConsoleFixture(page: Page) {
     };
     window.__BUZZ_E2E_WORK_CONSOLE_DATA__ = {
       userPubkey,
+      relaySelfPubkey: "44".repeat(32),
       channels: [
         {
           id: "00000000-0000-4000-8000-000000000001",
@@ -132,11 +133,13 @@ export async function installWorkConsoleFixture(page: Page) {
       tasks: [
         {
           id: "task-1",
+          eventId: "55".repeat(32),
           title: "Ship iPad console",
           description: "Complete the read-only work console",
           status: "in-progress",
           priority: "high",
           assignee: "22".repeat(32),
+          channelId: "00000000-0000-4000-8000-000000000001",
           due: new Date("2026-08-15T23:59:59Z"),
           trackId: "track-1",
           labels: ["web", "ipad", "launch"],
@@ -145,6 +148,7 @@ export async function installWorkConsoleFixture(page: Page) {
         },
         {
           id: "task-2",
+          eventId: "66".repeat(32),
           title: "Untracked follow-up",
           description: "",
           status: "todo",
@@ -154,6 +158,7 @@ export async function installWorkConsoleFixture(page: Page) {
           updatedAt: 1_754_640_401,
         },
       ],
+      taskExecutions: [],
       tracks: [
         {
           id: "track-1",

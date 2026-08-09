@@ -2,18 +2,28 @@ import { X } from "lucide-react";
 import { profileLabel } from "@/features/profile/eventCodec";
 import type { UserProfile } from "@/features/profile/types";
 import type { Task } from "./types";
+import type { TaskExecution } from "./types";
 import { TaskStatusBadge } from "./TaskCard";
+import { TaskExecutionControl } from "./TaskExecutionControl";
 
 export function TaskDetailPanel({
   assigneeProfile,
   onClose,
   task,
   trackName,
+  execution,
+  executionError,
+  executionPending = false,
+  onExecute,
 }: {
   assigneeProfile?: UserProfile;
   onClose: () => void;
   task?: Task;
   trackName?: string;
+  execution?: TaskExecution;
+  executionError?: string;
+  executionPending?: boolean;
+  onExecute?: () => void;
 }) {
   if (!task) return null;
   const assignee = task.assignee
@@ -49,6 +59,15 @@ export function TaskDetailPanel({
         <dt className="text-muted-foreground">Labels</dt>
         <dd>{task.labels.join(", ") || "—"}</dd>
       </dl>
+      {onExecute && task.status !== "done" && !task.archived ? (
+        <TaskExecutionControl
+          agentName={assignee}
+          error={executionError}
+          execution={execution}
+          onExecute={onExecute}
+          pending={executionPending}
+        />
+      ) : null}
     </aside>
   );
 }

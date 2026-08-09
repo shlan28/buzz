@@ -59,10 +59,12 @@ test("opens settings, persists appearance, and collapses the sidebar", async ({
   await expect(page.locator("html")).toHaveClass(/dark/);
 });
 
-test("keeps all work views read-only", async ({ page }) => {
-  for (const path of ["calendar", "tasks", "tracks"]) {
+test("keeps Execute as the only Task write action", async ({ page }) => {
+  await page.goto("/app/calendar");
+  await expect(page.getByText(/Read only/)).toBeVisible();
+  for (const path of ["tasks", "tracks/track-1"]) {
     await page.goto(`/app/${path}`);
-    await expect(page.getByText(/Read only/)).toBeVisible();
+    await expect(page.getByText(/Execute only/)).toBeVisible();
     await expect(
       page.getByRole("button", { name: /create|delete|edit/i }),
     ).toHaveCount(0);
@@ -242,7 +244,8 @@ test("opens Inbox detail with agent identity and Markdown", async ({
   page,
 }) => {
   await page.goto("/app/inbox");
-  await expect(page.locator('[data-testid^="inbox-item-"]')).toHaveCount(2);
+  await expect(page.locator('[data-testid^="inbox-item-"]')).toHaveCount(1);
+  await expect(page.getByText("Fixture message from Buzz")).toHaveCount(0);
   const agentItem = page.getByTestId(
     "inbox-item-dm:11111111-1111-4111-8111-111111111111",
   );

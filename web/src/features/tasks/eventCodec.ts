@@ -1,7 +1,12 @@
 import type { NostrEvent } from "@/shared/lib/nostr-client";
 import { KINDS } from "@/shared/domain/eventKinds";
 import { firstTag, semanticTag } from "@/shared/domain/eventTags";
-import type { Task, TaskStatus } from "./types";
+import type {
+  Task,
+  TaskExecution,
+  TaskExecutionStatus,
+  TaskStatus,
+} from "./types";
 
 const statuses = new Set<TaskStatus>([
   "backlog",
@@ -24,11 +29,13 @@ export function parseTask(event: NostrEvent): Task | null {
     : undefined;
   return {
     id,
+    eventId: event.id,
     title,
     description: event.content,
     status: rawStatus && statuses.has(rawStatus) ? rawStatus : "todo",
     priority: semanticTag(event.tags, "task-priority:") ?? "none",
     assignee: firstTag(event.tags, "p"),
+    channelId: firstTag(event.tags, "h"),
     due: due && !Number.isNaN(due.getTime()) ? due : undefined,
     trackId: semanticTag(event.tags, "track-id:"),
     labels: event.tags
@@ -37,4 +44,68 @@ export function parseTask(event: NostrEvent): Task | null {
     archived: firstTag(event.tags, "archived") === "true",
     updatedAt: event.created_at,
   };
+}
+
+const executionStatuses = new Set<TaskExecutionStatus>([
+  "queued",
+  "running",
+  "finished",
+  "failed",
+]);
+
+export function parseTaskExecution(
+  event: NostrEvent,
+  relaySelfPubkey: string,
+): TaskExecution | null {
+  if (
+    event.kind !== KINDS.taskExecutionState ||
+    event.pubkey.toLowerCase() !== relaySelfPubkey.toLowerCase()
+  ) {
+    return null;
+  }
+  const id = firstTag(event.tags, "d");
+  const taskId = semanticTag(event.tags, "task-id:");
+  const assignee = firstTag(event.tags, "p");
+  const requester = firstTag(event.tags, "requester");
+  const status = firstTag(event.tags, "status") as
+    | TaskExecutionStatus
+    | undefined;
+  if (
+    !id ||
+    !taskId ||
+    !assignee ||
+    !requester ||
+    !status ||
+    !executionStatuses.has(status)
+  ) {
+    return null;
+  }
+  return {
+    id,
+    eventId: event.id,
+    taskId,
+    assignee,
+    owner: firstTag(event.tags, "owner"),
+    requester,
+    status,
+    message: event.content,
+    sourceEvent: firstTag(event.tags, "source_event"),
+    updatedAt: event.created_at,
+  };
+}
+
+export function latestTaskExecutions(executions: TaskExecution[]) {
+  const byTask = new Map<string, TaskExecution>();
+  for (const execution of executions) {
+    const current = byTask.get(execution.taskId);
+    if (
+      !current ||
+      execution.updatedAt > current.updatedAt ||
+      (execution.updatedAt === current.updatedAt &&
+        execution.eventId.localeCompare(current.eventId) > 0)
+    ) {
+      byTask.set(execution.taskId, execution);
+    }
+  }
+  return byTask;
 }
