@@ -69,4 +69,12 @@ test("opens a read-only member panel and filters members", async ({ page }) => {
   ).toHaveCount(0);
   await panel.getByRole("button", { name: "Close channel members" }).click();
   await expect(panel).toHaveCount(0);
+
+  await page.getByRole("button", { name: "View channel members (3)" }).click();
+  await page.getByRole("link", { name: "Hermes" }).click();
+  await expect(page.getByTestId("channel-members-panel")).toHaveCount(0);
+  await page.getByRole("button", { name: "View channel members (2)" }).click();
+  const dmPanel = page.getByTestId("channel-members-panel");
+  await expect(dmPanel).toContainText("Hermes");
+  await expect(dmPanel).not.toContainText("Codex");
 });

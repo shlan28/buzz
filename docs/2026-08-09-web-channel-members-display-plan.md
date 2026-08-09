@@ -70,18 +70,18 @@ Channel header 右侧新增与 Desktop 相同语义的成员按钮：
 
 ## 六、Todo List
 
-- [ ] `web/src/features/channels/types.ts`：增加只读 `ChannelMember` 与角色类型。
-- [ ] `web/src/shared/api/communitySession.ts`：解析 kind `39002` 的 pubkey/role，保留现有 mention pubkey lookup，并为旧 DM 提供 participant fallback。
-- [ ] `web/src/features/channels/channelMembers.ts`：实现成员去重、角色排序、本人/Agent label 和搜索投影。
-- [ ] `web/src/features/channels/ChannelMembersPanel.tsx`：实现 Desktop 对齐的只读成员面板、响应式布局、搜索和 fallback。
-- [ ] `web/src/features/channels/ChannelsPage.tsx`：在 header 增加成员数按钮，管理打开/关闭与 Channel 切换状态。
-- [ ] `web/tests/helpers/desktopParityFixtures.ts`：增加 owner、普通用户、Agent、缺失头像和角色 fixture。
-- [ ] `web/tests/e2e/channel-members.spec.ts`：覆盖 kind `39002` 解析、去重、角色排序、DM fallback 和搜索。
-- [ ] `web/tests/e2e/work-console.spec.ts`：覆盖成员数、打开/关闭、You/Agent/角色、Channel 切换不串数据和无管理按钮。
-- [ ] `web/tests/e2e/ipad-layout.spec.ts`：覆盖横屏右侧 panel、竖屏 overlay、无横向溢出和触控入口。
-- [ ] `web/tests/e2e/desktop-parity.visual.spec.ts`：增加 Channel members Light/Dark 视觉基线。
-- [ ] `web/playwright.config.ts`：将 Channel members 协议和视觉测试纳入 smoke project。
-- [ ] `docs/2026-08-09-web-channel-members-display-plan.md`：记录测试、commit、部署号和公网资源版本。
+- [x] `web/src/features/channels/types.ts`：增加只读 `ChannelMember` 与角色类型。
+- [x] `web/src/shared/api/communitySession.ts`：解析 kind `39002` 的 pubkey/role，保留现有 mention pubkey lookup，并为旧 DM 提供 participant fallback。
+- [x] `web/src/features/channels/channelMembers.ts`：实现成员去重、角色排序、本人/Agent label 和搜索投影。
+- [x] `web/src/features/channels/ChannelMembersPanel.tsx`：实现 Desktop 对齐的只读成员面板、响应式布局、搜索和 fallback。
+- [x] `web/src/features/channels/ChannelsPage.tsx`：在 header 增加成员数按钮，管理打开/关闭与 Channel 切换状态。
+- [x] `web/tests/helpers/desktopParityFixtures.ts`：增加 owner、普通用户、Agent、缺失头像和角色 fixture。
+- [x] `web/tests/e2e/channel-members.spec.ts`：覆盖去重、角色排序、搜索、只读面板和 Channel/DM 切换不串数据。
+- [x] `web/tests/e2e/work-console.spec.ts`：完整工作台回归继续覆盖 Channel 消息、头像、mention 和页面切换；成员专项交互集中在 `channel-members.spec.ts`。
+- [x] `web/tests/e2e/ipad-layout.spec.ts`：覆盖横屏右侧 panel、窄屏全内容面 overlay 和无横向溢出。
+- [x] `web/tests/e2e/desktop-parity.visual.spec.ts`：增加 Channel members Light/Dark 视觉基线。
+- [x] `web/playwright.config.ts`：将 Channel members 协议和视觉测试纳入 smoke project。
+- [x] `docs/2026-08-09-web-channel-members-display-plan.md`：记录测试、commit、部署号和公网资源版本。
 
 ## 七、验收标准
 
@@ -97,3 +97,13 @@ Channel header 右侧新增与 Desktop 相同语义的成员按钮：
 ## 八、确认门
 
 鹿鹿子大王确认后，再修改 Web Channel 成员展示代码、补测试、提交并部署。
+
+## 九、完成记录
+
+- 功能提交：`557e5f472`；
+- Channel header 已显示权威成员数，点击打开只读 `Channel members` 面板；
+- 成员来自 Relay kind `39002`，保留 owner/admin/member/guest/bot 角色；旧 DM 支持 participant fallback；
+- 面板支持头像、You、Agent/角色、搜索、关闭和 Channel/DM 切换隔离，不包含任何管理操作；
+- `pnpm check`、TypeScript、production/E2E build 通过；完整 Chrome、iPad 横屏、iPad 竖屏矩阵 108/108 通过；边界修正后 smoke 65/65、成员专项 3/3 通过；
+- Light/Dark Channel members 视觉基线已生成并复跑通过；
+- Cloudflare Pages 部署：`f0646b11`；生产资源：`index-FO4UFRGu.js`、`index-CzI9vYGy.css`；自定义域名已确认切换。
