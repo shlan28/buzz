@@ -6,8 +6,13 @@ import {
   useEffect,
   useState,
 } from "react";
+import {
+  loadWebTheme,
+  saveWebTheme,
+  type WebTheme,
+} from "@/shared/storage/webPreferences";
 
-type Theme = "light" | "dark" | "system";
+export type Theme = WebTheme;
 
 type ThemeContextValue = {
   theme: Theme;
@@ -22,14 +27,12 @@ function getSystemDark(): boolean {
 }
 
 function getInitialTheme(): Theme {
-  if (!import.meta.env.DEV) return "system";
-
   const previewTheme = new URLSearchParams(window.location.search).get(
     "previewTheme",
   );
   return previewTheme === "light" || previewTheme === "dark"
     ? previewTheme
-    : "system";
+    : loadWebTheme();
 }
 
 function applyClass(isDark: boolean) {
@@ -67,6 +70,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [theme]);
 
   const setTheme = useCallback((t: Theme) => {
+    saveWebTheme(t);
     setThemeState(t);
   }, []);
 

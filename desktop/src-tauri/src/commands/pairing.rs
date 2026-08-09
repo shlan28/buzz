@@ -8,7 +8,7 @@ use buzz_core_pkg::pairing::session::PairingSession;
 use buzz_core_pkg::pairing::types::{AbortReason, PayloadType};
 use futures_util::{SinkExt, StreamExt};
 use nostr::ToBech32;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::mpsc;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
@@ -16,7 +16,10 @@ use tokio_util::sync::CancellationToken;
 use zeroize::Zeroizing;
 
 use crate::app_state::AppState;
+use crate::commands::remote_signer::RemoteSignerHandle;
 use crate::relay::{relay_api_base_url_with_override, relay_ws_url_with_override};
+
+const PAIRING_SESSION_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
 #[derive(Serialize, Clone)]
 struct PairingSasPayload {
@@ -33,6 +36,23 @@ struct PairingErrorPayload {
     message: String,
 }
 
+#[derive(Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PairingMode {
+    Mobile,
+    Web,
+}
+
+struct PreparedPairingPayload {
+    payload_type: PayloadType,
+    content: Zeroizing<String>,
+}
+
+struct WebSignerAuthorization {
+    secret: Zeroizing<String>,
+    relay_url: String,
+}
+
 /// Managed Tauri state for an active pairing session.
 pub struct PairingHandle {
     session: Arc<tokio::sync::Mutex<Option<PairingSession>>>,
@@ -40,9 +60,11 @@ pub struct PairingHandle {
     cancel: std::sync::Mutex<Option<CancellationToken>>,
     /// Send JSON-serialized events to the background WS task for relay publication.
     outbound_tx: std::sync::Mutex<Option<mpsc::Sender<String>>>,
-    /// Pre-built payload string (contains nsec) to send after SAS confirmation.
-    /// Wrapped in Zeroizing so the nsec is cleared from memory on drop.
-    payload: std::sync::Mutex<Option<Zeroizing<String>>>,
+    /// Pre-built payload to send after SAS confirmation. Secret-bearing content
+    /// is wrapped in `Zeroizing` so it is cleared from memory on drop.
+    payload: std::sync::Mutex<Option<PreparedPairingPayload>>,
+    /// Pending Web signer authorization, bound to the verified Pair target.
+    web_signer: std::sync::Mutex<Option<WebSignerAuthorization>>,
 }
 
 impl PairingHandle {
@@ -53,6 +75,7 @@ impl PairingHandle {
             cancel: std::sync::Mutex::new(None),
             outbound_tx: std::sync::Mutex::new(None),
             payload: std::sync::Mutex::new(None),
+            web_signer: std::sync::Mutex::new(None),
         }
     }
 
@@ -60,6 +83,7 @@ impl PairingHandle {
         *self.cancel.lock().unwrap_or_else(|e| e.into_inner()) = None;
         *self.outbound_tx.lock().unwrap_or_else(|e| e.into_inner()) = None;
         *self.payload.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        *self.web_signer.lock().unwrap_or_else(|e| e.into_inner()) = None;
     }
 }
 
@@ -73,6 +97,7 @@ pub async fn start_pairing(
     app: AppHandle,
     state: State<'_, AppState>,
     pairing: State<'_, PairingHandle>,
+    mode: PairingMode,
 ) -> Result<String, String> {
     let task_generation = pairing
         .generation
@@ -88,10 +113,6 @@ pub async fn start_pairing(
     }
 
     let keys = state.signing_keys()?;
-    let nsec = keys
-        .secret_key()
-        .to_bech32()
-        .map_err(|e| format!("encode nsec: {e}"))?;
     let pubkey_hex = keys.public_key().to_hex();
 
     let ws_url = relay_ws_url_with_override(&state);
@@ -108,18 +129,49 @@ pub async fn start_pairing(
     let (session, qr_payload) = PairingSession::new_source(pairing_relay_url.clone());
     let qr_uri = encode_qr(&qr_payload);
 
-    let payload_json = serde_json::json!({
-        "relayUrl": http_url,
-        "pubkey": pubkey_hex,
-        "nsec": nsec,
-    });
+    let prepared_payload = match mode {
+        PairingMode::Mobile => PreparedPairingPayload {
+            payload_type: PayloadType::Custom,
+            content: Zeroizing::new(
+                serde_json::json!({
+                    "relayUrl": http_url,
+                    "pubkey": pubkey_hex,
+                    "nsec": keys
+                        .secret_key()
+                        .to_bech32()
+                        .map_err(|e| format!("encode nsec: {e}"))?,
+                })
+                .to_string(),
+            ),
+        },
+        PairingMode::Web => {
+            let signer_secret =
+                Zeroizing::new(nostr::Keys::generate().secret_key().to_secret_hex());
+            let signer_relay_url = format!("{}/signer", ws_url.trim_end_matches('/'));
+            let encoded_signer_relay: String =
+                url::form_urlencoded::byte_serialize(signer_relay_url.as_bytes()).collect();
+            let bunker_uri = format!(
+                "bunker://{}?relay={}&secret={}",
+                pubkey_hex,
+                encoded_signer_relay,
+                signer_secret.as_str()
+            );
+            *pairing.web_signer.lock().map_err(|e| e.to_string())? = Some(WebSignerAuthorization {
+                secret: Zeroizing::new(signer_secret.to_string()),
+                relay_url: signer_relay_url,
+            });
+            PreparedPairingPayload {
+                payload_type: PayloadType::Bunker,
+                content: Zeroizing::new(bunker_uri),
+            }
+        }
+    };
 
     {
         let mut s = pairing.session.lock().await;
         *s = Some(session);
     }
-    *pairing.payload.lock().map_err(|e| e.to_string())? =
-        Some(Zeroizing::new(payload_json.to_string()));
+    *pairing.payload.lock().map_err(|e| e.to_string())? = Some(prepared_payload);
 
     let (outbound_tx, outbound_rx) = mpsc::channel::<String>(16);
     let cancel = CancellationToken::new();
@@ -144,7 +196,11 @@ pub async fn start_pairing(
 
 /// User confirmed the SAS codes match. Sends sas-confirm + payload.
 #[tauri::command]
-pub async fn confirm_pairing_sas(pairing: State<'_, PairingHandle>) -> Result<(), String> {
+pub async fn confirm_pairing_sas(
+    state: State<'_, AppState>,
+    pairing: State<'_, PairingHandle>,
+    remote_signer: State<'_, RemoteSignerHandle>,
+) -> Result<(), String> {
     let tx = pairing
         .outbound_tx
         .lock()
@@ -158,6 +214,23 @@ pub async fn confirm_pairing_sas(pairing: State<'_, PairingHandle>) -> Result<()
         let event = session.confirm_sas().map_err(|e| e.to_string())?;
         event_to_relay_json(&event)
     };
+
+    let client_pubkey = {
+        let guard = pairing.session.lock().await;
+        guard.as_ref().and_then(PairingSession::peer_pubkey)
+    };
+    let web_signer_authorization = pairing.web_signer.lock().map_err(|e| e.to_string())?.take();
+    if let Some(authorization) = web_signer_authorization {
+        let client_pubkey = client_pubkey.ok_or("paired Web device has no verified public key")?;
+        remote_signer
+            .authorize(
+                state.signing_keys()?,
+                authorization.relay_url,
+                client_pubkey,
+                authorization.secret,
+            )
+            .await?;
+    }
 
     tx.send(sas_confirm_json)
         .await
@@ -174,7 +247,7 @@ pub async fn confirm_pairing_sas(pairing: State<'_, PairingHandle>) -> Result<()
         let mut guard = pairing.session.lock().await;
         let session = guard.as_mut().ok_or("no active pairing session")?;
         let event = session
-            .send_payload(PayloadType::Custom, payload)
+            .send_payload(payload.payload_type, payload.content)
             .map_err(|e| e.to_string())?;
         event_to_relay_json(&event)
     };
@@ -237,19 +310,39 @@ async fn pairing_ws_task(
     mut outbound_rx: mpsc::Receiver<String>,
     app: AppHandle,
 ) {
-    if let Err(e) = pairing_ws_task_inner(
-        &relay_url,
-        &session,
-        &generation,
-        task_generation,
-        &cancel,
-        &mut outbound_rx,
-        &app,
-    )
-    .await
-    {
-        if pairing_task_is_current(&generation, task_generation) {
-            let _ = app.emit("pairing-error", PairingErrorPayload { message: e });
+    let deadline = tokio::time::Instant::now() + PAIRING_SESSION_TIMEOUT;
+    loop {
+        let result = pairing_ws_task_inner(
+            &relay_url,
+            &session,
+            &generation,
+            task_generation,
+            &cancel,
+            &mut outbound_rx,
+            &app,
+            deadline,
+        )
+        .await;
+        match result {
+            Ok(()) => break,
+            Err(error)
+                if pairing_task_is_current(&generation, task_generation)
+                    && !cancel.is_cancelled()
+                    && tokio::time::Instant::now() < deadline =>
+            {
+                tracing::warn!(%error, "pairing connection lost; reconnecting");
+                let _ = app.emit("pairing-reconnecting", serde_json::json!({}));
+                tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    _ = tokio::time::sleep(Duration::from_millis(750)) => {}
+                }
+            }
+            Err(error) => {
+                if pairing_task_is_current(&generation, task_generation) {
+                    let _ = app.emit("pairing-error", PairingErrorPayload { message: error });
+                }
+                break;
+            }
         }
     }
     clear_pairing_session_if_current(&session, &generation, task_generation).await;
@@ -263,13 +356,16 @@ async fn pairing_ws_task_inner(
     cancel: &CancellationToken,
     outbound_rx: &mut mpsc::Receiver<String>,
     app: &AppHandle,
+    deadline: tokio::time::Instant,
 ) -> Result<(), String> {
     let (ws, _) = connect_async(relay_url)
         .await
         .map_err(|e| format!("WebSocket connection failed: {e}"))?;
     let (mut write, mut read) = ws.split();
 
-    handle_nip42_auth(&mut read, &mut write, session, relay_url).await?;
+    if !is_dedicated_pairing_relay(relay_url) {
+        handle_nip42_auth(&mut read, &mut write, session, relay_url).await?;
+    }
 
     let our_pk = {
         let guard = session.lock().await;
@@ -286,8 +382,10 @@ async fn pairing_ws_task_inner(
 
     wait_for_eose(&mut read, "pair", Duration::from_secs(10)).await?;
 
-    let hard_timeout = tokio::time::sleep(Duration::from_secs(130));
+    let hard_timeout = tokio::time::sleep_until(deadline);
     tokio::pin!(hard_timeout);
+    let mut heartbeat = tokio::time::interval(Duration::from_secs(15));
+    heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
     loop {
         if !pairing_task_is_current(generation, task_generation) {
@@ -299,10 +397,14 @@ async fn pairing_ws_task_inner(
             _ = &mut hard_timeout => {
                 if pairing_task_is_current(generation, task_generation) {
                     let _ = app.emit("pairing-error", PairingErrorPayload {
-                        message: "Session timed out".into(),
+                        message: "Pairing link expired. Generate a new link and try again.".into(),
                     });
                 }
                 break;
+            }
+            _ = heartbeat.tick() => {
+                write.send(Message::Ping(Vec::new().into())).await
+                    .map_err(|e| format!("pairing heartbeat failed: {e}"))?;
             }
             Some(json_msg) = outbound_rx.recv() => {
                 if let Err(e) = write.send(Message::Text(json_msg.into())).await {
@@ -311,7 +413,9 @@ async fn pairing_ws_task_inner(
             }
             msg = read.next() => {
                 let Some(msg) = msg else {
-                    return Err("relay connection closed".into());
+                    return Err(
+                        "Pairing connection ended. Generate a new link and try again.".into(),
+                    );
                 };
                 let msg = msg.map_err(|e| format!("WS read error: {e}"))?;
                 let Message::Text(text) = msg else { continue };
@@ -367,6 +471,12 @@ async fn pairing_ws_task_inner(
 
 fn pairing_task_is_current(generation: &AtomicU64, task_generation: u64) -> bool {
     generation.load(Ordering::SeqCst) == task_generation
+}
+
+fn is_dedicated_pairing_relay(relay_url: &str) -> bool {
+    url::Url::parse(relay_url)
+        .ok()
+        .is_some_and(|url| url.path().trim_end_matches('/').ends_with("/pair"))
 }
 
 async fn clear_pairing_session_if_current(
@@ -626,7 +736,8 @@ mod pairing_generation_tests {
 #[cfg(test)]
 mod pairing_relay_tests {
     use super::{
-        pairing_relay_from_nip11, probe_pairing_relay, resolve_pairing_relay_url, PairingRelay,
+        is_dedicated_pairing_relay, pairing_relay_from_nip11, probe_pairing_relay,
+        resolve_pairing_relay_url, PairingRelay,
     };
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -728,5 +839,14 @@ mod pairing_relay_tests {
         .expect("resolve main pairing relay");
 
         assert_eq!(resolved, "wss://sprout-oss.stage.blox.sqprod.co");
+    }
+
+    #[test]
+    fn dedicated_pairing_path_skips_main_relay_auth_probe() {
+        assert!(is_dedicated_pairing_relay("wss://achoverse.xyz/pair"));
+        assert!(is_dedicated_pairing_relay(
+            "wss://example.test/community/pair/"
+        ));
+        assert!(!is_dedicated_pairing_relay("wss://achoverse.xyz"));
     }
 }

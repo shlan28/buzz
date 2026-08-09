@@ -28,6 +28,11 @@ import {
 import { SettingsOptionGroup, SettingsOptionRow } from "./SettingsOptionGroup";
 import { SettingsSectionHeader } from "./SettingsSectionHeader";
 import { writeTextToClipboard } from "@/shared/lib/clipboard";
+import { cn } from "@/shared/lib/cn";
+import {
+  createPairingListenerLifecycle,
+  shouldCancelPairingOnCleanup,
+} from "../lib/pairingListenerLifecycle";
 
 type PairingStep =
   | "idle"
@@ -38,6 +43,8 @@ type PairingStep =
   | "transferring"
   | "done"
   | "error";
+
+type PairingMode = "mobile" | "web";
 
 function pairingErrorMessage(error: unknown) {
   const message =
@@ -55,7 +62,11 @@ function pairingErrorMessage(error: unknown) {
 }
 
 function isPairingSessionTimeout(message: string) {
-  return message.toLowerCase().includes("session timed out");
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("session timed out") ||
+    normalized.includes("pairing link expired")
+  );
 }
 
 function PairingStatusDialog({
@@ -178,6 +189,8 @@ export function MobilePairingCard({
   const [qrUri, setQrUri] = useState<string | null>(null);
   const [sasCode, setSasCode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [recovering, setRecovering] = useState(false);
+  const [mode, setMode] = useState<PairingMode>("mobile");
   const requestIdRef = useRef(0);
   const pairingActiveRef = useRef(false);
   const stepRef = useRef(step);
@@ -190,8 +203,9 @@ export function MobilePairingCard({
     setQrUri(null);
     setSasCode(null);
     setError(null);
+    setRecovering(false);
 
-    startPairing().then(
+    startPairing(mode).then(
       (uri) => {
         if (requestId === requestIdRef.current) {
           setQrUri(uri);
@@ -206,7 +220,7 @@ export function MobilePairingCard({
         }
       },
     );
-  }, []);
+  }, [mode]);
 
   useEffect(() => {
     ++requestIdRef.current;
@@ -215,70 +229,77 @@ export function MobilePairingCard({
     setQrUri(null);
     setSasCode(null);
     setError(null);
+    setRecovering(false);
 
     if (!currentPubkey) {
       return;
     }
 
     let cancelled = false;
-    const unlisteners: (() => void)[] = [];
+    const listeners = createPairingListenerLifecycle();
 
-    listen<{ sas: string }>("pairing-sas-received", (event) => {
-      if (!cancelled && pairingActiveRef.current) {
-        setSasCode(event.payload.sas);
-        setStep("sas");
-      }
-    }).then((fn) => {
-      if (cancelled) fn();
-      else unlisteners.push(fn);
-    });
-
-    listen("pairing-complete", () => {
-      if (!cancelled && pairingActiveRef.current) {
-        pairingActiveRef.current = false;
-        setStep("done");
-      }
-    }).then((fn) => {
-      if (cancelled) fn();
-      else unlisteners.push(fn);
-    });
-
-    listen<{ reason: string }>("pairing-aborted", (event) => {
-      if (!cancelled && pairingActiveRef.current) {
-        pairingActiveRef.current = false;
-        setError(`Pairing stopped: ${event.payload.reason}`);
-        setStep("error");
-      }
-    }).then((fn) => {
-      if (cancelled) fn();
-      else unlisteners.push(fn);
-    });
-
-    listen<{ message: string }>("pairing-error", (event) => {
-      if (!cancelled && pairingActiveRef.current) {
-        pairingActiveRef.current = false;
-        if (isPairingSessionTimeout(event.payload.message)) {
-          setQrUri(null);
-          setSasCode(null);
-          setError(null);
-          setStep("expired");
-          return;
+    listeners.add(
+      listen<{ sas: string }>("pairing-sas-received", (event) => {
+        if (!cancelled && pairingActiveRef.current) {
+          setRecovering(false);
+          setSasCode(event.payload.sas);
+          setStep("sas");
         }
+      }),
+    );
 
-        setError(pairingErrorMessage(event.payload.message));
-        setStep("error");
-      }
-    }).then((fn) => {
-      if (cancelled) fn();
-      else unlisteners.push(fn);
-    });
+    listeners.add(
+      listen("pairing-complete", () => {
+        if (!cancelled && pairingActiveRef.current) {
+          setRecovering(false);
+          pairingActiveRef.current = false;
+          setStep("done");
+        }
+      }),
+    );
+
+    listeners.add(
+      listen("pairing-reconnecting", () => {
+        if (!cancelled && pairingActiveRef.current) setRecovering(true);
+      }),
+    );
+
+    listeners.add(
+      listen<{ reason: string }>("pairing-aborted", (event) => {
+        if (!cancelled && pairingActiveRef.current) {
+          setRecovering(false);
+          pairingActiveRef.current = false;
+          setError(`Pairing stopped: ${event.payload.reason}`);
+          setStep("error");
+        }
+      }),
+    );
+
+    listeners.add(
+      listen<{ message: string }>("pairing-error", (event) => {
+        if (!cancelled && pairingActiveRef.current) {
+          setRecovering(false);
+          pairingActiveRef.current = false;
+          if (isPairingSessionTimeout(event.payload.message)) {
+            setQrUri(null);
+            setSasCode(null);
+            setError(null);
+            setStep("expired");
+            return;
+          }
+
+          setError(pairingErrorMessage(event.payload.message));
+          setStep("error");
+        }
+      }),
+    );
 
     return () => {
       cancelled = true;
       ++requestIdRef.current;
       pairingActiveRef.current = false;
-      for (const fn of unlisteners) fn();
-      if (stepRef.current !== "idle" && stepRef.current !== "done") {
+      listeners.dispose();
+      if (shouldCancelPairingOnCleanup(stepRef.current)) {
         cancelPairing().catch(() => {});
       }
     };
@@ -330,12 +351,12 @@ export function MobilePairingCard({
   return (
     <section className="min-w-0" data-testid="settings-mobile">
       <SettingsSectionHeader
-        title="Mobile"
+        title="Pair a device"
         description={
           <>
-            Connect the Buzz mobile app to this relay by scanning a QR code. The
-            connection is secured with end-to-end encryption and a verification
-            code.
+            Connect Buzz Mobile or authorize the Web control console. Web
+            pairing uses a revocable remote signer and never transfers your user
+            private key.
           </>
         }
       />
@@ -345,6 +366,27 @@ export function MobilePairingCard({
         data-testid="mobile-pairing-card"
       >
         <SettingsOptionRow className="flex-col items-stretch justify-start gap-3 p-4">
+          <div className="grid grid-cols-2 rounded-lg bg-muted p-1">
+            {(["mobile", "web"] as const).map((pairingMode) => (
+              <button
+                aria-pressed={mode === pairingMode}
+                className={cn(
+                  "h-8 rounded-md text-sm font-medium transition-colors",
+                  mode === pairingMode
+                    ? "bg-background text-foreground shadow-xs"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                disabled={
+                  step !== "idle" && step !== "error" && step !== "expired"
+                }
+                key={pairingMode}
+                onClick={() => setMode(pairingMode)}
+                type="button"
+              >
+                {pairingMode === "mobile" ? "Mobile" : "Web / iPad"}
+              </button>
+            ))}
+          </div>
           <div
             className="flex min-h-[266px] w-[266px] shrink-0 items-center justify-center rounded-lg border border-border/70 bg-white p-3"
             data-testid="mobile-pairing-qr-container"
@@ -400,7 +442,7 @@ export function MobilePairingCard({
                 </Button>
               ) : (
                 <p className="max-w-44 text-center text-sm text-muted-foreground">
-                  Sign in to generate a mobile pairing code.
+                  Sign in to generate a device pairing code.
                 </p>
               )
             ) : (
@@ -418,17 +460,27 @@ export function MobilePairingCard({
           </div>
 
           {step === "qr" && qrUri ? (
-            <Button
-              className="w-full origin-top animate-in fade-in-0 zoom-in-95 duration-[250ms] ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:animate-none"
-              data-testid="copy-pairing-code"
-              onClick={handleCopy}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              <Copy className="mr-1.5 h-4 w-4" />
-              Copy pairing code
-            </Button>
+            <div className="space-y-2">
+              <Button
+                className="w-full origin-top animate-in fade-in-0 zoom-in-95 duration-[250ms] ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:animate-none"
+                data-testid="copy-pairing-code"
+                onClick={handleCopy}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                <Copy className="mr-1.5 h-4 w-4" />
+                {mode === "web" ? "Copy Web pairing link" : "Copy pairing code"}
+              </Button>
+              {recovering ? (
+                <p
+                  className="text-center text-xs text-muted-foreground"
+                  role="status"
+                >
+                  Restoring the pairing connection…
+                </p>
+              ) : null}
+            </div>
           ) : null}
         </SettingsOptionRow>
       </SettingsOptionGroup>

@@ -502,6 +502,14 @@ impl PairingSession {
         self.sas_code.map(format_sas)
     }
 
+    /// The verified peer public key after the first valid protocol message.
+    ///
+    /// Source devices use this to bind a completed pairing authorization to
+    /// the exact target device that proved possession of the QR secret.
+    pub fn peer_pubkey(&self) -> Option<PublicKey> {
+        self.peer_pubkey
+    }
+
     /// Sign an arbitrary event builder with this session's ephemeral keys.
     ///
     /// Useful for relay-level operations like NIP-42 authentication, where

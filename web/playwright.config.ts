@@ -18,9 +18,46 @@ export default defineConfig({
   projects: [
     {
       name: "smoke",
-      testMatch: ["**/smoke.spec.ts"],
+      testMatch: [
+        "**/smoke.spec.ts",
+        "**/pwa-shell.spec.ts",
+        "**/pairing-crypto.spec.ts",
+        "**/domain-codecs.spec.ts",
+        "**/work-console.spec.ts",
+        "**/pwa-install.spec.ts",
+        "**/ipad-layout.spec.ts",
+        "**/relay-session.spec.ts",
+        "**/message-send.spec.ts",
+        "**/inbox-projection.spec.ts",
+        "**/channel-members.spec.ts",
+        "**/task-execution.spec.ts",
+        "**/search-session.spec.ts",
+        "**/desktop-parity.visual.spec.ts",
+      ],
       use: {
         ...devices["Desktop Chrome"],
+      },
+    },
+    {
+      name: "ipad-landscape",
+      testMatch: [
+        "**/pwa-shell.spec.ts",
+        "**/work-console.spec.ts",
+        "**/ipad-layout.spec.ts",
+      ],
+      use: {
+        ...devices["iPad Pro 11 landscape"],
+      },
+    },
+    {
+      name: "ipad-portrait",
+      testMatch: [
+        "**/pwa-shell.spec.ts",
+        "**/work-console.spec.ts",
+        "**/ipad-layout.spec.ts",
+      ],
+      use: {
+        ...devices["iPad Pro 11"],
       },
     },
   ],

@@ -7,6 +7,7 @@ import "@/shared/styles/globals.css";
 import { ThemeProvider } from "@/shared/theme/ThemeProvider";
 import { Toaster } from "@/shared/ui/sonner";
 import { TooltipProvider } from "@/shared/ui/tooltip";
+import { registerPwaServiceWorker } from "@/features/pwa/registerPwaServiceWorker";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -34,3 +35,5 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     </QueryClientProvider>
   </React.StrictMode>,
 );
+
+registerPwaServiceWorker();

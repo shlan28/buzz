@@ -973,7 +973,7 @@ async fn query_events_authed(
     // depth_limit, feed_types) that nostr::Filter silently drops.
     let raw_filters: Vec<Value> = serde_json::from_slice(body)
         .map_err(|e| api_error(StatusCode::BAD_REQUEST, &format!("invalid filters: {e}")))?;
-    let filters: Vec<nostr::Filter> = raw_filters
+    let mut filters: Vec<nostr::Filter> = raw_filters
         .iter()
         .map(|v| serde_json::from_value(v.clone()))
         .collect::<Result<_, _>>()
@@ -1006,6 +1006,7 @@ async fn query_events_authed(
         .await
         .map_err(|e| internal_error(&format!("calendar ACL lookup: {e}")))?;
     calendar_readable_authors.push(pubkey_bytes.clone());
+    expand_owned_calendar_authors(&raw_filters, &mut filters, &calendar_readable_authors);
     if !crate::handlers::req::calendar_filters_authorized(&filters, &calendar_readable_authors) {
         return Err(api_error(
             StatusCode::FORBIDDEN,
@@ -1393,6 +1394,33 @@ async fn query_events_authed(
     }
 
     Ok(Json(Value::Array(events)))
+}
+
+fn expand_owned_calendar_authors(
+    raw_filters: &[Value],
+    filters: &mut [nostr::Filter],
+    allowed_authors: &[Vec<u8>],
+) {
+    for (raw, filter) in raw_filters.iter().zip(filters.iter_mut()) {
+        if raw.get("owned_authors").and_then(Value::as_bool) != Some(true) {
+            continue;
+        }
+        let calendar_only = filter.kinds.as_ref().is_some_and(|kinds| {
+            !kinds.is_empty()
+                && kinds.iter().all(|kind| {
+                    buzz_core::kind::PRIVATE_CALENDAR_KINDS.contains(&(kind.as_u16() as u32))
+                })
+        });
+        if !calendar_only {
+            continue;
+        }
+        filter.authors = Some(
+            allowed_authors
+                .iter()
+                .filter_map(|author| nostr::PublicKey::from_slice(author).ok())
+                .collect(),
+        );
+    }
 }
 
 /// Count events via HTTP bridge (NIP-98 auth). Returns `{"count": N}`.
@@ -2355,6 +2383,48 @@ mod tests {
         deadpool_redis::Config::from_url(url)
             .create_pool(Some(deadpool_redis::Runtime::Tokio1))
             .expect("create redis pool")
+    }
+
+    #[test]
+    fn owned_calendar_extension_expands_only_to_server_allowed_authors() {
+        let owner = Keys::generate().public_key();
+        let agent = Keys::generate().public_key();
+        let attacker = Keys::generate().public_key();
+        let raw = vec![serde_json::json!({
+            "kinds": [buzz_core::kind::KIND_CALENDAR_DATE_EVENT],
+            "authors": [attacker.to_hex()],
+            "owned_authors": true
+        })];
+        let mut filters =
+            vec![serde_json::from_value::<nostr::Filter>(raw[0].clone()).expect("calendar filter")];
+
+        expand_owned_calendar_authors(
+            &raw,
+            &mut filters,
+            &[owner.to_bytes().to_vec(), agent.to_bytes().to_vec()],
+        );
+
+        let authors = filters[0].authors.as_ref().expect("expanded authors");
+        assert_eq!(authors.len(), 2);
+        assert!(authors.contains(&owner));
+        assert!(authors.contains(&agent));
+        assert!(!authors.contains(&attacker));
+        assert!(crate::handlers::req::calendar_filters_authorized(
+            &filters,
+            &[owner.to_bytes().to_vec(), agent.to_bytes().to_vec()]
+        ));
+    }
+
+    #[test]
+    fn owned_calendar_extension_does_not_expand_non_calendar_filters() {
+        let owner = Keys::generate().public_key();
+        let raw = vec![serde_json::json!({"kinds": [9], "owned_authors": true})];
+        let mut filters =
+            vec![serde_json::from_value::<nostr::Filter>(raw[0].clone()).expect("message filter")];
+
+        expand_owned_calendar_authors(&raw, &mut filters, &[owner.to_bytes().to_vec()]);
+
+        assert!(filters[0].authors.is_none());
     }
 
     fn fresh_tenant(host: &str) -> TenantContext {
