@@ -120,10 +120,10 @@ Web `Desktop settings` 当前存在三层 surface：
 
 ### 10.3 追加 Todo List
 
-- [ ] `web/src/features/settings/SettingsPage.tsx`：删除 Desktop settings 最内层灰色说明卡片，将说明文字直接放入 option group。
-- [ ] `web/tests/e2e/work-console.spec.ts`：断言 Desktop settings 只有一个内层 option group，不存在嵌套 border/background card。
-- [ ] `web/tests/e2e/desktop-parity.visual.spec.ts`：增加 Desktop settings Light/Dark 视觉基线。
-- [ ] `docs/2026-08-09-web-settings-container-spacing-parity-plan.md`：记录补漏修复的测试、commit、部署号与公网资源版本。
+- [x] `web/src/features/settings/SettingsPage.tsx`：删除 Desktop settings 最内层灰色说明卡片，将说明文字直接放入 option group。
+- [x] `web/tests/e2e/work-console.spec.ts`：断言 Desktop settings 只有一个内层 option group，不存在嵌套 border/background card。
+- [x] `web/tests/e2e/desktop-parity.visual.spec.ts`：增加 Desktop settings Light/Dark 视觉基线。
+- [x] `docs/2026-08-09-web-settings-container-spacing-parity-plan.md`：记录补漏修复的测试、commit、部署号与公网资源版本。
 
 ### 10.4 追加验收标准
 
@@ -135,3 +135,12 @@ Web `Desktop settings` 当前存在三层 surface：
 ## 十一、补漏确认门
 
 鹿鹿子大王确认后，再修改 Desktop settings 子页面、补测试、提交并重新部署。
+
+## 十二、Desktop settings 补漏完成记录
+
+- 代码提交：`c8b8bb252`；
+- Desktop settings 最内层 `border / rounded / muted background` 已删除，说明文字直接位于 option group；
+- CSS 几何断言确认说明内容 `border-top-width: 0`、`border-radius: 0`、背景透明；
+- Desktop settings Light/Dark 两张视觉基线已生成并复跑通过；
+- 完整 Chrome、iPad 横屏、iPad 竖屏矩阵：123/123 通过；
+- Cloudflare Pages 部署：`7f0a32b4`；生产资源：`index-BHniTgul.js`、`index-CejEDruc.css`；自定义域名已确认切换。
