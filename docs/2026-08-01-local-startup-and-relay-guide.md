@@ -1,5 +1,5 @@
-> 更新日期：2026-08-08
-> 更新说明：在 Desktop dev 启动说明基础上，增加 Web/PWA 本地开发、Pair/Remote Signer、Cloudflare Tunnel 公网入口、Cloudflare Pages 线上部署、版本验证和排障流程；补充配对后真实工作数据加载、完整 E2E 矩阵和 signer 离线恢复说明；增加 `/signer` 25 秒心跳与公网五分钟稳定性验收。
+> 更新日期：2026-08-09
+> 更新说明：核对并更新当前实际运行配置；明确 Web 使用 NIP-98 HTTP 查询与 NIP-42 WebSocket 实时链路、补齐 CORS 配置、修正本地 Service Worker 验证方式，并增加全局搜索、DM 头像、外部头像 CSP、断线自动恢复与必须重新 Pair 的边界说明。
 
 # Buzz 本地启动与 Web 部署指南
 
@@ -16,7 +16,7 @@ Web 界面不直接获取用户私钥。首次使用时，用户在 Desktop 生�
 - Web 保存本设备可撤销的 device key 和 Remote Signer 连接信息；
 - Desktop 保留 user key，并只为已授权的 Web 设备执行白名单签名；
 - Relay 负责数据与实时事件；
-- Web 使用同一 User Pubkey 完成 Relay NIP-42 AUTH，读取 Channels、消息、Calendar、Tasks、Tracks 和 Agent Activity；
+- Web 使用同一 User Pubkey：通过 NIP-98 签名的 HTTP `/query` 读取 Channels、消息、Calendar、Tasks、Tracks、Profile 和历史搜索结果，并通过 NIP-42 WebSocket AUTH 接收当前会话的实时事件；
 - Pair 和 Remote Signer 使用独立的短时/单播通道，不把私钥发到 Pages 或 Relay 数据库。
 
 ## 二、当前运行配置
@@ -55,6 +55,7 @@ just setup
 BUZZ_BIND_ADDR=0.0.0.0:3200
 RELAY_URL=wss://achoverse.xyz
 BUZZ_MEDIA_BASE_URL=https://achoverse.xyz/media
+BUZZ_CORS_ORIGINS=https://achoverse.xyz,https://app.achoverse.xyz
 ```
 
 不要把 `.env` 中的私钥、数据库密码或对象存储密钥复制进文档或提交到 Git。
@@ -194,7 +195,16 @@ http://localhost:5173/app/channels
 http://localhost:5173/app/pair
 ```
 
-`localhost` 可作为安全上下文调试 Service Worker。若从同一局域网的 iPad 直接访问 Mac IP，普通 HTTP 不等同于生产 HTTPS，PWA 安装和某些 Web Crypto 能力可能受限。iPad 端完整验收应优先使用 `https://app.achoverse.xyz`。
+`pnpm dev` 使用 Vite development mode，Web 代码会主动跳过 Service Worker 注册，因此只能调试页面、Pair、Relay 和业务交互，不能用于验证离线壳或 Service Worker 更新。若要在 localhost 验证生产 PWA：
+
+```bash
+cd /Users/lu/buzz/web
+. ../bin/activate-hermit
+pnpm build
+pnpm preview --host 127.0.0.1
+```
+
+默认预览入口为 `http://127.0.0.1:4173/app/channels`。localhost/127.0.0.1 可作为安全上下文；若从同一局域网的 iPad 直接访问 Mac IP，普通 HTTP 不等同于生产 HTTPS，PWA 安装和某些 Web Crypto 能力可能受限。iPad 端完整验收应优先使用 `https://app.achoverse.xyz`。
 
 ## 五、启动后的检查
 
@@ -262,7 +272,7 @@ pnpm check
 pnpm test:e2e:smoke
 ```
 
-`test:e2e:smoke` 会先生成 E2E 专用 `web/dist`，并验证 PWA shell、iPad 布局、Pair 入口、NIP-AB SAS 互操向量、NIP-46 返回值防篡改、Relay 查询约束、领域事件解析和五个工作台入口。正式部署前再执行一次 `pnpm build`，确保测试 fixture 不进入生产产物。任一命令失败都不应继续部署。
+`test:e2e:smoke` 会先生成 E2E 专用 `web/dist`。当前 smoke 共 86 项，覆盖 PWA shell、iPad 布局、Pair 入口、NIP-AB SAS 互操向量、NIP-46 返回值防篡改、NIP-98/Relay 查询约束、领域事件解析、全局搜索与历史消息定位、Channel members、DM Header 头像、Inbox、Calendar、Task Execute、Track 详情、Settings、外部头像 CSP 以及 Light/Dark 视觉回归。正式部署前必须再执行一次 `pnpm build`，确保测试 fixture 不进入生产产物。任一命令失败都不应继续部署。
 
 完整 iPad 横屏、竖屏矩阵使用：
 
@@ -319,6 +329,15 @@ curl --fail --silent --show-error \
 
 两者文件名一致，说明自定义域名已获取新版本。查询参数只用于绕过边缘 HTML 缓存，不参与业务逻辑。
 
+截至 2026-08-09，当前生产部署记录为：
+
+```text
+Deployment: ee7fa872-9639-4410-99c4-ea8dfd9103c9
+Asset:      index-DPWJJbSP.js
+```
+
+该记录只用于判断本文核验时的线上版本；下一次成功部署后，应以 Wrangler 返回的新 deployment id 和实际 hashed asset 为准。
+
 ### 6.4 PWA 更新注意事项
 
 如果 iPad 主屏幕上仍显示旧页面：
@@ -347,12 +366,30 @@ curl --fail --silent --show-error \
 | SAS 两边不一致 | 立即拒绝，确认 Web 是最新版，重新生成 Pair Link；不得绕过 SAS |
 | SAS 一致但 signer 超时 | 5001 端口、`/signer` ingress、Desktop 是否仍在运行 |
 | 约两分钟后 signer 断开 | 查看 `buzz-pair-relay.log` 的 `duration_ms`；Desktop 和 Web 应每 25 秒发送心跳，不应持续出现约 125 秒的空闲关闭 |
-| Pair 成功但页面没有数据 | 先刷新 `/app/channels`；确认 Desktop signer 在线、`VITE_RELAY_URL=wss://achoverse.xyz`，再检查 Relay AUTH 和浏览器控制台；不要重新导入 user nsec |
-| 重启 Desktop 后 Web 提示 signer 离线 | 当前授权由 Desktop 进程持有；重新打开 Desktop，若授权记录已失效则生成新的 Web Pair Link 重新配对 |
+| Pair 成功但页面没有数据 | 先刷新 `/app/channels`；确认 Desktop signer 在线、`VITE_RELAY_URL=wss://achoverse.xyz`，再分别检查 NIP-98 `/query`、NIP-42 AUTH 和浏览器控制台；不要重新导入 user nsec |
+| Web 短时断网或 `/signer` 连接被重置 | Desktop 会以 250ms～5s 退避自动重连，Web 会在下一次只读请求时重新打开 signer socket；等待网络恢复后刷新或重试，不需要重新 Pair |
+| Web 搜索 Channel/Agent 正常，但历史消息搜索失败 | 本地实体搜索不需要新签名；Relay NIP-50 历史搜索需要 Desktop signer 在线并为 NIP-98 `/query` 签名 |
+| 重启 Desktop 后 Web 提示 signer 离线 | Web device credential 虽保存在浏览器 IndexedDB，但 Desktop 授权当前只存在于运行内存；Desktop 进程重启后必须生成新的 Web Pair Link 重新 Pair |
+| Agent 头像 URL 能直接打开，但 Web 只显示 initials | 检查 Pages CSP 的 `img-src` 是否包含批准的头像域名；当前允许 `https://xianghuzuoyongli.oss-cn-beijing.aliyuncs.com` |
 | Pages 单次地址是新版，自定义域名是旧版 | 对比 hashed asset，等待边缘更新或使用查询参数再验证 |
 | Wrangler 提示未登录 | 执行 `npx --yes wrangler login` 重新授权 |
 
 公网 signer 改动后的最低人工验收是：保持 Desktop 和 Web 打开至少五分钟，在开始和结束时分别刷新一次 Channels、Tasks 或 Tracks。两次都应直接成功，不得要求重新 Pair。
+
+### 8.1 断连后是否必须重新 Pair
+
+Pair 与连接恢复是两件事。Pair 建立 Web device key、Desktop signer pubkey 和授权关系；普通 WebSocket 断线只影响传输。当前规则如下：
+
+| 场景 | 是否重新 Pair | 操作 |
+| --- | --- | --- |
+| Web 刷新、关闭标签页后重新打开 | 否 | 浏览器从 IndexedDB 恢复 device credential，并重新连接 `/signer` |
+| Web 或 Mac 短时断网、Tunnel 重连、WebSocket reset | 否 | 等待自动重连；失败中的操作手工重试或刷新页面 |
+| signer 在发送/签名中途断开 | 通常否 | 为避免重复发送，不自动重放写操作；网络恢复后由用户明确重试 |
+| Pair/Signer sidecar 重启，但 Desktop 进程未退出 | 否 | Desktop signer 自动退避重连，Web 下一次只读请求重新建连 |
+| Desktop 应用进程退出或重启 | **是** | 当前 Desktop signer 授权仅存运行内存，重新生成 Pair Link 并完成 SAS |
+| 用户在 Settings 撤销 Paired device | **是** | 撤销后必须使用新 Pair Link 授权 |
+| 浏览器清除网站数据、IndexedDB 丢失或更换浏览器/Profile | **是** | Web device credential 已丢失，需要重新 Pair |
+| Desktop user key 与已保存的 user pubkey 不一致 | **是** | Web 会清除不匹配凭证，确认账号后重新 Pair |
 
 ## 九、Todolist
 
