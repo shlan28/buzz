@@ -1,5 +1,5 @@
 > 更新日期：2026-08-09
-> 更新说明：修复 Web Settings 的容器层级与操作区间距，对齐 Desktop 的双层 Settings surface；Appearance 移除多余背景框，Connection 和 Paired device 按钮不再贴底边。
+> 更新说明：修复 Web Settings 的容器层级与操作区间距，对齐 Desktop 的双层 Settings surface；Appearance 移除多余背景框，Connection 和 Paired device 按钮不再贴底边；补充遗漏的 Desktop settings 三层框修复。
 
 # Web Settings 容器与间距对齐方案
 
@@ -96,3 +96,42 @@ Web 的 Settings 页面必须保留：
 - `pnpm check`、TypeScript、production/E2E build 通过；完整 Chrome、iPad 横屏、iPad 竖屏矩阵 121/121 通过；
 - Appearance、Connection、Paired device 共六张 Light/Dark 视觉基线已生成并复跑通过；
 - Cloudflare Pages 部署：`ad7dd353`；生产资源：`index-ByRVeFtC.js`、`index-CejEDruc.css`。
+
+## 十、Desktop settings 遗漏修复
+
+### 10.1 当前问题
+
+Web `Desktop settings` 当前存在三层 surface：
+
+1. `DesktopParityAppShell` 的外层 content surface；
+2. `Panel` 生成的 option group；
+3. option group 内部再次创建的 `rounded-xl border bg-muted/30` 灰色说明卡片。
+
+第三层灰框没有新的交互或信息分组价值，只是重复包裹一段说明文字，因此应删除。
+
+### 10.2 修复结构
+
+- 保留外层 Settings content surface；
+- 保留 Desktop settings 的内层 option group；
+- 说明文字直接作为 option group 内容，使用 `px-4 py-4`；
+- 移除说明文字自己的 border、rounded、background；
+- 保持现有文字、换行和只读语义，不新增跳转或虚假 Desktop 控件；
+- Light/Dark 下内层 option group 的背景与 Profile、Connection、Paired device 使用同一规则。
+
+### 10.3 追加 Todo List
+
+- [ ] `web/src/features/settings/SettingsPage.tsx`：删除 Desktop settings 最内层灰色说明卡片，将说明文字直接放入 option group。
+- [ ] `web/tests/e2e/work-console.spec.ts`：断言 Desktop settings 只有一个内层 option group，不存在嵌套 border/background card。
+- [ ] `web/tests/e2e/desktop-parity.visual.spec.ts`：增加 Desktop settings Light/Dark 视觉基线。
+- [ ] `docs/2026-08-09-web-settings-container-spacing-parity-plan.md`：记录补漏修复的测试、commit、部署号与公网资源版本。
+
+### 10.4 追加验收标准
+
+- Desktop settings 总共只保留外层 content surface + 内层 option group；
+- 说明文字外不存在第三层灰框、第三层 border 或第三层 rounded card；
+- 与其他 Settings 子页面的内容宽度、内边距和边框颜色一致；
+- 完整浏览器矩阵与 Desktop settings Light/Dark 基线通过后再部署。
+
+## 十一、补漏确认门
+
+鹿鹿子大王确认后，再修改 Desktop settings 子页面、补测试、提交并重新部署。
