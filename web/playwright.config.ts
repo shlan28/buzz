@@ -29,6 +29,7 @@ export default defineConfig({
         "**/relay-session.spec.ts",
         "**/message-send.spec.ts",
         "**/inbox-projection.spec.ts",
+        "**/channel-members.spec.ts",
         "**/task-execution.spec.ts",
         "**/desktop-parity.visual.spec.ts",
       ],

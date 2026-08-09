@@ -119,6 +119,17 @@ export async function installWorkConsoleFixture(page: Page) {
         ],
         "11111111-1111-4111-8111-111111111111": [userPubkey, "22".repeat(32)],
       },
+      channelMembersByChannelId: {
+        "00000000-0000-4000-8000-000000000001": [
+          { pubkey: userPubkey, role: "owner" },
+          { pubkey: "22".repeat(32), role: "bot" },
+          { pubkey: "33".repeat(32), role: "member" },
+        ],
+        "11111111-1111-4111-8111-111111111111": [
+          { pubkey: userPubkey, role: "member" },
+          { pubkey: "22".repeat(32), role: "bot" },
+        ],
+      },
       calendar: [
         {
           id: "event-1",

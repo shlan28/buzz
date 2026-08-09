@@ -29,6 +29,7 @@ function data(): WorkConsoleData {
       },
     },
     membersByChannelId: {},
+    channelMembersByChannelId: {},
     channels: [
       {
         id: channelId,

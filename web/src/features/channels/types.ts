@@ -10,6 +10,11 @@ export type Channel = {
   displayName: string;
   updatedAt: number;
 };
+export type ChannelMemberRole = "owner" | "admin" | "member" | "guest" | "bot";
+export type ChannelMember = {
+  pubkey: string;
+  role: ChannelMemberRole;
+};
 export type Message = {
   id: string;
   kind: number;

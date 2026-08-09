@@ -37,3 +37,30 @@ for (const path of ["/app/tracks/track-1", "/app/inbox?item=message-2"]) {
     await expect(page.getByTestId("content-surface")).toBeVisible();
   });
 }
+
+for (const viewport of [
+  { width: 1180, height: 820, compact: false },
+  { width: 600, height: 900, compact: true },
+]) {
+  test(`fits Channel members at ${viewport.width}x${viewport.height}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport);
+    await page.goto("/app/channels/00000000-0000-4000-8000-000000000001");
+    await page
+      .getByRole("button", { name: "View channel members (3)" })
+      .click();
+    const panel = page.getByTestId("channel-members-panel");
+    await expect(panel).toBeVisible();
+    const panelWidth = (await panel.boundingBox())?.width ?? 0;
+    const contentWidth =
+      (await page.getByTestId("content-surface").boundingBox())?.width ?? 0;
+    expect(panelWidth).toBeCloseTo(viewport.compact ? contentWidth : 320, 0);
+    const overflow = await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth >
+        document.documentElement.clientWidth,
+    );
+    expect(overflow).toBe(false);
+  });
+}

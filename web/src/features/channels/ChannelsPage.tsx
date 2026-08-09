@@ -7,6 +7,7 @@ import {
   SendHorizontal,
   Smile,
   Plus,
+  Users,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { publishChannelMessage } from "@/shared/api/messagePublish";
@@ -23,6 +24,7 @@ import {
 import { useMessageScroll } from "@/features/messages/useMessageScroll";
 import { ProfileAvatar } from "@/shared/ui/ProfileAvatar";
 import type { Message } from "./types";
+import { ChannelMembersPanel } from "./ChannelMembersPanel";
 
 export function ChannelsPage() {
   const { state, refresh } = useWorkConsoleData();
@@ -31,6 +33,7 @@ export function ChannelsPage() {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [mentionPubkeys, setMentionPubkeys] = useState<string[]>([]);
+  const [membersChannelId, setMembersChannelId] = useState<string>();
   const [optimisticMessages, setOptimisticMessages] = useState<Message[]>([]);
   const [deliveryByChannel, setDeliveryByChannel] = useState<
     Record<string, DeliveryState & { sentAt?: number; eventId?: string }>
@@ -247,7 +250,7 @@ export function ChannelsPage() {
         </div>
       ) : (
         <div
-          className="flex min-h-0 flex-1 flex-col"
+          className="relative flex min-h-0 flex-1 flex-col"
           data-testid="channel-screen"
         >
           <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4">
@@ -269,8 +272,19 @@ export function ChannelsPage() {
               )}
             </div>
             <button
+              aria-label={`View channel members (${state.data.channelMembersByChannelId[channel.id]?.length ?? 0})`}
+              className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+              onClick={() => setMembersChannelId(channel.id)}
+              type="button"
+            >
+              <Users className="size-4" />
+              <span className="min-w-[1ch] tabular-nums">
+                {state.data.channelMembersByChannelId[channel.id]?.length ?? 0}
+              </span>
+            </button>
+            <button
               aria-label="Refresh messages"
-              className="ml-auto rounded-md p-2 text-muted-foreground hover:bg-muted"
+              className="rounded-md p-2 text-muted-foreground hover:bg-muted"
               disabled={state.refreshing}
               onClick={refresh}
               type="button"
@@ -477,6 +491,14 @@ export function ChannelsPage() {
               </div>
             </div>
           </footer>
+          {membersChannelId === channel.id ? (
+            <ChannelMembersPanel
+              currentPubkey={state.data.userPubkey}
+              members={state.data.channelMembersByChannelId[channel.id] ?? []}
+              onClose={() => setMembersChannelId(undefined)}
+              profiles={state.data.profilesByPubkey}
+            />
+          ) : null}
         </div>
       )}
     </DesktopParityAppShell>

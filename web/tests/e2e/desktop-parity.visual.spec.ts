@@ -41,4 +41,19 @@ for (const theme of ["light", "dark"] as const) {
       );
     });
   }
+
+  test(`keeps the Channel members ${theme} appearance`, async ({ page }) => {
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await page.goto(
+      `/app/channels/00000000-0000-4000-8000-000000000001?previewTheme=${theme}`,
+    );
+    await page
+      .getByRole("button", { name: "View channel members (3)" })
+      .click();
+    await waitForAnimations(page);
+    await expect(page.getByTestId("content-surface")).toHaveScreenshot(
+      `channel-members-${theme}.png`,
+      { animations: "disabled", maxDiffPixelRatio: 0.005 },
+    );
+  });
 }

@@ -1,7 +1,12 @@
 import { parseCalendarItem } from "@/features/calendar/eventCodec";
 import type { CalendarItem } from "@/features/calendar/types";
 import { parseChannel, parseMessage } from "@/features/channels/eventCodec";
-import type { Channel, Message } from "@/features/channels/types";
+import type {
+  Channel,
+  ChannelMember,
+  ChannelMemberRole,
+  Message,
+} from "@/features/channels/types";
 import { channelDisplayName } from "@/features/channels/channelLabels";
 import { buildProfileLookup } from "@/features/profile/eventCodec";
 import type { ProfileLookup, UserProfile } from "@/features/profile/types";
@@ -26,6 +31,7 @@ export type WorkConsoleData = {
   currentProfile?: UserProfile;
   profilesByPubkey: ProfileLookup;
   membersByChannelId: Record<string, string[]>;
+  channelMembersByChannelId: Record<string, ChannelMember[]>;
   channels: Channel[];
   messages: Message[];
   calendar: CalendarItem[];
@@ -62,16 +68,22 @@ export async function loadWorkConsoleData(): Promise<WorkConsoleData> {
       (event) => event.kind === KINDS.channelMembership,
     );
     const membersByChannelId: Record<string, string[]> = {};
+    const channelMembersByChannelId: Record<string, ChannelMember[]> = {};
     for (const event of membershipEvents) {
       const channelId = event.tags.find((tag) => tag[0] === "d")?.[1];
       if (!channelId) continue;
-      membersByChannelId[channelId] = [
-        ...new Set(
-          event.tags
-            .filter((tag) => tag[0] === "p" && tag[1])
-            .map((tag) => tag[1].toLowerCase()),
-        ),
-      ];
+      const members = new Map<string, ChannelMember>();
+      for (const tag of event.tags) {
+        if (tag[0] !== "p" || !tag[1]) continue;
+        const pubkey = tag[1].toLowerCase();
+        if (!/^[0-9a-f]{64}$/.test(pubkey)) continue;
+        members.set(pubkey, {
+          pubkey,
+          role: parseChannelMemberRole(tag[3]),
+        });
+      }
+      channelMembersByChannelId[channelId] = [...members.values()];
+      membersByChannelId[channelId] = [...members.keys()];
     }
     const memberChannelIds = new Set(Object.keys(membersByChannelId));
     const visibility = events
@@ -85,7 +97,12 @@ export async function loadWorkConsoleData(): Promise<WorkConsoleData> {
     const channels = allChannels
       .filter(
         (channel) =>
-          memberChannelIds.has(channel.id) &&
+          (memberChannelIds.has(channel.id) ||
+            (channel.channelType === "dm" &&
+              channel.participantPubkeys.some(
+                (pubkey) =>
+                  pubkey.toLowerCase() === signer.userPubkey.toLowerCase(),
+              ))) &&
           channel.archivedAt === null &&
           (channel.channelType !== "dm" || !hiddenDmIds.has(channel.id)),
       )
@@ -126,12 +143,28 @@ export async function loadWorkConsoleData(): Promise<WorkConsoleData> {
         profilesByPubkey,
       ),
     }));
+    for (const channel of visibleChannels) {
+      if (
+        channel.channelType === "dm" &&
+        (channelMembersByChannelId[channel.id]?.length ?? 0) === 0
+      ) {
+        channelMembersByChannelId[channel.id] = [
+          ...new Set(
+            channel.participantPubkeys.map((pubkey) => pubkey.toLowerCase()),
+          ),
+        ].map((pubkey) => ({ pubkey, role: "member" }));
+        membersByChannelId[channel.id] = channelMembersByChannelId[
+          channel.id
+        ].map((member) => member.pubkey);
+      }
+    }
     return {
       userPubkey: signer.userPubkey,
       relaySelfPubkey,
       currentProfile: profilesByPubkey[signer.userPubkey.toLowerCase()],
       profilesByPubkey,
       membersByChannelId,
+      channelMembersByChannelId,
       channels: visibleChannels,
       messages: sortMessagesForTimeline(messages),
       calendar: latestByCoordinate(
@@ -209,4 +242,13 @@ export function workConsoleCalendarFilters(): NostrFilter[] {
 
 function isPresent<T>(value: T | null): value is T {
   return value !== null;
+}
+
+function parseChannelMemberRole(value?: string): ChannelMemberRole {
+  return value === "owner" ||
+    value === "admin" ||
+    value === "guest" ||
+    value === "bot"
+    ? value
+    : "member";
 }
