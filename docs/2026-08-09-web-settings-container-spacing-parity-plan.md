@@ -65,12 +65,12 @@ Web 的 Settings 页面必须保留：
 
 ## 六、Todo List
 
-- [ ] `web/src/features/settings/SettingsPage.tsx`：增加 plain/option-group 两种内容布局，移除 Appearance 外框，并为 Connection/Paired device 增加 actions footer padding。
-- [ ] `web/tests/e2e/work-console.spec.ts`：覆盖 Appearance 无整组背景框、Settings 两层 surface 和两个操作按钮的底部间距。
-- [ ] `web/tests/e2e/ipad-layout.spec.ts`：覆盖三项 Appearance 同排、操作按钮不溢出及窄屏 Settings 无横向滚动。
-- [ ] `web/tests/e2e/desktop-parity.visual.spec.ts`：增加 Appearance、Connection、Paired device 的 Light/Dark Settings 视觉基线。
-- [ ] `web/playwright.config.ts`：确认 Settings 视觉与布局测试进入 smoke project。
-- [ ] `docs/2026-08-09-web-settings-container-spacing-parity-plan.md`：记录测试、commit、部署号与公网资源版本。
+- [x] `web/src/features/settings/SettingsPage.tsx`：增加 plain/option-group 两种内容布局，移除 Appearance 外框，并为 Connection/Paired device 增加 actions footer padding。
+- [x] `web/tests/e2e/work-console.spec.ts`：覆盖 Appearance 无整组背景框、Settings 两层 surface 和两个操作按钮的底部间距。
+- [x] `web/tests/e2e/ipad-layout.spec.ts`：覆盖三项 Appearance 同排、操作按钮不溢出及窄屏 Settings 无横向滚动。
+- [x] `web/tests/e2e/desktop-parity.visual.spec.ts`：增加 Appearance、Connection、Paired device 的 Light/Dark Settings 视觉基线。
+- [x] `web/playwright.config.ts`：Settings 视觉与布局测试已通过现有 smoke testMatch 纳入门禁，无需配置变更。
+- [x] `docs/2026-08-09-web-settings-container-spacing-parity-plan.md`：记录测试、commit、部署号与公网资源版本。
 
 ## 七、验收标准
 
@@ -85,3 +85,14 @@ Web 的 Settings 页面必须保留：
 ## 八、确认门
 
 鹿鹿子大王确认后，再修改 Web Settings 代码、补测试、提交并部署。
+
+## 九、完成记录
+
+- 代码提交：`5c8bd4f76`；
+- Appearance mode selector 已移除整组背景框，仅保留三个独立选项按钮；
+- Profile、Connection、Paired device 继续保留外层 content surface + 内层 option group 两层结构；
+- Connection 与 Paired device 操作区使用独立 footer spacing，几何测试确认按钮与底边至少 16px；
+- Compact iPad 下三项 Appearance 同排且无横向溢出；
+- `pnpm check`、TypeScript、production/E2E build 通过；完整 Chrome、iPad 横屏、iPad 竖屏矩阵 121/121 通过；
+- Appearance、Connection、Paired device 共六张 Light/Dark 视觉基线已生成并复跑通过；
+- Cloudflare Pages 部署：`ad7dd353`；生产资源：`index-ByRVeFtC.js`、`index-CejEDruc.css`。
