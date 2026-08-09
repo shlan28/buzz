@@ -213,7 +213,10 @@ export function SettingsPage() {
               title="Desktop settings"
               description="These settings control software and secrets stored on your Mac."
             >
-              <div className="rounded-xl border border-border bg-muted/30 p-4 text-sm leading-6 text-muted-foreground">
+              <div
+                className="py-4 text-sm leading-6 text-muted-foreground"
+                data-testid="desktop-settings-copy"
+              >
                 Agent runtimes, model API keys, harnesses, local archive, sleep
                 prevention and app updates must be managed in Buzz Desktop. Web
                 does not expose fake controls for Mac-local secrets.

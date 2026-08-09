@@ -57,7 +57,12 @@ for (const theme of ["light", "dark"] as const) {
     );
   });
 
-  for (const section of ["Appearance", "Connection", "Paired device"]) {
+  for (const section of [
+    "Appearance",
+    "Connection",
+    "Paired device",
+    "Desktop settings",
+  ]) {
     test(`keeps the Settings ${section} ${theme} appearance`, async ({
       page,
     }) => {

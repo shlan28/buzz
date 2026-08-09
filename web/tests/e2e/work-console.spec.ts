@@ -90,6 +90,15 @@ test("matches Desktop Settings container layers and action spacing", async ({
         ((actionControlBox?.y ?? 0) + (actionControlBox?.height ?? 0)),
     ).toBeGreaterThanOrEqual(15);
   }
+
+  await page.getByRole("button", { name: "Desktop settings" }).click();
+  await expect(page.locator('[data-settings-option-group="true"]')).toHaveCount(
+    1,
+  );
+  const copy = page.getByTestId("desktop-settings-copy");
+  await expect(copy).toHaveCSS("border-top-width", "0px");
+  await expect(copy).toHaveCSS("border-radius", "0px");
+  await expect(copy).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
 });
 
 test("keeps Execute as the only Task write action", async ({ page }) => {
