@@ -2,7 +2,7 @@
 
 > 更新日期：2026-08-09
 >
-> 更新说明：针对 Web 侧边栏 Search 仅有静态外观、无法执行搜索，以及 DM 详情 Header 未展示参与者头像的问题，完成现状核查并制定与 Desktop 交互和视觉一致的修复方案。
+> 更新说明：完成 Web 全局搜索、历史消息定位、一对一/群组 DM Header 头像、自动化测试、Cloudflare Pages 部署与正式域名产物核验。
 
 ## 一、用户体验目标
 
@@ -88,20 +88,30 @@ Desktop 一对一 DM 使用 32px 参与者头像并叠加 presence；群组 DM �
 
 ## 六、Todo
 
-- [ ] `web/src/shared/lib/nostr-client.ts`：为 Web 使用的 Nostr filter 类型补充 NIP-50 `search`、搜索模式和分页字段，保持 kinds 强约束由调用层执行。
-- [ ] `web/src/features/search/types.ts`：定义 Channel、People、Message 搜索结果及加载、空、错误状态。
-- [ ] `web/src/features/search/searchSession.ts`：实现本地实体匹配、NIP-50 Relay 查询、验签后结果投影、debounce 竞态保护所需的纯逻辑接口。
-- [ ] `web/src/features/search/WebGlobalSearch.tsx`：实现与 Desktop 对齐的搜索 Dialog、分区结果、头像、键盘/触控交互和状态反馈。
-- [ ] `web/src/features/sidebar/WebAppSidebar.tsx`：把静态 Search 改为可访问入口，接入 Dialog 与 `⌘K`/`Ctrl+K`。
-- [ ] `web/src/features/channels/ChannelsPage.tsx`：增加一对一/群组 DM Header 头像，并支持搜索消息目标的滚动与高亮。
-- [ ] `web/tests/e2e/search-session.spec.ts`：覆盖搜索过滤器 kinds、实体匹配、消息投影、旧请求失效和错误隔离。
-- [ ] `web/tests/e2e/work-console.spec.ts`：覆盖 Search 点击/快捷键、结果导航和一对一/群组 DM Header 头像。
-- [ ] `web/tests/e2e/ipad-layout.spec.ts`：覆盖紧凑侧边栏搜索入口、搜索面板和 DM Header 在横竖屏的布局。
-- [ ] `web/tests/e2e/desktop-parity.visual.spec.ts`：增加 Search Dialog 与 DM Header 的 Light/Dark 视觉基线。
-- [ ] `web/playwright.config.ts`：把新增搜索逻辑测试纳入 smoke project。
-- [ ] `docs/2026-08-09-web-search-and-dm-header-avatar-plan.md`：实现后记录测试结果、commit、部署号和线上验收结果。
+- [x] `web/src/shared/lib/nostr-client.ts`：为 Web 使用的 Nostr filter 类型补充 NIP-50 `search`、搜索模式和分页字段，保持 kinds 强约束由调用层执行。
+- [x] `web/src/features/search/types.ts`：定义 Channel、People、Message 搜索结果及加载、空、错误状态。
+- [x] `web/src/features/search/searchSession.ts`：实现本地实体匹配、NIP-50 Relay 查询、验签后结果投影、debounce 竞态保护所需的纯逻辑接口。
+- [x] `web/src/features/search/WebGlobalSearch.tsx`：实现与 Desktop 对齐的搜索 Dialog、分区结果、头像、键盘/触控交互和状态反馈。
+- [x] `web/src/features/sidebar/WebAppSidebar.tsx`：把静态 Search 改为可访问入口，接入 Dialog 与 `⌘K`/`Ctrl+K`。
+- [x] `web/src/features/channels/ChannelsPage.tsx`：增加一对一/群组 DM Header 头像，并支持搜索消息目标的滚动与高亮。
+- [x] `web/tests/e2e/search-session.spec.ts`：覆盖搜索过滤器 kinds、实体可见范围、输入归一化与长度上限。
+- [x] `web/tests/e2e/work-console.spec.ts`：覆盖 Search 点击/快捷键、历史消息精确导航和一对一/群组 DM Header 头像。
+- [x] `web/tests/e2e/ipad-layout.spec.ts`：覆盖紧凑侧边栏搜索入口、搜索面板和无横向溢出。
+- [x] `web/tests/e2e/desktop-parity.visual.spec.ts`：增加 Search Dialog 与 DM Header 的 Light/Dark 视觉基线。
+- [x] `web/playwright.config.ts`：把新增搜索逻辑测试纳入 smoke project。
+- [x] `docs/2026-08-09-web-search-and-dm-header-avatar-plan.md`：记录测试结果、commit、部署号和线上验收结果。
 
 ## 七、建设性建议
 
 不建议只给 Search `div` 加一个简单本地过滤弹窗。这样虽然能“点开”，但仍然搜不到未加载的历史消息，会再次形成半成品。应一次完成“本地实体即时搜索 + Relay NIP-50 历史消息搜索 + 结果导航定位”的闭环；同时严格限制消息 kinds 和可见 Channel 范围。
 
+## 八、实现与验收记录
+
+- 实现 commit：`07f42ee0f feat(web): add global search and DM header avatars`。
+- Cloudflare Pages 部署：`ee7fa872-9639-4410-99c4-ea8dfd9103c9`。
+- 单次部署地址：`https://ee7fa872.achoverse-app.pages.dev`。
+- 正式入口：`https://app.achoverse.xyz`。
+- 单次部署地址与正式入口均返回生产产物 `index-DPWJJbSP.js`，确认自定义域名已切换。
+- `pnpm typecheck`、`pnpm check`、`pnpm test:e2e:smoke` 和 `pnpm build` 全部通过；smoke 共 `86 passed`。
+- 自动化已覆盖 NIP-50 kind-scoped filter、本地可见实体、Search 点击与快捷键、历史消息精确定位/高亮、群组 `+N` 头像栈、iPad 布局及 Light/Dark 视觉回归。
+- 真实账号的 Relay FTS 结果依赖浏览器 Pair 状态、Mac signer 和 Relay 索引；部署后由用户刷新已 Pair 的正式入口进行最终数据验收。
