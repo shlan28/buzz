@@ -24,6 +24,26 @@ for (const viewport of [
   });
 }
 
+test("keeps Settings controls aligned on compact iPad", async ({ page }) => {
+  await page.setViewportSize({ width: 600, height: 900 });
+  await page.goto("/app/settings");
+  await page.getByRole("button", { name: "Appearance" }).click();
+  const buttons = page
+    .getByTestId("appearance-mode-selector")
+    .getByRole("button");
+  await expect(buttons).toHaveCount(3);
+  const boxes = await Promise.all(
+    [0, 1, 2].map((index) => buttons.nth(index).boundingBox()),
+  );
+  expect(new Set(boxes.map((box) => Math.round(box?.y ?? -1))).size).toBe(1);
+  const overflow = await page.evaluate(
+    () =>
+      document.documentElement.scrollWidth >
+      document.documentElement.clientWidth,
+  );
+  expect(overflow).toBe(false);
+});
+
 for (const path of ["/app/tracks/track-1", "/app/inbox?item=message-2"]) {
   test(`keeps ${path} inside the iPad viewport`, async ({ page }) => {
     await page.setViewportSize({ width: 820, height: 1180 });

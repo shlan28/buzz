@@ -118,11 +118,16 @@ export function SettingsPage() {
             <Panel
               title="Appearance"
               description="Choose how Buzz looks on this browser."
+              framed={false}
             >
-              <div className="grid grid-cols-3 gap-3">
+              <div
+                className="grid grid-cols-3 gap-2 sm:gap-3"
+                data-testid="appearance-mode-selector"
+              >
                 {(["system", "light", "dark"] as const).map((value) => (
                   <button
-                    className={`rounded-xl border p-4 text-sm capitalize ${theme === value ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border hover:bg-muted"}`}
+                    aria-pressed={theme === value}
+                    className={`min-h-10 rounded-lg border px-3 py-2 text-sm font-medium capitalize transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${theme === value ? "border-primary bg-primary/10 text-foreground" : "border-border/70 text-muted-foreground hover:border-border hover:text-foreground"}`}
                     key={value}
                     onClick={() => setTheme(value)}
                     type="button"
@@ -154,13 +159,15 @@ export function SettingsPage() {
                 value={relayHttpBaseUrl()}
                 mono
               />
-              <button
-                className="mt-4 rounded-md border px-3 py-2 text-sm hover:bg-muted"
-                onClick={() => void checkRelay()}
-                type="button"
-              >
-                Check connection
-              </button>
+              <PanelActions>
+                <button
+                  className="rounded-md border px-3 py-2 text-sm hover:bg-muted"
+                  onClick={() => void checkRelay()}
+                  type="button"
+                >
+                  Check connection
+                </button>
+              </PanelActions>
             </Panel>
           )}
           {section === "device" && (
@@ -179,21 +186,25 @@ export function SettingsPage() {
                 mono
               />
               {credential ? (
-                <button
-                  className="mt-6 inline-flex items-center gap-2 rounded-md border border-destructive/40 px-3 py-2 text-sm text-destructive hover:bg-destructive/5"
-                  onClick={() => void clearPairing()}
-                  type="button"
-                >
-                  <Trash2 className="size-4" />
-                  Clear pairing on this browser
-                </button>
+                <PanelActions>
+                  <button
+                    className="inline-flex items-center gap-2 rounded-md border border-destructive/40 px-3 py-2 text-sm text-destructive hover:bg-destructive/5"
+                    onClick={() => void clearPairing()}
+                    type="button"
+                  >
+                    <Trash2 className="size-4" />
+                    Clear pairing on this browser
+                  </button>
+                </PanelActions>
               ) : (
-                <Link
-                  className="mt-6 inline-flex rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground"
-                  to="/app/pair"
-                >
-                  Pair with Mac
-                </Link>
+                <PanelActions>
+                  <Link
+                    className="inline-flex rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground"
+                    to="/app/pair"
+                  >
+                    Pair with Mac
+                  </Link>
+                </PanelActions>
               )}
             </Panel>
           )}
@@ -219,19 +230,36 @@ function Panel({
   children,
   description,
   title,
+  framed = true,
 }: {
   children: ReactNode;
   description: string;
   title: string;
+  framed?: boolean;
 }) {
   return (
     <section>
       <h2 className="text-xl font-semibold tracking-tight">{title}</h2>
       <p className="mt-1 text-sm text-muted-foreground">{description}</p>
-      <div className="mt-6 overflow-hidden rounded-xl border border-border bg-card px-4">
+      <div
+        className={
+          framed
+            ? "mt-6 overflow-hidden rounded-xl border border-border bg-card px-4"
+            : "mt-6"
+        }
+        data-settings-option-group={framed ? "true" : undefined}
+      >
         {children}
       </div>
     </section>
+  );
+}
+
+function PanelActions({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex items-center pt-3 pb-4" data-testid="panel-actions">
+      {children}
+    </div>
   );
 }
 function SettingRow({

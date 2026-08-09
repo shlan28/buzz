@@ -56,4 +56,19 @@ for (const theme of ["light", "dark"] as const) {
       { animations: "disabled", maxDiffPixelRatio: 0.005 },
     );
   });
+
+  for (const section of ["Appearance", "Connection", "Paired device"]) {
+    test(`keeps the Settings ${section} ${theme} appearance`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 1366, height: 768 });
+      await page.goto(`/app/settings?previewTheme=${theme}`);
+      await page.getByRole("button", { name: section }).click();
+      await waitForAnimations(page);
+      await expect(page.getByTestId("content-surface")).toHaveScreenshot(
+        `settings-${section.toLowerCase().replace(" ", "-")}-${theme}.png`,
+        { animations: "disabled", maxDiffPixelRatio: 0.005 },
+      );
+    });
+  }
 }

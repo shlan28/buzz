@@ -59,6 +59,39 @@ test("opens settings, persists appearance, and collapses the sidebar", async ({
   await expect(page.locator("html")).toHaveClass(/dark/);
 });
 
+test("matches Desktop Settings container layers and action spacing", async ({
+  page,
+}) => {
+  await page.goto("/app/settings");
+  const contentSurface = page.getByTestId("content-surface");
+  await expect(contentSurface).toBeVisible();
+
+  await page.getByRole("button", { name: "Appearance" }).click();
+  await expect(page.getByTestId("appearance-mode-selector")).toBeVisible();
+  await expect(page.locator('[data-settings-option-group="true"]')).toHaveCount(
+    0,
+  );
+
+  for (const section of ["Connection", "Paired device"]) {
+    await page.getByRole("button", { name: section }).click();
+    const group = page.locator('[data-settings-option-group="true"]');
+    const actions = page.getByTestId("panel-actions");
+    await expect(group).toHaveCount(1);
+    await expect(actions).toBeVisible();
+    const [groupBox, actionControlBox] = await Promise.all([
+      group.boundingBox(),
+      actions.locator("button, a").boundingBox(),
+    ]);
+    expect(groupBox).not.toBeNull();
+    expect(actionControlBox).not.toBeNull();
+    expect(
+      (groupBox?.y ?? 0) +
+        (groupBox?.height ?? 0) -
+        ((actionControlBox?.y ?? 0) + (actionControlBox?.height ?? 0)),
+    ).toBeGreaterThanOrEqual(15);
+  }
+});
+
 test("keeps Execute as the only Task write action", async ({ page }) => {
   await page.goto("/app/calendar");
   await expect(page.getByText(/Read only/)).toBeVisible();
