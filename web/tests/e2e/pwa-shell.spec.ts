@@ -1,4 +1,33 @@
 import { expect, test } from "@playwright/test";
+import { readFile } from "node:fs/promises";
+
+const ALLOWED_AVATAR_ORIGIN =
+  "https://xianghuzuoyongli.oss-cn-beijing.aliyuncs.com";
+
+test("restricts external avatars to the approved OSS origin", async () => {
+  const headers = await readFile(
+    new URL("../../public/_headers", import.meta.url),
+    "utf8",
+  );
+  const contentSecurityPolicy = headers
+    .split("\n")
+    .find((line) => line.trim().startsWith("Content-Security-Policy:"));
+
+  expect(contentSecurityPolicy).toBeDefined();
+  const imageSources = contentSecurityPolicy
+    ?.match(/(?:^|;)\s*img-src\s+([^;]+)/)?.[1]
+    .trim()
+    .split(/\s+/);
+
+  expect(imageSources).toEqual([
+    "'self'",
+    "data:",
+    "blob:",
+    ALLOWED_AVATAR_ORIGIN,
+  ]);
+  expect(imageSources).not.toContain("https:");
+  expect(imageSources).not.toContain("*");
+});
 
 test("PWA metadata and Desktop-parity shell are present", async ({ page }) => {
   await page.goto("/app/channels");
