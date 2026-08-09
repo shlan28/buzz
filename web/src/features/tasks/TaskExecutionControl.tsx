@@ -7,12 +7,14 @@ export function TaskExecutionControl({
   execution,
   pending,
   onExecute,
+  statusAvailable = true,
 }: {
   agentName: string;
   error?: string;
   execution?: TaskExecution;
   pending: boolean;
   onExecute: () => void;
+  statusAvailable?: boolean;
 }) {
   const active =
     execution?.status === "queued" || execution?.status === "running";
@@ -34,7 +36,7 @@ export function TaskExecutionControl({
       </div>
       <button
         className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
-        disabled={pending || active}
+        disabled={pending || active || !statusAvailable}
         onClick={onExecute}
         type="button"
       >
@@ -61,6 +63,11 @@ export function TaskExecutionControl({
       {execution?.status === "failed" ? (
         <p className="text-xs text-destructive" role="alert">
           {execution.message || "Execution failed."}
+        </p>
+      ) : null}
+      {!statusAvailable ? (
+        <p className="text-xs text-amber-700 dark:text-amber-300" role="status">
+          Execution status unavailable. Reconnecting to Relay…
         </p>
       ) : null}
       {error ? (

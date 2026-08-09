@@ -15,6 +15,7 @@ export function useTaskExecutions(
   const [executions, setExecutions] = useState(() =>
     latestTaskExecutions(initial),
   );
+  const [statusAvailable, setStatusAvailable] = useState(true);
   useEffect(() => setExecutions(latestTaskExecutions(initial)), [initial]);
   useEffect(() => {
     if (import.meta.env.MODE === "e2e") return;
@@ -49,6 +50,7 @@ export function useTaskExecutions(
           } else if (frame[0] === "OK" && frame[1] === authId) {
             signer.close();
             if (frame[2] === true) {
+              setStatusAvailable(true);
               socket?.send(
                 JSON.stringify([
                   "REQ",
@@ -76,7 +78,10 @@ export function useTaskExecutions(
         });
         socket.addEventListener("close", () => {
           signer.close();
-          if (!disposed) retry = window.setTimeout(connect, 2_000);
+          if (!disposed) {
+            setStatusAvailable(false);
+            retry = window.setTimeout(connect, 2_000);
+          }
         });
         socket.addEventListener("error", () => socket?.close());
       } catch {
@@ -114,7 +119,7 @@ export function useTaskExecutions(
     [],
   );
   return useMemo(
-    () => ({ executions, recordQueued }),
-    [executions, recordQueued],
+    () => ({ executions, recordQueued, statusAvailable }),
+    [executions, recordQueued, statusAvailable],
   );
 }

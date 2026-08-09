@@ -193,6 +193,7 @@ export function TrackDetailPage({ trackId }: { trackId: string }) {
               execution={executionState.executions.get(selectedTaskId)}
               executionError={executionError}
               executionPending={executionPending}
+              executionStatusAvailable={executionState.statusAvailable}
               onExecute={
                 state.data.tasks.find((task) => task.id === selectedTaskId)
                   ?.assignee &&

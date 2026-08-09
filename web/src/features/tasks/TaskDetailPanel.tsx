@@ -14,6 +14,7 @@ export function TaskDetailPanel({
   execution,
   executionError,
   executionPending = false,
+  executionStatusAvailable = true,
   onExecute,
 }: {
   assigneeProfile?: UserProfile;
@@ -23,6 +24,7 @@ export function TaskDetailPanel({
   execution?: TaskExecution;
   executionError?: string;
   executionPending?: boolean;
+  executionStatusAvailable?: boolean;
   onExecute?: () => void;
 }) {
   if (!task) return null;
@@ -66,6 +68,7 @@ export function TaskDetailPanel({
           execution={execution}
           onExecute={onExecute}
           pending={executionPending}
+          statusAvailable={executionStatusAvailable}
         />
       ) : null}
     </aside>

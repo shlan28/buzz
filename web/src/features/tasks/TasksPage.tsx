@@ -215,6 +215,7 @@ export function TasksPage() {
               execution={executionState.executions.get(selected)}
               executionError={executionError}
               executionPending={executionPending}
+              executionStatusAvailable={executionState.statusAvailable}
               onExecute={
                 canExecuteTask(
                   state.data.tasks,
