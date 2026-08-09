@@ -1,5 +1,5 @@
 > 更新日期：2026-08-09
-> 更新说明：完成 Web Track 独立详情、只读 Task Board/List、Task 详情复用、响应式测试与公网部署；文件预览保持排除。
+> 更新说明：在已部署的只读 Task/Track 页面中，新增唯一写操作 Execute 的安全方案；不开放创建、编辑、拖拽、归档或删除。
 
 # Web Track 详情与 Task 看板补齐方案
 
@@ -156,3 +156,98 @@ Web 应复刻该产品结构和视觉层级，仅移除写操作。
 - Track 详情 Light/Dark 视觉基线已生成并复跑通过。
 - Cloudflare Pages 部署：`bd3d5951`；公网深链接 `/app/tracks/track-1` 返回 200。
 - 公网加载资源：`index-CklqprAl.js`、`index-80fqSw8x.css`。
+
+## 十二、Task Execute 产品范围
+
+Web Tasks 与 Track detail 继续保持只读，只新增一个明确操作：在 Task 详情面板执行分配给 Agent 的 Task。
+
+按钮位置与 Desktop 一致，放在 Task 详情面板的 `Agent execution` 区域，不放在每张 Board 卡片上，避免误触和看板视觉噪音。
+
+本次明确不增加：
+
+- Create Task；
+- Edit Task；
+- 修改 Status、Assignee、Track、Priority 或 Due；
+- Board 拖拽；
+- Archive/Delete；
+- Inbox 内回复或其他写操作。
+
+## 十三、Execute 协议与权限
+
+Execute 必须复用 Desktop/Relay 的正式协议，而不是发送一条普通消息：
+
+- kind：`42503`；
+- `t`：`task-id:{taskId}`；
+- `d`：每次执行生成的新 UUID；
+- `previous`：当前 Task state event id；
+- `e`：当前 Task state event id，marker 为 `task-state`；
+- `p`：当前 assignee Agent pubkey，marker 为 `agent`；
+- Task 存在 channel 时附加 `h`。
+
+Web 通过已 Pair 的 Mac signer 签名，再使用现有 NIP-98 授权提交 Relay `/events`。
+
+Relay 是最终权限事实源，会验证：
+
+- Task 当前 state 没有变化；
+- Task 未完成且未归档；
+- assignee 是 Agent；
+- 当前签名用户是该 Agent 或 Agent owner；
+- Agent 当前在线。
+
+Web 当前数据没有完整 Agent owner/presence 权威集合，因此不能假装提前知道在线或 owner 权限。Web 只在“Task 已分配给验证 Agent且未完成”时展示 Execute，其他权限和在线错误使用 Relay 的明确返回文案。
+
+## 十四、Execute 交互
+
+- 点击后立即显示 `Sending…` 并禁用重复点击；
+- Relay 接受后显示 `Queued`，本页面生命周期内禁止重复提交；
+- Relay 返回 Agent offline 时显示“Agent is offline”；
+- 403/权限拒绝显示“Only the assigned Agent or its owner may execute”；
+- 409/previous 冲突提示刷新 Task 后重试；
+- 网络结果不确定时不能自动重发，因为命令可能已经执行；
+- 草率地显示 `Running/Finished` 不可接受：本次没有接入经过 Relay 自签验证的 kind `30501` 生命周期，因此只显示请求发送与 Relay 接受状态。
+
+建设性建议：如果后续需要 Running、Finished、Failed 和 View result in Inbox，应作为独立阶段接入 Relay self pubkey 与 kind `30501` 验签，不能根据超时或 Agent 回复猜状态。
+
+## 十五、Execute 数据改动
+
+Web Task 投影必须保留：
+
+- `eventId`：作为 optimistic concurrency 的 expected state；
+- `channelId`：用于可选 `h` scope；
+- assignee profile 的 `isAgent`：决定是否展示 Execute。
+
+执行请求使用独立 API 模块构造纯事件和发布签名事件，便于测试 tags、权限错误和“不得自动重试”。
+
+## 十六、Execute Todo List
+
+- [ ] `web/src/shared/domain/eventKinds.ts`：增加 task execution request kind `42503`。
+- [ ] `web/src/features/tasks/types.ts`：为 Task 增加 `eventId` 与 `channelId`。
+- [ ] `web/src/features/tasks/eventCodec.ts`：从最新 Task state 保留 event id 与 `h` channel。
+- [ ] `web/src/shared/api/publishSignedEvent.ts`：抽取 signer、NIP-98 与 `/events` 单次提交逻辑，不实现模糊失败自动重试。
+- [ ] `web/src/shared/api/messagePublish.ts`：改为消费共享签名发布函数，保持现有消息行为不变。
+- [ ] `web/src/features/tasks/taskExecution.ts`：构造并发布 kind `42503` Execute 请求，映射 offline、permission、conflict 和 delivery-unknown 错误。
+- [ ] `web/src/features/tasks/TaskExecutionControl.tsx`：只提供 Execute/Sending/Queued/错误状态。
+- [ ] `web/src/features/tasks/TaskDetailPanel.tsx`：仅在未完成、未归档且 assignee 为验证 Agent 时挂载 Execute 控件。
+- [ ] `web/src/features/tasks/TasksPage.tsx`：维护当前 Task 详情的单次执行状态并调用 Execute API。
+- [ ] `web/src/features/tracks/TrackDetailPage.tsx`：让共享 Task 详情在 Track 页面具备同一 Execute 操作。
+- [ ] `web/src/vite-env.d.ts`：增加 Execute E2E 发布 seam，不暴露真实 signer key。
+- [ ] `web/tests/e2e/task-execution.spec.ts`：覆盖 kind/tags、UUID、expected event、channel scope 和错误映射。
+- [ ] `web/tests/e2e/work-console.spec.ts`：覆盖 Execute 唯一写操作、Sending、Queued、重复点击禁用及 Tasks/Track 两入口一致。
+- [ ] `web/tests/helpers/desktopParityFixtures.ts`：补充 Task event id/channel 与 Execute E2E 响应。
+- [ ] `docs/2026-08-08-web-track-detail-task-board-plan.md`：记录 Execute 测试、commit 和部署号。
+
+## 十七、Execute 验收标准
+
+- 未分配或分配给普通用户的 Task 不显示 Execute；
+- 已完成/归档 Task 不显示 Execute；
+- 分配给验证 Agent 的可执行 Task 在详情中显示唯一 Execute；
+- 发布事件 kind/tags 与 Desktop 完全一致；
+- Relay 接受前不能重复点击，接受后显示 Queued；
+- offline、permission、state conflict 和网络不确定错误文案准确；
+- Tasks 与 Track detail 打开的同一 Task 行为一致；
+- 页面不存在任何其他新增写操作；
+- Chrome、iPad 横屏、iPad 竖屏完整矩阵通过后再部署。
+
+## 十八、Execute 确认门
+
+鹿鹿子大王确认后，再修改 Web Task Execute 代码、测试、提交并部署。

@@ -1,5 +1,5 @@
 > 更新日期：2026-08-09
-> 更新说明：在已部署的 Inbox 详情基础上，补充 Agent 头像字母、Desktop 会话聚合分类和 Markdown 文字缩略二次修复方案；文件预览保持排除。
+> 更新说明：在已部署的 Inbox 会话聚合基础上，补充 Desktop 的本人消息排除规则：本人消息可作为详情上下文，但不得创建列表项或成为会话代表。
 
 # Web Inbox 详情、身份与 Markdown 补齐方案
 
@@ -225,3 +225,32 @@ Desktop 列表使用非交互 Markdown 预览，并在固定高度内裁切。�
 - Web check、TypeScript、production/E2E build 通过；完整 Chrome、iPad 横屏、iPad 竖屏矩阵 92/92 通过。
 - Inbox Light/Dark 视觉基线已更新并复跑通过。
 - Cloudflare Pages 部署：`ccefe55e`；生产域名确认加载 `index-Bmg8Gd1s.js` 与 `index-piWF0DGG.css`。
+
+## 十九、本人消息排除规则
+
+Desktop Inbox 列表来自面向当前用户的 Feed，而不是完整消息历史的镜像。Web 当前直接处理所有 Channel/DM 消息，因此错误地让本人发送的消息创建 `Channel update` 条目，或者在 DM 中成为最新代表消息。
+
+本次按 Desktop 产品语义修正：
+
+- Inbox 列表候选首先排除 `message.author === currentUserPubkey` 的本人消息；
+- 本人顶层 Channel 消息不能创建 Inbox 条目；
+- DM 会话只有存在至少一条对方消息时才进入 Inbox；
+- DM 列表的作者、头像、分类文字、预览和时间均取最新一条对方消息；
+- Thread 只有存在至少一条外部 reply/mention/Agent update 时才进入 Inbox；
+- 本人回复不能把 Inbox 代表消息推进成“鹿鹿子大王”，也不能改变分类；
+- 打开详情后仍可显示同一 DM/Thread 中的本人消息，保证上下文完整；
+- `Open conversation` 继续进入完整原会话。
+
+这意味着“列表候选集合”和“详情上下文集合”必须分开计算：候选集合用于是否出现、分类和排序；上下文集合用于详情阅读。
+
+## 二十、本人消息排除 Todo List
+
+- [ ] `web/src/features/inbox/inboxProjection.ts`：以外部消息建立 Inbox 候选和代表消息，再从完整消息集补充 DM/Thread 详情上下文。
+- [ ] `web/tests/e2e/inbox-projection.spec.ts`：覆盖本人顶层消息不出现、本人 DM 回复不推进代表消息、详情仍保留本人上下文。
+- [ ] `web/tests/e2e/work-console.spec.ts`：断言本人 `Fixture message from Buzz` 不出现在 Inbox 左栏，但原 Channel 仍可正常打开。
+- [ ] `web/tests/e2e/desktop-parity.visual.spec.ts`：更新 Inbox Light/Dark 基线，确保左栏不再显示当前用户条目。
+- [ ] `docs/2026-08-08-web-inbox-detail-profile-markdown-plan.md`：记录本人消息排除验证、commit 与部署号。
+
+## 二十一、本人消息排除确认门
+
+鹿鹿子大王确认后，再修改 Web Inbox 代码、测试、提交并部署。
