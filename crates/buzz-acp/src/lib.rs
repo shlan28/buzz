@@ -177,10 +177,20 @@ async fn task_execution_prompt(
     // task's real channel could merge an ordinary mention with this execution
     // and report the wrong turn as finished.
     let channel_id = execution_id;
-    let prompt = format!(
-        "[Buzz Task Execution]\nTask ID: {task_id}\nExecution ID: {execution_id}\nTask State ID: {state_id}\nTitle: {title}\nDescription:\n{description}\n\nRead the latest task with `buzz tasks get --id {task_id}`. Start real work now. Move the task to in-progress when work begins. Mark it done only when the work is actually complete; use blocked when external input is required."
-    );
+    let prompt = format_task_execution_prompt(task_id, execution_id, state_id, &title, description);
     Some((channel_id, task_id, execution_id, prompt))
+}
+
+fn format_task_execution_prompt(
+    task_id: Uuid,
+    execution_id: Uuid,
+    state_id: &str,
+    title: &str,
+    description: &str,
+) -> String {
+    format!(
+        "[Buzz Task Execution]\nTask ID: {task_id}\nExecution ID: {execution_id}\nTask State ID: {state_id}\nTitle: {title}\nDescription:\n{description}\n\nRead the latest task with `buzz tasks get --id {task_id}`. Start real work now. Move the task to in-progress when work begins. Mark it done only when the work is actually complete; use blocked when external input is required. Your final response in this turn is saved automatically as the Execution result. Do not call `buzz messages send` merely to deliver that result. The Execution ID is an internal execution/session identifier, not a Channel ID: never use it with `channels get`, `channels join`, or `messages send`. If the task itself explicitly requires posting to a real channel, read the latest task context to obtain that real Channel ID and require the Relay success result for that separate business action."
+    )
 }
 
 const TASK_EXECUTION_RESULT_MAX_CHARS: usize = 20_000;
@@ -202,6 +212,26 @@ fn task_execution_result_message(value: &str) -> String {
 #[cfg(test)]
 mod task_execution_result_tests {
     use super::*;
+
+    #[test]
+    fn task_execution_prompt_separates_result_delivery_from_channels() {
+        let task_id = Uuid::new_v4();
+        let execution_id = Uuid::new_v4();
+        let prompt = format_task_execution_prompt(
+            task_id,
+            execution_id,
+            "state-event",
+            "Prepare outreach",
+            "Build the partner list.",
+        );
+
+        assert!(prompt.contains("saved automatically as the Execution result"));
+        assert!(prompt.contains("Do not call `buzz messages send`"));
+        assert!(prompt.contains("not a Channel ID"));
+        assert!(prompt
+            .contains("never use it with `channels get`, `channels join`, or `messages send`"));
+        assert!(prompt.contains("real Channel ID"));
+    }
 
     #[test]
     fn trims_visible_result_text() {

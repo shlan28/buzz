@@ -2328,6 +2328,9 @@ async fn ensure_channel_message_delivery(
     let Some(batch) = batch else {
         return initial_usage;
     };
+    if is_task_execution_batch(batch) {
+        return initial_usage;
+    }
 
     let initial = agent.acp.prompt_delivery();
     if initial.message_sent {
@@ -2433,6 +2436,14 @@ async fn ensure_channel_message_delivery(
     }
 
     usage
+}
+
+fn is_task_execution_batch(batch: &FlushBatch) -> bool {
+    !batch.events.is_empty()
+        && batch
+            .events
+            .iter()
+            .all(|event| event.prompt_tag == "task-execution")
 }
 
 fn fallback_delivery_content<'a>(
@@ -3980,6 +3991,40 @@ mod tests {
     use super::*;
     use nostr::{EventBuilder, Keys, Kind, Tag, Timestamp};
     use serde_json::json;
+
+    fn delivery_test_batch(prompt_tags: &[&str]) -> FlushBatch {
+        let keys = Keys::generate();
+        FlushBatch {
+            channel_id: Uuid::new_v4(),
+            events: prompt_tags
+                .iter()
+                .map(|prompt_tag| crate::queue::BatchEvent {
+                    event: EventBuilder::new(Kind::Custom(9), "test")
+                        .sign_with_keys(&keys)
+                        .expect("sign delivery test event"),
+                    prompt_tag: (*prompt_tag).to_owned(),
+                    received_at: std::time::Instant::now(),
+                })
+                .collect(),
+            cancelled_events: vec![],
+            cancel_reason: None,
+        }
+    }
+
+    #[test]
+    fn only_task_execution_batches_skip_channel_delivery() {
+        assert!(is_task_execution_batch(&delivery_test_batch(&[
+            "task-execution"
+        ])));
+        assert!(!is_task_execution_batch(&delivery_test_batch(&[
+            "@mention"
+        ])));
+        assert!(!is_task_execution_batch(&delivery_test_batch(&[
+            "task-execution",
+            "@mention",
+        ])));
+        assert!(!is_task_execution_batch(&delivery_test_batch(&[])));
+    }
 
     #[test]
     fn fallback_prefers_correction_then_initial_then_explicit_failure() {

@@ -54,7 +54,8 @@ async function installTasks(
   options?: {
     rejectNextPublish?: string;
     agentOffline?: boolean;
-    executionResult?: "finished" | "failed";
+    executionResult?: "queued" | "running" | "finished" | "failed";
+    agentTaskDone?: boolean;
   },
 ) {
   await installMockBridge(page, {
@@ -109,6 +110,7 @@ async function installTasks(
         title: "Run Agent task",
         description: "Execute this task with the assigned Agent.",
         assignee: BUMBLE,
+        status: options?.agentTaskDone ? "done" : "todo",
       }),
       taskState({
         id: DONE_TASK,
@@ -283,6 +285,25 @@ test("a finished Agent task can start a new execution", async ({ page }) => {
   await expect(
     execution.getByRole("button", { name: "Queued" }),
   ).toBeDisabled();
+});
+
+test("a done task shows that its running execution is finishing the result", async ({
+  page,
+}) => {
+  await installTasks(page, {
+    agentTaskDone: true,
+    executionResult: "running",
+  });
+  await page.goto(`/#/tasks?task=${AGENT_TASK}`);
+
+  const execution = page.getByTestId("task-execution-control");
+  await expect(execution).toContainText("Finishing result…");
+  await expect(execution).toContainText(
+    "The work is marked Done while Buzz saves the Execution result.",
+  );
+  await expect(
+    execution.getByRole("button", { name: "View result in Inbox" }),
+  ).toHaveCount(0);
 });
 
 test("Board cards show a read-only assignee without an assignee menu", async ({

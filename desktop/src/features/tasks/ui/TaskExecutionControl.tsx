@@ -1,6 +1,8 @@
 import { Bot, ExternalLink, Loader2, Play } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import type { TaskExecution } from "../types";
+import type { TaskStatus } from "../types";
+import { taskExecutionPresentation } from "../lib/taskExecutionPresentation";
 
 export function TaskExecutionControl({
   agentName,
@@ -11,6 +13,7 @@ export function TaskExecutionControl({
   onExecute,
   onOpenResult,
   canStart = true,
+  taskStatus,
 }: {
   agentName: string;
   execution?: TaskExecution;
@@ -20,7 +23,9 @@ export function TaskExecutionControl({
   onExecute: () => void;
   onOpenResult?: () => void;
   canStart?: boolean;
+  taskStatus: TaskStatus;
 }) {
+  const presentation = taskExecutionPresentation(taskStatus, execution);
   const active =
     execution?.status === "queued" || execution?.status === "running";
   const retry = execution?.status === "failed";
@@ -44,13 +49,23 @@ export function TaskExecutionControl({
           <span
             className={retry ? "text-destructive" : "text-muted-foreground"}
           >
-            {retry ? "Execution failed" : "Execution finished"}
+            {retry
+              ? taskStatus === "done"
+                ? "Result delivery failed"
+                : "Execution failed"
+              : "Execution finished"}
           </span>
           <Button onClick={onOpenResult} size="sm" variant="ghost">
             View result in Inbox
             <ExternalLink className="h-4 w-4" />
           </Button>
         </div>
+      ) : null}
+      {presentation.state === "finishing" ? (
+        <p className="text-xs text-blue-700 dark:text-blue-300" role="status">
+          Finishing result… The work is marked Done while Buzz saves the
+          Execution result.
+        </p>
       ) : null}
       {canStart ? (
         <Button

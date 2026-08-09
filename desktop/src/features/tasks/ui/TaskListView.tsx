@@ -4,6 +4,7 @@ import {
   dueTimestampToLocalDate,
   isDueTimestampOverdue,
 } from "../lib/taskDates";
+import { taskExecutionPresentation } from "../lib/taskExecutionPresentation";
 import type { Task, TaskAssignee, TaskExecution } from "../types";
 import { TaskStatusBadge } from "./TaskStatusBadge";
 
@@ -38,6 +39,10 @@ export function TaskListView({
           const assignee = task.assignee
             ? (labels.get(task.assignee.toLowerCase()) ?? "Unknown assignee")
             : "Unassigned";
+          const executionPresentation = taskExecutionPresentation(
+            task.status,
+            executions.get(task.id),
+          );
           return (
             <button
               className="grid w-full grid-cols-1 items-center gap-2 px-4 py-3 text-left hover:bg-muted/40 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] sm:gap-4"
@@ -69,9 +74,16 @@ export function TaskListView({
               </span>
               <span className="flex items-center gap-1.5">
                 <TaskStatusBadge status={task.status} />
-                {executions.get(task.id)?.status === "running" ? (
-                  <span className="text-xs text-blue-700 dark:text-blue-300">
-                    Running
+                {executionPresentation.label ? (
+                  <span
+                    className={cn(
+                      "text-xs",
+                      executionPresentation.state === "failed"
+                        ? "text-destructive"
+                        : "text-blue-700 dark:text-blue-300",
+                    )}
+                  >
+                    {executionPresentation.label}
                   </span>
                 ) : null}
               </span>

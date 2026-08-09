@@ -168,6 +168,7 @@ export function TaskDetailPanel({
             canStart={task.status !== "done"}
             online={agentOnline}
             pending={executionPending}
+            taskStatus={task.status}
             onExecute={onExecute}
             onOpenResult={
               execution?.status === "finished" || execution?.status === "failed"
