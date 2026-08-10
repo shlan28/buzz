@@ -40,7 +40,7 @@ export function InboxListPane({
                 <span className="text-2xs text-primary">Agent</span>
               )}
               <time className="ml-auto shrink-0 text-2xs text-muted-foreground">
-                {new Date(entry.message.createdAt * 1000).toLocaleString()}
+                {new Date(entry.updatedAt * 1000).toLocaleString()}
               </time>
             </span>
             <span className="block truncate text-2xs font-medium text-muted-foreground">

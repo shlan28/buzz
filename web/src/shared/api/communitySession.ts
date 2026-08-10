@@ -11,7 +11,7 @@ import { channelDisplayName } from "@/features/channels/channelLabels";
 import { buildProfileLookup } from "@/features/profile/eventCodec";
 import type { ProfileLookup, UserProfile } from "@/features/profile/types";
 import {
-  latestTaskExecutions,
+  latestTaskExecutionStates,
   parseTask,
   parseTaskExecution,
 } from "@/features/tasks/eventCodec";
@@ -112,7 +112,7 @@ export async function loadWorkConsoleData(): Promise<WorkConsoleData> {
       events.map(parseTask).filter(isPresent),
     ).filter((item) => !item.archived);
     const taskExecutions = [
-      ...latestTaskExecutions(
+      ...latestTaskExecutionStates(
         events
           .map((event) => parseTaskExecution(event, relaySelfPubkey))
           .filter(isPresent),

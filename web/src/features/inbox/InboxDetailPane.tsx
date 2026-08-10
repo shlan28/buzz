@@ -4,6 +4,7 @@ import { profileLabel } from "@/features/profile/eventCodec";
 import type { WorkConsoleData } from "@/shared/api/communitySession";
 import { ProfileAvatar } from "@/shared/ui/ProfileAvatar";
 import type { InboxEntry } from "./inboxProjection";
+import { TaskExecutionInboxDetail } from "./TaskExecutionInboxDetail";
 
 export function InboxDetailPane({
   data,
@@ -16,6 +17,9 @@ export function InboxDetailPane({
   onBack: () => void;
   onOpenConversation: () => void;
 }) {
+  if (entry.type === "task_result") {
+    return <TaskExecutionInboxDetail entry={entry} onBack={onBack} />;
+  }
   const messages = entry.messages;
   return (
     <section

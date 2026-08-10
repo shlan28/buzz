@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   buildTaskExecutionInboxItems,
   isTaskExecutionInboxItem,
+  latestTaskExecutionStates,
   taskIdFromExecutionInboxItem,
 } from "./taskExecutionInbox.ts";
 
@@ -143,4 +144,49 @@ test("keeps separate Inbox results for multiple executions of one task", () => {
     ],
   );
   assert.notEqual(items[0].id, items[1].id);
+});
+
+test("keeps terminal history when later executions are cancelled or refreshed", () => {
+  const firstFinished = execution();
+  const cancelled = execution({
+    id: "33333333-3333-4333-8333-333333333333",
+    eventId: "f".repeat(64),
+    status: "cancelled",
+    message: "Cancelled by user",
+    updatedAt: 1_786_000_100,
+  });
+  const latestId = "44444444-4444-4444-8444-444444444444";
+  const latest = latestTaskExecutionStates([
+    firstFinished,
+    cancelled,
+    execution({
+      id: latestId,
+      eventId: "1".repeat(64),
+      status: "running",
+      message: "",
+      updatedAt: 1_786_000_200,
+    }),
+    execution({
+      id: latestId,
+      eventId: "2".repeat(64),
+      status: "finished",
+      message: "Completed the refreshed pass.",
+      updatedAt: 1_786_000_300,
+    }),
+  ]);
+  const items = buildTaskExecutionInboxItems({
+    currentPubkey: OWNER,
+    executions: latest,
+    ownedAgentPubkeys: new Set([AGENT]),
+    tasks: [task()],
+  });
+
+  assert.deepEqual(
+    items.map((item) => item.tags.find((tag) => tag[0] === "d")?.[1]),
+    [firstFinished.id, latestId],
+  );
+  assert.deepEqual(
+    items.map((item) => item.content),
+    [firstFinished.message, "Completed the refreshed pass."],
+  );
 });
