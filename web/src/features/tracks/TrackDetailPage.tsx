@@ -9,7 +9,10 @@ import {
 import { TaskDetailPanel } from "@/features/tasks/TaskDetailPanel";
 import { TaskListView } from "@/features/tasks/TaskListView";
 import type { Task, TaskStatus } from "@/features/tasks/types";
-import { executeTask } from "@/features/tasks/taskExecution";
+import {
+  cancelTaskExecution,
+  executeTask,
+} from "@/features/tasks/taskExecution";
 import { useTaskExecutions } from "@/features/tasks/useTaskExecutions";
 import { useWorkConsoleData } from "@/shared/hooks/useWorkConsoleData";
 import { AsyncStateView } from "@/shared/ui/AsyncStateView";
@@ -30,6 +33,8 @@ export function TrackDetailPage({ trackId }: { trackId: string }) {
   const [selectedTaskId, setSelectedTaskId] = useState<string>();
   const [executionPending, setExecutionPending] = useState(false);
   const [executionError, setExecutionError] = useState<string>();
+  const [cancelPending, setCancelPending] = useState(false);
+  const [cancelError, setCancelError] = useState<string>();
   const executionState = useTaskExecutions(
     state.status === "ready" ? state.data.taskExecutions : [],
     state.status === "ready" ? state.data.relaySelfPubkey : "",
@@ -110,7 +115,7 @@ export function TrackDetailPage({ trackId }: { trackId: string }) {
                 </p>
               </div>
               <span className="rounded-full bg-muted px-2 py-1 text-2xs text-muted-foreground">
-                Execute only
+                Execute and cancel
               </span>
             </div>
             <div className="mt-3 grid gap-3 text-xs text-muted-foreground sm:grid-cols-3">
@@ -194,6 +199,34 @@ export function TrackDetailPage({ trackId }: { trackId: string }) {
               executionError={executionError}
               executionPending={executionPending}
               executionStatusAvailable={executionState.statusAvailable}
+              cancelPending={cancelPending}
+              cancelError={cancelError}
+              onCancel={
+                executionState.executions.get(selectedTaskId) &&
+                ["queued", "running"].includes(
+                  executionState.executions.get(selectedTaskId)?.status ?? "",
+                )
+                  ? async () => {
+                      const execution =
+                        executionState.executions.get(selectedTaskId);
+                      if (!execution) return;
+                      setCancelPending(true);
+                      setCancelError(undefined);
+                      try {
+                        await cancelTaskExecution(execution);
+                        executionState.recordCancelled(execution.id);
+                      } catch (error) {
+                        setCancelError(
+                          error instanceof Error
+                            ? error.message
+                            : "Could not cancel this execution.",
+                        );
+                      } finally {
+                        setCancelPending(false);
+                      }
+                    }
+                  : undefined
+              }
               onExecute={
                 state.data.tasks.find((task) => task.id === selectedTaskId)
                   ?.assignee &&

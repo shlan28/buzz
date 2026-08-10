@@ -1,7 +1,7 @@
 import { KINDS } from "@/shared/domain/eventKinds";
 import type { UnsignedNostrEvent } from "@/shared/lib/nostr-signer";
 import { publishSignedEvent } from "@/shared/api/publishSignedEvent";
-import type { Task } from "./types";
+import type { Task, TaskExecution } from "./types";
 
 export function buildTaskExecutionRequest(
   task: Task,
@@ -34,6 +34,37 @@ export async function executeTask(task: Task): Promise<string> {
   try {
     await publishSignedEvent(request);
     return executionId;
+  } catch (error) {
+    throw mapTaskExecutionError(error);
+  }
+}
+
+export function buildTaskExecutionCancellation(
+  execution: TaskExecution,
+): UnsignedNostrEvent {
+  return {
+    kind: KINDS.taskExecutionUpdate,
+    created_at: Math.floor(Date.now() / 1000),
+    tags: [
+      ["t", `task-id:${execution.taskId}`],
+      ["d", execution.id],
+      ["status", "cancelled"],
+      ["p", execution.assignee, "", "agent"],
+    ],
+    content: "Cancelled by user",
+  };
+}
+
+export async function cancelTaskExecution(
+  execution: TaskExecution,
+): Promise<void> {
+  const cancellation = buildTaskExecutionCancellation(execution);
+  if (import.meta.env.MODE === "e2e" && window.__BUZZ_E2E_CANCEL_TASK__) {
+    await window.__BUZZ_E2E_CANCEL_TASK__(cancellation);
+    return;
+  }
+  try {
+    await publishSignedEvent(cancellation);
   } catch (error) {
     throw mapTaskExecutionError(error);
   }

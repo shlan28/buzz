@@ -118,8 +118,24 @@ export function useTaskExecutions(
     },
     [],
   );
+  const recordCancelled = useCallback((executionId: string) => {
+    setExecutions((current) => {
+      const next = new Map(current);
+      for (const [taskId, execution] of next) {
+        if (execution.id !== executionId) continue;
+        next.set(taskId, {
+          ...execution,
+          status: "cancelled",
+          message: "Cancelled by user",
+          updatedAt: Math.floor(Date.now() / 1000),
+        });
+        break;
+      }
+      return next;
+    });
+  }, []);
   return useMemo(
-    () => ({ executions, recordQueued, statusAvailable }),
-    [executions, recordQueued, statusAvailable],
+    () => ({ executions, recordCancelled, recordQueued, statusAvailable }),
+    [executions, recordCancelled, recordQueued, statusAvailable],
   );
 }

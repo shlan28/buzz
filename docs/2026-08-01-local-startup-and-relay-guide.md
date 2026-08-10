@@ -1,5 +1,5 @@
 > 更新日期：2026-08-10
-> 更新说明：补充 Pair/Remote Signer sidecar 的 LaunchAgent 启动、首次加载、重启、端口检查和日志排障方法；明确进程未启动与长连接短暂中断的判断边界。
+> 更新说明：补充本机 Relay 持久化方案，明确 LaunchAgent、Docker 依赖、自启动顺序、版本更新、日志、停用与重启后的验证方法。
 
 # Buzz 本地启动与 Web 部署指南
 
@@ -308,7 +308,7 @@ pnpm check
 pnpm test:e2e:smoke
 ```
 
-`test:e2e:smoke` 会先生成 E2E 专用 `web/dist`。当前 smoke 共 86 项，覆盖 PWA shell、iPad 布局、Pair 入口、NIP-AB SAS 互操向量、NIP-46 返回值防篡改、NIP-98/Relay 查询约束、领域事件解析、全局搜索与历史消息定位、Channel members、DM Header 头像、Inbox、Calendar、Task Execute、Track 详情、Settings、外部头像 CSP 以及 Light/Dark 视觉回归。正式部署前必须再执行一次 `pnpm build`，确保测试 fixture 不进入生产产物。任一命令失败都不应继续部署。
+`test:e2e:smoke` 会先生成 E2E 专用 `web/dist`。当前 smoke 共 88 项，覆盖 PWA shell、iPad 布局、Pair 入口、NIP-AB SAS 互操向量、NIP-46 返回值防篡改、NIP-98/Relay 查询约束、领域事件解析、全局搜索与历史消息定位、Channel members、DM Header 头像、Inbox、Calendar、Task Execute/Cancel、Track 详情、Settings、外部头像 CSP 以及 Light/Dark 视觉回归。正式部署前必须再执行一次 `pnpm build`，确保测试 fixture 不进入生产产物。任一命令失败都不应继续部署。
 
 完整 iPad 横屏、竖屏矩阵使用：
 
@@ -391,6 +391,127 @@ Asset:      index-DPWJJbSP.js
 - Pair/Signer 和 Tunnel 由 LaunchAgent 管理时，不要同时再手工启动第二个相同端口进程。
 - 重启时按“Relay → Desktop”的顺序操作，避免 Desktop 和 Agent 在 Relay 尚未就绪时产生连接错误。
 
+### 7.1 为什么当前 Relay 不会自动恢复
+
+`just relay-release` 是前台开发命令。它与当前终端会话绑定：关闭终端、按 `Ctrl+C`、进程崩溃或 Mac 重启后，Relay 都不会自行恢复。
+
+Relay、数据依赖和公网入口是三层不同的进程：
+
+| 层级 | 当前组件 | 推荐持久化方式 |
+| --- | --- | --- |
+| Relay 应用 | `target/release/buzz-relay`，监听 3200 | macOS LaunchAgent |
+| 数据依赖 | Postgres、Redis、MinIO 等 | Docker Compose `restart: unless-stopped` |
+| 公网入口 | cloudflared Tunnel | 已有 `com.cloudflare.cloudflared` LaunchAgent |
+
+因此，Relay 本身不需要为了持久化而放进 Docker。对于这台兼做开发机的 Mac，推荐“宿主机 Release Relay + Docker 数据依赖”：本地重新编译后即可切换二进制，日志和调试也比全 Docker 更直接。
+
+### 7.2 推荐的持久化启动链
+
+建议新增两个本机文件：
+
+```text
+/Users/lu/buzz/scripts/start-local-relay.sh
+/Users/lu/Library/LaunchAgents/xyz.achoverse.buzz-relay.plist
+```
+
+启动脚本承担以下职责：
+
+1. 固定工作目录为 `/Users/lu/buzz`；
+2. 启动或确认 Docker Compose 依赖；
+3. 等待 Postgres、Redis 和 MinIO 健康，而不是用固定 sleep 猜测；
+4. 确认 3200 未被另一个 Relay 占用；
+5. 使用根目录 `.env`，以 `exec /Users/lu/buzz/target/release/buzz-relay` 启动 Release Relay。
+
+LaunchAgent 应包含以下行为：
+
+- `RunAtLoad=true`：用户登录 Mac 后启动；
+- `KeepAlive=true`：Relay 意外退出后重新拉起；
+- `WorkingDirectory=/Users/lu/buzz`：保证 `.env` 和相对路径按预期解析；
+- `ProgramArguments` 直接调用启动脚本，不依赖交互式 shell alias；
+- stdout/stderr 写入 `/Users/lu/Library/Logs/buzz-relay.log`；
+- 为连续崩溃设置合理的 `ThrottleInterval`，避免依赖未就绪时高速重启。
+
+LaunchAgent 是“用户登录后常驻”，不是“机器通电但无人登录也运行”。本机开发环境需要用户 Keychain、Docker Desktop 和当前用户目录，因此不建议改成系统级 LaunchDaemon。若未来迁移到无人值守服务器，应改用 `deploy/compose/` 或 Kubernetes，而不是继续依赖 Mac LaunchAgent。
+
+### 7.3 Docker 是否仍然需要
+
+当前本地 Relay 使用 Docker 中的 Postgres、Redis、MinIO 等服务，所以仍然需要 Docker daemon，但不是用 Docker 托管 Relay 本身。
+
+根目录 `docker-compose.yml` 已为主要长期服务配置：
+
+```text
+restart: unless-stopped
+```
+
+它只表示 Docker daemon 启动后自动恢复容器。要让 Mac 重启后整条链路恢复，还必须在 Docker Desktop 设置中开启登录时启动；否则 LaunchAgent 会不断等待尚未启动的 Docker 依赖。
+
+Postgres 和 MinIO 使用持久 volume，正常容器重启不会清空数据。不要使用 `docker compose down -v` 作为普通重启命令，因为 `-v` 会删除数据卷。
+
+### 7.4 首次安装与日常控制
+
+持久化文件落地后，首次加载使用：
+
+```bash
+launchctl bootstrap "gui/$(id -u)" \
+  /Users/lu/Library/LaunchAgents/xyz.achoverse.buzz-relay.plist
+launchctl enable "gui/$(id -u)/xyz.achoverse.buzz-relay"
+launchctl kickstart -k "gui/$(id -u)/xyz.achoverse.buzz-relay"
+```
+
+查看状态和日志：
+
+```bash
+launchctl print "gui/$(id -u)/xyz.achoverse.buzz-relay"
+tail -f /Users/lu/Library/Logs/buzz-relay.log
+lsof -nP -iTCP:3200 -sTCP:LISTEN
+curl --fail --silent --show-error https://achoverse.xyz/health
+```
+
+日常重启不要再开一个 `just relay-release` 与常驻实例抢占 3200，直接执行：
+
+```bash
+launchctl kickstart -k "gui/$(id -u)/xyz.achoverse.buzz-relay"
+```
+
+临时停用和重新启用：
+
+```bash
+launchctl disable "gui/$(id -u)/xyz.achoverse.buzz-relay"
+launchctl bootout "gui/$(id -u)" \
+  /Users/lu/Library/LaunchAgents/xyz.achoverse.buzz-relay.plist
+
+launchctl enable "gui/$(id -u)/xyz.achoverse.buzz-relay"
+launchctl bootstrap "gui/$(id -u)" \
+  /Users/lu/Library/LaunchAgents/xyz.achoverse.buzz-relay.plist
+```
+
+### 7.5 发布新 Relay 二进制
+
+LaunchAgent 运行的是已编译的 `target/release/buzz-relay`，不会因为 Git 分支变化自动重新编译。合并 Relay 代码后应先完成测试和构建，再重启服务：
+
+```bash
+cd /Users/lu/buzz
+. ./bin/activate-hermit
+cargo build --release -p buzz-relay
+launchctl kickstart -k "gui/$(id -u)/xyz.achoverse.buzz-relay"
+```
+
+这套发布使用当前本地工作区生成的 Release 二进制；是否 push 到远端与本机 Relay 是否更新没有直接关系。重启前应确认工作区和 commit，避免把尚未验收的本地代码投入当前公网 Relay。
+
+更新后按以下顺序验收：
+
+1. `target/release/buzz-relay` 的修改时间是本次构建时间；
+2. 3200 只有一个 Relay 监听；
+3. `https://achoverse.xyz/health` 返回成功；
+4. Desktop 和 Agent 重新连接；
+5. Pair/Signer 的 5000/5001 与 cloudflared 仍正常。
+
+### 7.6 是否选择全 Docker
+
+`deploy/compose/compose.yml` 已提供 Relay、Postgres、Redis、MinIO 的全 Docker 部署形态，并为 Relay 配置 `restart: unless-stopped`。它适合稳定服务器或希望用单一 Compose 管理全部组件的环境。
+
+当前 Mac 经常修改和调试本地 Rust/Frontend，使用全 Docker 会在每次 Relay 改动后增加镜像重建和容器替换步骤。因此现阶段优先使用 LaunchAgent；只有当这台机器转为少开发、长期无人值守的服务节点时，再迁移到全 Docker。
+
 ## 八、常见问题
 
 | 现象 | 优先检查 |
@@ -430,3 +551,4 @@ Pair 与连接恢复是两件事。Pair 建立 Web device key、Desktop signer p
 ## 九、Todolist
 
 - [x] `docs/2026-08-01-local-startup-and-relay-guide.md`：统一记录 Relay、Desktop、Agent、Web/PWA、Pair/Signer、Tunnel 和 Cloudflare Pages 的本地/线上运行方式。
+- [x] `docs/2026-08-01-local-startup-and-relay-guide.md`：补充宿主机 Relay + Docker 数据依赖的持久化方案及 LaunchAgent 运维流程。

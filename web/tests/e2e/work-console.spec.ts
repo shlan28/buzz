@@ -101,12 +101,12 @@ test("matches Desktop Settings container layers and action spacing", async ({
   await expect(copy).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
 });
 
-test("keeps Execute as the only Task write action", async ({ page }) => {
+test("keeps Task writes limited to Execute and cancel", async ({ page }) => {
   await page.goto("/app/calendar");
   await expect(page.getByText(/Read only/)).toBeVisible();
   for (const path of ["tasks", "tracks/track-1"]) {
     await page.goto(`/app/${path}`);
-    await expect(page.getByText(/Execute only/)).toBeVisible();
+    await expect(page.getByText(/Execute and cancel/)).toBeVisible();
     await expect(
       page.getByRole("button", { name: /create|delete|edit/i }),
     ).toHaveCount(0);

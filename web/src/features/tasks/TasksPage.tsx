@@ -10,7 +10,7 @@ import { TaskBoardView, type TaskBoardColumn } from "./TaskBoardView";
 import { TaskDetailPanel } from "./TaskDetailPanel";
 import { TaskListView } from "./TaskListView";
 import type { Task, TaskStatus } from "./types";
-import { executeTask } from "./taskExecution";
+import { cancelTaskExecution, executeTask } from "./taskExecution";
 import { useTaskExecutions } from "./useTaskExecutions";
 
 const statuses: TaskStatus[] = [
@@ -35,6 +35,8 @@ export function TasksPage() {
   const [selected, setSelected] = useState<string>();
   const [executionPending, setExecutionPending] = useState(false);
   const [executionError, setExecutionError] = useState<string>();
+  const [cancelPending, setCancelPending] = useState(false);
+  const [cancelError, setCancelError] = useState<string>();
   const executionState = useTaskExecutions(
     state.status === "ready" ? state.data.taskExecutions : [],
     state.status === "ready" ? state.data.relaySelfPubkey : "",
@@ -187,7 +189,7 @@ export function TasksPage() {
               </button>
             </div>
             <span className="rounded-full bg-muted px-2 py-1 text-2xs text-muted-foreground">
-              Execute only
+              Execute and cancel
             </span>
           </header>
           {view === "board" ? (
@@ -216,6 +218,33 @@ export function TasksPage() {
               executionError={executionError}
               executionPending={executionPending}
               executionStatusAvailable={executionState.statusAvailable}
+              cancelPending={cancelPending}
+              cancelError={cancelError}
+              onCancel={
+                executionState.executions.get(selected) &&
+                ["queued", "running"].includes(
+                  executionState.executions.get(selected)?.status ?? "",
+                )
+                  ? async () => {
+                      const execution = executionState.executions.get(selected);
+                      if (!execution) return;
+                      setCancelPending(true);
+                      setCancelError(undefined);
+                      try {
+                        await cancelTaskExecution(execution);
+                        executionState.recordCancelled(execution.id);
+                      } catch (error) {
+                        setCancelError(
+                          error instanceof Error
+                            ? error.message
+                            : "Could not cancel this execution.",
+                        );
+                      } finally {
+                        setCancelPending(false);
+                      }
+                    }
+                  : undefined
+              }
               onExecute={
                 canExecuteTask(
                   state.data.tasks,

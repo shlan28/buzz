@@ -51,6 +51,7 @@ const executionStatuses = new Set<TaskExecutionStatus>([
   "running",
   "finished",
   "failed",
+  "cancelled",
 ]);
 
 export function parseTaskExecution(
