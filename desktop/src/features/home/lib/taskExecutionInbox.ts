@@ -19,6 +19,24 @@ import { normalizePubkey } from "@/shared/lib/pubkey";
 
 const taskExecutionInboxKey = ["task-execution-inbox"] as const;
 
+export function latestTaskExecutionStates(
+  executions: readonly TaskExecution[],
+): TaskExecution[] {
+  const byExecution = new Map<string, TaskExecution>();
+  for (const execution of executions) {
+    const current = byExecution.get(execution.id);
+    if (
+      !current ||
+      execution.updatedAt > current.updatedAt ||
+      (execution.updatedAt === current.updatedAt &&
+        execution.eventId.localeCompare(current.eventId) > 0)
+    ) {
+      byExecution.set(execution.id, execution);
+    }
+  }
+  return [...byExecution.values()];
+}
+
 function taskTag(name: string, value: string | number | null) {
   return value === null || value === "" ? [] : [[name, String(value)]];
 }
@@ -114,10 +132,12 @@ async function fetchTaskExecutionInboxState(relaySelfPubkey: string) {
       const task = parseTaskState(event, relaySelfPubkey);
       return task ? [task] : [];
     }),
-    executions: executionEvents.flatMap((event) => {
-      const execution = parseTaskExecutionState(event, relaySelfPubkey);
-      return execution ? [execution] : [];
-    }),
+    executions: latestTaskExecutionStates(
+      executionEvents.flatMap((event) => {
+        const execution = parseTaskExecutionState(event, relaySelfPubkey);
+        return execution ? [execution] : [];
+      }),
+    ),
   };
 }
 

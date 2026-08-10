@@ -100,10 +100,12 @@ export function InboxPage() {
                   entry={selected}
                   onBack={() => select(undefined)}
                   onOpenConversation={() =>
-                    void navigate({
-                      to: "/app/channels/$channelId",
-                      params: { channelId: selected.message.channelId },
-                    })
+                    selected.type === "message"
+                      ? void navigate({
+                          to: "/app/channels/$channelId",
+                          params: { channelId: selected.message.channelId },
+                        })
+                      : undefined
                   }
                 />
               </div>

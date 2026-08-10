@@ -110,3 +110,19 @@ export function latestTaskExecutions(executions: TaskExecution[]) {
   }
   return byTask;
 }
+
+export function latestTaskExecutionStates(executions: TaskExecution[]) {
+  const byExecution = new Map<string, TaskExecution>();
+  for (const execution of executions) {
+    const current = byExecution.get(execution.id);
+    if (
+      !current ||
+      execution.updatedAt > current.updatedAt ||
+      (execution.updatedAt === current.updatedAt &&
+        execution.eventId.localeCompare(current.eventId) > 0)
+    ) {
+      byExecution.set(execution.id, execution);
+    }
+  }
+  return byExecution;
+}

@@ -409,6 +409,14 @@ export function getInboxConversationId(
   channelType?: string,
   kind?: number,
 ): string {
+  if (
+    kind === 30501 &&
+    tags.some((tag) => tag[0] === "task-inbox" && tag[1] === "result")
+  ) {
+    const executionId = tags.find((tag) => tag[0] === "d")?.[1];
+    return `task-execution:${executionId || eventId}`;
+  }
+
   if (kind !== undefined) {
     const projectReference = getProjectInboxReference({
       id: eventId,

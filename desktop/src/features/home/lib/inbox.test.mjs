@@ -68,6 +68,37 @@ test("mention rows use the channel list when feed channelName is blank", () => {
   });
 });
 
+test("task results use execution identities instead of the task or channel", () => {
+  const taskResult = (id, executionId, createdAt) =>
+    item({
+      id,
+      kind: 30501,
+      category: "agent_activity",
+      createdAt,
+      tags: [
+        ["h", CHANNEL_ID],
+        ["d", executionId],
+        ["t", "task-id:11111111-1111-4111-8111-111111111111"],
+        ["task-inbox", "result"],
+      ],
+    });
+  const items = buildInboxItems({
+    channels,
+    feed: feedWith({
+      agentActivity: [
+        taskResult("result-1", "execution-1", 1),
+        taskResult("result-2", "execution-2", 2),
+      ],
+    }),
+  });
+
+  assert.equal(items.length, 2);
+  assert.deepEqual(items.map((inboxItem) => inboxItem.conversationId).sort(), [
+    "task-execution:execution-1",
+    "task-execution:execution-2",
+  ]);
+});
+
 test("thread activity rows use the channel list when feed channelName is blank", () => {
   const [inboxItem] = buildInboxItems({
     channels,

@@ -41,6 +41,57 @@ test("renders real work-console views from one authenticated data model", async 
   ).toBeVisible();
 });
 
+test("keeps multiple Task execution results in Inbox and opens their Task", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const fixture = window.__BUZZ_E2E_WORK_CONSOLE_DATA__;
+    if (!fixture) return;
+    fixture.taskExecutions = [
+      {
+        id: "execution-old",
+        eventId: "77".repeat(32),
+        taskId: "task-1",
+        assignee: "22".repeat(32),
+        requester: fixture.userPubkey,
+        status: "finished",
+        message: "First completed result",
+        updatedAt: 1_754_640_500,
+      },
+      {
+        id: "execution-latest",
+        eventId: "88".repeat(32),
+        taskId: "task-1",
+        assignee: "22".repeat(32),
+        requester: fixture.userPubkey,
+        status: "finished",
+        message: "Latest completed result",
+        updatedAt: 1_754_640_600,
+      },
+    ];
+  });
+  await page.goto("/app/inbox");
+  await expect(
+    page
+      .getByTestId("inbox-item-task-execution:execution-old")
+      .getByText("First completed result"),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByTestId("inbox-item-task-execution:execution-latest")
+      .getByText("Latest completed result"),
+  ).toBeVisible();
+
+  await page.getByTestId("inbox-item-task-execution:execution-old").click();
+  const detail = page.getByTestId("task-execution-inbox-detail");
+  await expect(detail).toContainText("First completed result");
+  await detail.getByRole("button", { name: "Open task" }).click();
+  await expect(page).toHaveURL(/\/app\/tasks\?.*task=task-1/);
+  await expect(
+    page.getByRole("heading", { name: "Ship iPad console" }),
+  ).toBeVisible();
+});
+
 test("opens settings, persists appearance, and collapses the sidebar", async ({
   page,
 }) => {

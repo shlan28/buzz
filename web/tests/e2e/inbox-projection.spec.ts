@@ -175,3 +175,64 @@ test("reads NIP-10 roots and detects solid SVG placeholders", () => {
     ),
   ).toBe(false);
 });
+
+test("keeps each terminal Task execution as an independent Inbox result", () => {
+  const fixture = data();
+  fixture.tasks = [
+    {
+      id: "task-1",
+      eventId: "77".repeat(32),
+      title: "Research creator",
+      description: "Compare audience and collaboration fit",
+      status: "in-progress",
+      priority: "high",
+      assignee: agentPubkey,
+      labels: [],
+      archived: false,
+      updatedAt: 1,
+    },
+  ];
+  fixture.taskExecutions = [
+    {
+      id: "execution-1",
+      eventId: "88".repeat(32),
+      taskId: "task-1",
+      assignee: agentPubkey,
+      requester: userPubkey,
+      status: "finished",
+      message: "First result",
+      updatedAt: 10,
+    },
+    {
+      id: "execution-2",
+      eventId: "99".repeat(32),
+      taskId: "task-1",
+      assignee: agentPubkey,
+      requester: userPubkey,
+      status: "cancelled",
+      message: "Cancelled by user",
+      updatedAt: 20,
+    },
+    {
+      id: "execution-3",
+      eventId: "aa".repeat(32),
+      taskId: "task-1",
+      assignee: agentPubkey,
+      requester: userPubkey,
+      status: "finished",
+      message: "Latest result",
+      updatedAt: 30,
+    },
+  ];
+
+  const results = buildInboxEntries(fixture).filter(
+    (entry) => entry.type === "task_result",
+  );
+  expect(results.map((entry) => entry.id)).toEqual([
+    "task-execution:execution-3",
+    "task-execution:execution-1",
+  ]);
+  expect(resolveInboxEntry(results, "88".repeat(32))?.id).toBe(
+    "task-execution:execution-1",
+  );
+});

@@ -1,15 +1,20 @@
 import type { Message } from "@/features/channels/types";
 import { profileLabel } from "@/features/profile/eventCodec";
+import type { Task, TaskExecution } from "@/features/tasks/types";
 import type { WorkConsoleData } from "@/shared/api/communitySession";
 import { KINDS } from "@/shared/domain/eventKinds";
 
-export type InboxCategory = "dm" | "mention" | "thread" | "agent" | "channel";
+export type InboxCategory =
+  | "dm"
+  | "mention"
+  | "thread"
+  | "agent"
+  | "channel"
+  | "task_result";
 
-export type InboxEntry = {
+type InboxEntryBase = {
   id: string;
   conversationId: string;
-  message: Message;
-  messages: Message[];
   authorLabel: string;
   avatarUrl?: string | null;
   isAgent: boolean;
@@ -18,7 +23,22 @@ export type InboxEntry = {
   channelLabel: string;
   canOpenConversation: boolean;
   preview: string;
+  updatedAt: number;
 };
+
+export type MessageInboxEntry = InboxEntryBase & {
+  type: "message";
+  message: Message;
+  messages: Message[];
+};
+
+export type TaskResultInboxEntry = InboxEntryBase & {
+  type: "task_result";
+  execution: TaskExecution;
+  task: Task;
+};
+
+export type InboxEntry = MessageInboxEntry | TaskResultInboxEntry;
 
 export function buildInboxEntries(data: WorkConsoleData): InboxEntry[] {
   const channelById = new Map(
@@ -40,8 +60,8 @@ export function buildInboxEntries(data: WorkConsoleData): InboxEntry[] {
     ]);
   }
 
-  return [...groups.entries()]
-    .map<InboxEntry | null>(([conversationId, unsortedMessages]) => {
+  const messageEntries = [...groups.entries()]
+    .map<MessageInboxEntry | null>(([conversationId, unsortedMessages]) => {
       const messages = [...unsortedMessages].sort(compareMessages);
       const candidates = messages.filter(
         (item) => item.author.toLowerCase() !== data.userPubkey.toLowerCase(),
@@ -59,6 +79,7 @@ export function buildInboxEntries(data: WorkConsoleData): InboxEntry[] {
         conversationId.startsWith("thread:"),
       );
       return {
+        type: "message",
         id: conversationId,
         conversationId,
         message,
@@ -71,10 +92,56 @@ export function buildInboxEntries(data: WorkConsoleData): InboxEntry[] {
         channelLabel,
         canOpenConversation: Boolean(channel),
         preview: message.content,
+        updatedAt: message.createdAt,
       };
     })
-    .filter((entry): entry is InboxEntry => entry !== null)
-    .sort((left, right) => compareMessages(right.message, left.message))
+    .filter((entry): entry is MessageInboxEntry => entry !== null);
+
+  const tasksById = new Map(data.tasks.map((task) => [task.id, task]));
+  const viewer = data.userPubkey.toLowerCase();
+  const taskEntries = data.taskExecutions.flatMap(
+    (execution): TaskResultInboxEntry[] => {
+      if (execution.status !== "finished" && execution.status !== "failed") {
+        return [];
+      }
+      const requester = execution.requester.toLowerCase();
+      const owner = execution.owner?.toLowerCase();
+      if (requester !== viewer && owner !== viewer) return [];
+      const task = tasksById.get(execution.taskId);
+      if (!task) return [];
+      const profile = data.profilesByPubkey[execution.assignee.toLowerCase()];
+      const authorLabel = profileLabel(profile, execution.assignee);
+      return [
+        {
+          type: "task_result",
+          id: `task-execution:${execution.id}`,
+          conversationId: `task-execution:${execution.id}`,
+          execution,
+          task,
+          authorLabel,
+          avatarUrl: profile?.avatarUrl ?? null,
+          isAgent: true,
+          category: "task_result",
+          categoryText:
+            execution.status === "finished" ? "Task completed" : "Task failed",
+          channelLabel: "Tasks",
+          canOpenConversation: false,
+          preview:
+            execution.message.trim() ||
+            (execution.status === "finished"
+              ? "The Agent completed this task without a text summary."
+              : "The Agent did not provide additional failure details."),
+          updatedAt: execution.updatedAt,
+        },
+      ];
+    },
+  );
+
+  return [...messageEntries, ...taskEntries]
+    .sort(
+      (left, right) =>
+        right.updatedAt - left.updatedAt || left.id.localeCompare(right.id),
+    )
     .slice(0, 100);
 }
 
@@ -83,7 +150,9 @@ export function resolveInboxEntry(entries: InboxEntry[], id?: string) {
   return entries.find(
     (entry) =>
       entry.conversationId === id ||
-      entry.messages.some((message) => message.id === id),
+      (entry.type === "message" &&
+        entry.messages.some((message) => message.id === id)) ||
+      (entry.type === "task_result" && entry.execution.eventId === id),
   );
 }
 
@@ -136,6 +205,8 @@ function categoryText(
       return `Agent update in #${channel}`;
     case "channel":
       return `Channel update in #${channel}`;
+    case "task_result":
+      return "Task result";
   }
 }
 

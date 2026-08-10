@@ -32,7 +32,9 @@ export function TasksPage() {
   const [groupBy, setGroupBy] = useState<"assignee" | "status" | "track">(() =>
     parseGroup(new URLSearchParams(window.location.search).get("group")),
   );
-  const [selected, setSelected] = useState<string>();
+  const [selected, setSelected] = useState<string | undefined>(
+    () => new URLSearchParams(window.location.search).get("task") ?? undefined,
+  );
   const [executionPending, setExecutionPending] = useState(false);
   const [executionError, setExecutionError] = useState<string>();
   const [cancelPending, setCancelPending] = useState(false);
@@ -71,6 +73,12 @@ export function TasksPage() {
     window.addEventListener("popstate", syncFromUrl);
     return () => window.removeEventListener("popstate", syncFromUrl);
   }, []);
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (selected) url.searchParams.set("task", selected);
+    else url.searchParams.delete("task");
+    window.history.replaceState(window.history.state, "", url);
+  }, [selected]);
   const trackNames = useMemo(
     () =>
       new Map(
