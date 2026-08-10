@@ -54,7 +54,12 @@ async function installTasks(
   options?: {
     rejectNextPublish?: string;
     agentOffline?: boolean;
-    executionResult?: "queued" | "running" | "finished" | "failed";
+    executionResult?:
+      | "queued"
+      | "running"
+      | "finished"
+      | "failed"
+      | "cancelled";
     agentTaskDone?: boolean;
   },
 ) {
@@ -266,6 +271,40 @@ test("Agent owner executes an online Agent task", async ({ page }) => {
   await expect(
     execution.getByRole("button", { name: "Queued" }),
   ).toBeDisabled();
+});
+
+test("Agent owner can cancel a queued execution", async ({ page }) => {
+  await installTasks(page, { executionResult: "queued" });
+  await page.goto(`/#/tasks?task=${AGENT_TASK}`);
+
+  const execution = page.getByTestId("task-execution-control");
+  await execution.getByRole("button", { name: "Cancel execution" }).click();
+
+  const cancellation = await page.evaluate(() =>
+    window.__BUZZ_E2E_SIGNED_EVENTS__?.findLast(
+      (event) =>
+        event.kind === 42_504 &&
+        event.tags.some(
+          ([name, value]) => name === "status" && value === "cancelled",
+        ),
+    ),
+  );
+  expect(cancellation?.tags).toContainEqual([
+    "d",
+    "90f25ab8-b83a-40fb-8948-6f747780af2a",
+  ]);
+  expect(cancellation?.tags).toContainEqual(["p", BUMBLE, "", "agent"]);
+});
+
+test("a cancelled Agent task can start a new execution", async ({ page }) => {
+  await installTasks(page, { executionResult: "cancelled" });
+  await page.goto(`/#/tasks?task=${AGENT_TASK}`);
+
+  const execution = page.getByTestId("task-execution-control");
+  await expect(execution).toContainText("Execution cancelled");
+  await expect(
+    execution.getByRole("button", { name: "Execute again" }),
+  ).toBeEnabled();
 });
 
 test("a finished Agent task can start a new execution", async ({ page }) => {

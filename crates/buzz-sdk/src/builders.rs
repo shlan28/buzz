@@ -2511,6 +2511,18 @@ mod tests {
             .tags
             .iter()
             .any(|tag| tag.as_slice() == ["status", "running"]));
+
+        let cancelled = sign(
+            build_task_execution_update(&TaskExecutionUpdateInput {
+                status: crate::TaskExecutionStatus::Cancelled,
+                ..input
+            })
+            .unwrap(),
+        );
+        assert!(cancelled
+            .tags
+            .iter()
+            .any(|tag| tag.as_slice() == ["status", "cancelled"]));
     }
 
     #[test]

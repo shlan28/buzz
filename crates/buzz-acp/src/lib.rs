@@ -2134,6 +2134,35 @@ async fn tokio_main() -> Result<()> {
                                 } else {
                                     tracing::warn!(event_id = %event.id, "task execution context was stale or unreadable");
                                 }
+                            } else if event.kind.as_u16() as u32
+                                == buzz_core::kind::KIND_TASK_EXECUTION_STATE
+                                && execution_tag(&event, "status").as_deref()
+                                    == Some("cancelled")
+                                && execution_tag(&event, "p").as_deref()
+                                    == Some(&pubkey_hex)
+                            {
+                                if let Some(execution_id) = execution_tag(&event, "d")
+                                    .and_then(|value| value.parse::<Uuid>().ok())
+                                {
+                                    task_executions.remove(&execution_id);
+                                    queue.drain_channel(execution_id);
+                                    let signalled = signal_in_flight_task(
+                                        &mut pool,
+                                        execution_id,
+                                        ControlSignal::Cancel,
+                                    );
+                                    tracing::info!(
+                                        %execution_id,
+                                        signalled,
+                                        "task execution cancellation received"
+                                    );
+                                } else {
+                                    tracing::warn!(event_id = %event.id, "task execution cancellation missing execution UUID");
+                                }
+                            } else if event.kind.as_u16() as u32
+                                == buzz_core::kind::KIND_TASK_EXECUTION_STATE
+                            {
+                                tracing::debug!(event_id = %event.id, "ignoring non-cancelled task execution state");
                             } else if let Some(ref owner_hex) = owner_cache.pubkey {
                                 handle_relay_observer_control_event(&config.keys, event, &mut pool, observer.as_ref(), owner_hex);
                             } else {

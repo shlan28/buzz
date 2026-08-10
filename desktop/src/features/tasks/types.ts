@@ -51,7 +51,12 @@ export type TaskHistoryEntry = {
   changes: string[];
 };
 
-export type TaskExecutionStatus = "queued" | "running" | "finished" | "failed";
+export type TaskExecutionStatus =
+  | "queued"
+  | "running"
+  | "finished"
+  | "failed"
+  | "cancelled";
 
 export type TaskExecution = {
   id: string;

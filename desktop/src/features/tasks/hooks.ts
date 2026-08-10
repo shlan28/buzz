@@ -20,6 +20,7 @@ import {
   KIND_TASK_STATE,
 } from "@/shared/constants/kinds";
 import {
+  buildCancelTaskExecutionEvent,
   buildCreateTaskEvent,
   buildDeleteTaskEvent,
   buildExecuteTaskEvent,
@@ -275,6 +276,12 @@ export function useTasks() {
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ["task-executions"] }),
   });
+  const cancelExecution = useMutation({
+    mutationFn: (execution: TaskExecution) =>
+      publishCommand(buildCancelTaskExecutionEvent(execution)),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["task-executions"] }),
+  });
 
   const ownedAgentPubkeys = React.useMemo(
     () =>
@@ -312,6 +319,7 @@ export function useTasks() {
     update,
     deleteTask,
     execute,
+    cancelExecution,
     executions: executions.data ?? new Map<string, TaskExecution>(),
     presence: presence.data ?? {},
     isAgentOnline: (pubkey: string | null) =>

@@ -376,6 +376,12 @@ export function TasksScreen() {
             tasks.execute.error ? message(tasks.execute.error) : undefined
           }
           executionPending={tasks.execute.isPending}
+          cancelExecutionPending={tasks.cancelExecution.isPending}
+          cancelExecutionError={
+            tasks.cancelExecution.error
+              ? message(tasks.cancelExecution.error)
+              : undefined
+          }
           onClose={() => openTask(null)}
           onDelete={() =>
             tasks.deleteTask.mutate(selected, {
@@ -383,6 +389,10 @@ export function TasksScreen() {
             })
           }
           onExecute={() => tasks.execute.mutate(selected)}
+          onCancelExecution={() => {
+            const execution = tasks.executions.get(selected.id);
+            if (execution) tasks.cancelExecution.mutate(execution);
+          }}
           onOpenExecutionResult={(eventId) => {
             void navigate({
               to: "/",
