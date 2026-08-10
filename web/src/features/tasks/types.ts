@@ -20,7 +20,12 @@ export type Task = {
   updatedAt: number;
 };
 
-export type TaskExecutionStatus = "queued" | "running" | "finished" | "failed";
+export type TaskExecutionStatus =
+  | "queued"
+  | "running"
+  | "finished"
+  | "failed"
+  | "cancelled";
 
 export type TaskExecution = {
   id: string;

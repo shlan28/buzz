@@ -16,6 +16,9 @@ export function TaskDetailPanel({
   executionPending = false,
   executionStatusAvailable = true,
   onExecute,
+  onCancel,
+  cancelPending = false,
+  cancelError,
 }: {
   assigneeProfile?: UserProfile;
   onClose: () => void;
@@ -26,6 +29,9 @@ export function TaskDetailPanel({
   executionPending?: boolean;
   executionStatusAvailable?: boolean;
   onExecute?: () => void;
+  onCancel?: () => void;
+  cancelPending?: boolean;
+  cancelError?: string;
 }) {
   if (!task) return null;
   const assignee = task.assignee
@@ -67,6 +73,9 @@ export function TaskDetailPanel({
           error={executionError}
           execution={execution}
           onExecute={onExecute}
+          onCancel={onCancel}
+          cancelPending={cancelPending}
+          cancelError={cancelError}
           pending={executionPending}
           statusAvailable={executionStatusAvailable}
         />

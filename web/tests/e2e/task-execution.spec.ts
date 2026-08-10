@@ -4,6 +4,7 @@ import {
   parseTaskExecution,
 } from "@/features/tasks/eventCodec";
 import {
+  buildTaskExecutionCancellation,
   buildTaskExecutionRequest,
   mapTaskExecutionError,
 } from "@/features/tasks/taskExecution";
@@ -42,6 +43,28 @@ test("builds the Desktop-compatible execution request", () => {
   ]);
 });
 
+test("builds the Desktop-compatible execution cancellation", () => {
+  const id = "00000000-0000-4000-8000-000000000099";
+  const event = buildTaskExecutionCancellation({
+    id,
+    eventId: "66".repeat(32),
+    taskId: task.id,
+    assignee: agent,
+    requester: "11".repeat(32),
+    status: "queued",
+    message: "",
+    updatedAt: 1,
+  });
+  expect(event.kind).toBe(42_504);
+  expect(event.content).toBe("Cancelled by user");
+  expect(event.tags).toEqual([
+    ["t", `task-id:${task.id}`],
+    ["d", id],
+    ["status", "cancelled"],
+    ["p", agent, "", "agent"],
+  ]);
+});
+
 test("accepts only Relay execution states and keeps the newest state", () => {
   const makeEvent = (status: string, createdAt: number, pubkey = relay) =>
     ({
@@ -61,6 +84,9 @@ test("accepts only Relay execution states and keeps the newest state", () => {
     }) as NostrEvent;
   expect(parseTaskExecution(makeEvent("running", 2, agent), relay)).toBeNull();
   expect(parseTaskExecution(makeEvent("invented", 2), relay)).toBeNull();
+  expect(parseTaskExecution(makeEvent("cancelled", 3), relay)?.status).toBe(
+    "cancelled",
+  );
   const queued = parseTaskExecution(makeEvent("queued", 1), relay);
   const running = parseTaskExecution(makeEvent("running", 2), relay);
   if (!queued || !running) throw new Error("Expected valid execution states");
@@ -123,4 +149,46 @@ test("restores a terminal state and allows Execute again", async ({ page }) => {
   await expect(page.getByText("Execution finished.")).toBeVisible();
   await page.getByRole("button", { name: "Execute again" }).click();
   await expect(page.getByRole("button", { name: "Queued" })).toBeDisabled();
+});
+
+test("cancels an active execution and allows Execute again", async ({
+  page,
+}) => {
+  await installWorkConsoleFixture(page);
+  await page.addInitScript(() => {
+    const fixture = window.__BUZZ_E2E_WORK_CONSOLE_DATA__;
+    if (fixture) {
+      fixture.taskExecutions = [
+        {
+          id: "00000000-0000-4000-8000-000000000097",
+          eventId: "76".repeat(32),
+          taskId: "task-1",
+          assignee: "22".repeat(32),
+          requester: fixture.userPubkey,
+          status: "queued",
+          message: "",
+          updatedAt: 1_754_640_500,
+        },
+      ];
+    }
+    window.__BUZZ_E2E_CANCEL_TASK__ = async (event) => {
+      window.__BUZZ_E2E_LAST_CANCEL_TASK__ = event;
+      await new Promise((resolve) => window.setTimeout(resolve, 80));
+    };
+  });
+  await page.goto("/app/tasks");
+  await page.getByText("Ship iPad console", { exact: true }).click();
+  await page.getByRole("button", { name: "Cancel execution" }).click();
+  await expect(
+    page.getByRole("button", { name: "Cancelling…" }),
+  ).toBeDisabled();
+  await expect(page.getByText("Execution cancelled.")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Execute again" }),
+  ).toBeEnabled();
+  const cancellation = await page.evaluate(
+    () => window.__BUZZ_E2E_LAST_CANCEL_TASK__,
+  );
+  expect(cancellation?.kind).toBe(42_504);
+  expect(cancellation?.tags).toContainEqual(["status", "cancelled"]);
 });

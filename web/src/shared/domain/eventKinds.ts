@@ -11,6 +11,7 @@ export const KINDS = {
   taskState: 30_500,
   taskExecutionState: 30_501,
   taskExecutionRequest: 42_503,
+  taskExecutionUpdate: 42_504,
   trackState: 30_510,
 } as const;
 

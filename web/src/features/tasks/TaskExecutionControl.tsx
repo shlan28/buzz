@@ -1,4 +1,4 @@
-import { Bot, Loader2, Play } from "lucide-react";
+import { Bot, Loader2, Play, Square } from "lucide-react";
 import type { TaskExecution } from "./types";
 
 export function TaskExecutionControl({
@@ -7,6 +7,9 @@ export function TaskExecutionControl({
   execution,
   pending,
   onExecute,
+  onCancel,
+  cancelPending = false,
+  cancelError,
   statusAvailable = true,
 }: {
   agentName: string;
@@ -14,12 +17,16 @@ export function TaskExecutionControl({
   execution?: TaskExecution;
   pending: boolean;
   onExecute: () => void;
+  onCancel?: () => void;
+  cancelPending?: boolean;
+  cancelError?: string;
   statusAvailable?: boolean;
 }) {
   const active =
     execution?.status === "queued" || execution?.status === "running";
   const terminal =
     execution?.status === "finished" || execution?.status === "failed";
+  const restartable = terminal || execution?.status === "cancelled";
   return (
     <section
       className="mt-6 space-y-3 rounded-lg border border-border bg-muted/30 p-3"
@@ -51,10 +58,25 @@ export function TaskExecutionControl({
             ? "Queued"
             : execution?.status === "running"
               ? "Running"
-              : terminal
+              : restartable
                 ? "Execute again"
                 : "Execute"}
       </button>
+      {active && onCancel ? (
+        <button
+          className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-border px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={cancelPending}
+          onClick={onCancel}
+          type="button"
+        >
+          {cancelPending ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <Square className="size-4" />
+          )}
+          {cancelPending ? "Cancelling…" : "Cancel execution"}
+        </button>
+      ) : null}
       {execution?.status === "finished" ? (
         <p className="text-xs text-muted-foreground" role="status">
           Execution finished.
@@ -65,6 +87,11 @@ export function TaskExecutionControl({
           {execution.message || "Execution failed."}
         </p>
       ) : null}
+      {execution?.status === "cancelled" ? (
+        <p className="text-xs text-muted-foreground" role="status">
+          Execution cancelled.
+        </p>
+      ) : null}
       {!statusAvailable ? (
         <p className="text-xs text-amber-700 dark:text-amber-300" role="status">
           Execution status unavailable. Reconnecting to Relay…
@@ -73,6 +100,11 @@ export function TaskExecutionControl({
       {error ? (
         <p className="text-xs text-destructive" role="alert">
           {error}
+        </p>
+      ) : null}
+      {cancelError ? (
+        <p className="text-xs text-destructive" role="alert">
+          {cancelError}
         </p>
       ) : null}
     </section>

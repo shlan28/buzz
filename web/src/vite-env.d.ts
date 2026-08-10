@@ -13,6 +13,8 @@ declare global {
       mentionPubkeys?: string[];
     }) => Promise<string>;
     __BUZZ_E2E_EXECUTE_TASK__?: (event: UnsignedNostrEvent) => Promise<void>;
+    __BUZZ_E2E_CANCEL_TASK__?: (event: UnsignedNostrEvent) => Promise<void>;
+    __BUZZ_E2E_LAST_CANCEL_TASK__?: UnsignedNostrEvent;
     __BUZZ_E2E_SEARCH_MESSAGES__?: Message[];
   }
 }
