@@ -845,7 +845,16 @@ async fn handle_task_execution(
                 .channel_id
                 .map_or(EventTopic::Global, EventTopic::Channel);
             if is_request {
-                if let Err(error) = state.pubsub.publish_event(tenant, topic, command).await {
+                // Execution requests are targeted Agent control-plane events.
+                // ACP listens on a global `#p`-scoped subscription, so routing
+                // a channel-bound Task request only to its channel topic leaves
+                // an online Agent permanently queued. The Relay read gate still
+                // restricts delivery to the Agent named by the `p` tag.
+                if let Err(error) = state
+                    .pubsub
+                    .publish_event(tenant, EventTopic::Global, command)
+                    .await
+                {
                     warn!(%execution_id, "execution request committed but live publish failed: {error}");
                 }
             }
