@@ -993,6 +993,10 @@ struct BgState {
     membership_sub_active: bool,
     /// Whether the observer control subscription is active.
     observer_control_sub_active: bool,
+    /// Newest control-plane event delivered to the harness. Reconnect replay
+    /// resumes from this watermark so Task execution requests cannot fall into
+    /// the socket replacement gap.
+    observer_control_last_seen: Option<u64>,
     /// Oldest dropped channel-event timestamp per channel, keyed by channel_id.
     /// Mirrors `membership_dropped_since` but for ordinary channel events.
     /// On reconnect resubscribe, `since` = min(last_seen, channel_dropped_since).
@@ -1070,6 +1074,7 @@ impl BgState {
             membership_last_seen: None,
             membership_sub_active: false,
             observer_control_sub_active: false,
+            observer_control_last_seen: None,
             channel_dropped_since: HashMap::new(),
             proactive_resubscribe_needed: false,
             startup_watermark: None,
@@ -1455,7 +1460,9 @@ async fn execute_connected_command(
                 state.observer_resub_needed = true;
                 return true;
             }
-            let sent = send_observer_control_subscribe(ws, agent_pubkey_hex).await;
+            let sent =
+                send_observer_control_subscribe(ws, agent_pubkey_hex, observer_replay_since(state))
+                    .await;
             if sent {
                 state.observer_resub_needed = false;
                 true
@@ -1731,7 +1738,13 @@ async fn run_background_task(
                     }
                 }
                 if state.observer_resub_needed && budget > 0 {
-                    if send_observer_control_subscribe(&mut ws, &agent_pubkey_hex).await {
+                    if send_observer_control_subscribe(
+                        &mut ws,
+                        &agent_pubkey_hex,
+                        observer_replay_since(&state),
+                    )
+                    .await
+                    {
                         state.observer_resub_needed = false;
                         budget = budget.saturating_sub(1);
                         any_sent = true;
@@ -2067,9 +2080,21 @@ async fn handle_ws_message(
                     event,
                 } => {
                     if subscription_id == OBSERVER_CONTROL_SUB_ID {
+                        let event_id = event.id.to_hex();
+                        let timestamp = event.created_at.as_secs();
+                        if !state.seen_ids.insert(event_id.clone()) {
+                            debug!(event_id, "duplicate observer control event — skipping");
+                            return true;
+                        }
                         match observer_control_tx.try_send(*event) {
-                            Ok(()) => {}
+                            Ok(()) => {
+                                state.observer_control_last_seen = Some(
+                                    state.observer_control_last_seen.unwrap_or(0).max(timestamp),
+                                );
+                            }
                             Err(mpsc::error::TrySendError::Full(_)) => {
+                                state.seen_ids.remove(&event_id);
+                                state.proactive_resubscribe_needed = true;
                                 warn!("observer control event dropped because control channel is full");
                             }
                             Err(mpsc::error::TrySendError::Closed(_)) => return false,
@@ -2269,7 +2294,12 @@ async fn handle_ws_message(
                     // resubscribe_after_reconnect() needs the subscription to
                     // still be in state so it can restore it.
                     if subscription_id == OBSERVER_CONTROL_SUB_ID {
-                        let sent = send_observer_control_subscribe(ws, agent_pubkey_hex).await;
+                        let sent = send_observer_control_subscribe(
+                            ws,
+                            agent_pubkey_hex,
+                            observer_replay_since(state),
+                        )
+                        .await;
                         if sent {
                             state.observer_control_sub_active = true;
                         } else {
@@ -2588,7 +2618,9 @@ async fn resubscribe_after_reconnect(
             if !pacing_sleep(cmd_rx, &mut deferred_commands, REQ_PACING_INTERVAL).await {
                 return ResubscribeResult::Shutdown;
             }
-            if !send_observer_control_subscribe(ws, agent_pubkey_hex).await {
+            if !send_observer_control_subscribe(ws, agent_pubkey_hex, observer_replay_since(state))
+                .await
+            {
                 warn!("failed to resubscribe observer controls after reconnect");
                 retain_deferred_command_intent(state, &mut deferred_commands);
                 return ResubscribeResult::RetryConnection;
@@ -3309,17 +3341,29 @@ async fn send_membership_subscribe(
 }
 
 /// Send a NIP-01 REQ for owner controls and targeted task execution requests.
-async fn send_observer_control_subscribe(ws: &mut WsStream, agent_pubkey_hex: &str) -> bool {
+fn observer_replay_since(state: &BgState) -> Option<u64> {
+    state
+        .observer_control_last_seen
+        .or(state.startup_watermark)
+        .map(|value| value.saturating_sub(SINCE_SKEW_SECS))
+}
+
+async fn send_observer_control_subscribe(
+    ws: &mut WsStream,
+    agent_pubkey_hex: &str,
+    since: Option<u64>,
+) -> bool {
     let req = json!([
         "REQ",
         OBSERVER_CONTROL_SUB_ID,
         {
-            "kinds": [KIND_AGENT_OBSERVER_FRAME, buzz_core::kind::KIND_TASK_EXECUTION_REQUEST],
+            "kinds": [
+                KIND_AGENT_OBSERVER_FRAME,
+                buzz_core::kind::KIND_TASK_EXECUTION_REQUEST,
+                buzz_core::kind::KIND_TASK_EXECUTION_STATE
+            ],
             "#p": [agent_pubkey_hex],
-            "since": std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
+            "since": since.unwrap_or_else(unix_now_secs),
         }
     ]);
 
@@ -4033,6 +4077,16 @@ async fn wait_for_any_ok(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn observer_control_replay_uses_last_delivered_watermark_with_skew() {
+        let mut state = BgState::new();
+        state.startup_watermark = Some(1_000);
+        assert_eq!(observer_replay_since(&state), Some(1_000 - SINCE_SKEW_SECS));
+
+        state.observer_control_last_seen = Some(1_500);
+        assert_eq!(observer_replay_since(&state), Some(1_500 - SINCE_SKEW_SECS));
+    }
 
     #[test]
     fn relay_ws_to_http_plain() {

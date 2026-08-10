@@ -1,5 +1,5 @@
-> 更新日期：2026-08-09
-> 更新说明：核对并更新当前实际运行配置；明确 Web 使用 NIP-98 HTTP 查询与 NIP-42 WebSocket 实时链路、补齐 CORS 配置、修正本地 Service Worker 验证方式，并增加全局搜索、DM 头像、外部头像 CSP、断线自动恢复与必须重新 Pair 的边界说明。
+> 更新日期：2026-08-10
+> 更新说明：补充 Pair/Remote Signer sidecar 的 LaunchAgent 启动、首次加载、重启、端口检查和日志排障方法；明确进程未启动与长连接短暂中断的判断边界。
 
 # Buzz 本地启动与 Web 部署指南
 
@@ -146,12 +146,48 @@ cargo run -p buzz-pair-relay
 127.0.0.1:5001  Remote Signer（kind 24133）
 ```
 
-当前 Mac 已配置 LaunchAgent，日常可用以下命令检查或重启：
+当前 Mac 已配置 LaunchAgent。日常应由 LaunchAgent 同时管理 Pair 和 Remote Signer，不需要分别启动两个服务。启动或强制重启：
+
+```bash
+launchctl kickstart -k "gui/$(id -u)/xyz.achoverse.buzz-pair-relay"
+```
+
+检查 LaunchAgent 和两个端口：
 
 ```bash
 launchctl list | rg 'xyz.achoverse.buzz-pair-relay'
+lsof -nP -iTCP:5000 -sTCP:LISTEN
+lsof -nP -iTCP:5001 -sTCP:LISTEN
+```
+
+若 LaunchAgent 尚未注册，先加载 plist，再启动服务：
+
+```bash
+launchctl bootstrap "gui/$(id -u)" \
+  /Users/lu/Library/LaunchAgents/xyz.achoverse.buzz-pair-relay.plist
+
 launchctl kickstart -k "gui/$(id -u)/xyz.achoverse.buzz-pair-relay"
 ```
+
+实时查看连接建立、关闭和重连日志：
+
+```bash
+tail -f /Users/lu/Library/Logs/buzz-pair-relay.log
+```
+
+只有在需要前台观察编译或启动错误时，才手工执行 `cargo run -p buzz-pair-relay`。运行前应确认 LaunchAgent 已停止且 5000/5001 未被占用，避免同时启动两个 sidecar：
+
+```bash
+launchctl kill SIGTERM "gui/$(id -u)/xyz.achoverse.buzz-pair-relay"
+lsof -nP -iTCP:5000 -sTCP:LISTEN
+lsof -nP -iTCP:5001 -sTCP:LISTEN
+
+cd /Users/lu/buzz
+. ./bin/activate-hermit
+cargo run -p buzz-pair-relay
+```
+
+排障时不要只根据 Web 一次连接失败判断服务未启动：若 5000/5001 均有 `buzz-pair-relay` 监听，说明 sidecar 已运行；此时应继续查看日志和 Tunnel，区分瞬时 WebSocket 断流、自动重连与进程退出。
 
 ### 4.5 Cloudflare Tunnel
 
@@ -362,9 +398,9 @@ Asset:      index-DPWJJbSP.js
 | `app.achoverse.xyz` 打不开 | Cloudflare Pages 自定义域名状态和 DNS，不是本机 3200 端口 |
 | Web 能打开但 Relay 数据失败 | `https://achoverse.xyz/health`、3200 端口和 cloudflared |
 | Web `/query` 显示 `Load failed` | `.env` 的 `BUZZ_CORS_ORIGINS` 必须同时包含 `https://app.achoverse.xyz`；OPTIONS 响应必须返回对应 `Access-Control-Allow-Origin` |
-| Pair Link 连接失败 | 5000 端口、`/pair` ingress、Pair Link 是否过期 |
+| Pair Link 连接失败 | 先用 `lsof` 确认 5000；未监听时 `launchctl kickstart -k` 启动 sidecar；已监听时检查 `/pair` ingress、sidecar 日志和 Pair Link 是否过期 |
 | SAS 两边不一致 | 立即拒绝，确认 Web 是最新版，重新生成 Pair Link；不得绕过 SAS |
-| SAS 一致但 signer 超时 | 5001 端口、`/signer` ingress、Desktop 是否仍在运行 |
+| SAS 一致但 signer 超时 | 先用 `lsof` 确认 5001；未监听时重启 sidecar；已监听时检查 `/signer` ingress、sidecar 日志和 Desktop 是否仍在运行 |
 | 约两分钟后 signer 断开 | 查看 `buzz-pair-relay.log` 的 `duration_ms`；Desktop 和 Web 应每 25 秒发送心跳，不应持续出现约 125 秒的空闲关闭 |
 | Pair 成功但页面没有数据 | 先刷新 `/app/channels`；确认 Desktop signer 在线、`VITE_RELAY_URL=wss://achoverse.xyz`，再分别检查 NIP-98 `/query`、NIP-42 AUTH 和浏览器控制台；不要重新导入 user nsec |
 | Web 短时断网或 `/signer` 连接被重置 | Desktop 会以 250ms～5s 退避自动重连，Web 会在下一次只读请求时重新打开 signer socket；等待网络恢复后刷新或重试，不需要重新 Pair |

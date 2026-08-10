@@ -132,7 +132,11 @@ pub async fn apply_task_execution_events(
             .unwrap_or_default();
         let allowed = matches!(
             (previous_status, next_status),
-            ("queued", "running") | ("running", "finished") | ("running", "failed")
+            ("queued", "running")
+                | ("queued", "cancelled")
+                | ("running", "finished")
+                | ("running", "failed")
+                | ("running", "cancelled")
         );
         if !allowed {
             return Err(DbError::Conflict(format!(
@@ -570,6 +574,36 @@ mod tests {
             Err(DbError::Conflict(message)) if message == "task already has an active execution"
         ));
 
+        let second_cancel_command = command_event(second_id, "cancelled", false);
+        let second_cancelled = execution_event(&relay, second_id, "cancelled");
+        apply_task_execution_events(
+            &pool,
+            community,
+            task_id,
+            second_id,
+            &second_cancel_command,
+            &second_cancelled,
+            None,
+            false,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            apply_task_execution_events(
+                &pool,
+                community,
+                task_id,
+                third_id,
+                &third_request,
+                &third_queued,
+                None,
+                true,
+            )
+            .await
+            .unwrap(),
+            ApplyTaskResult::Applied
+        );
+
         let visible_execution_ids: Vec<String> = sqlx::query_scalar(
             "SELECT d_tag FROM events WHERE community_id = $1 AND kind = $2 \
              AND deleted_at IS NULL AND tags @> $3 ORDER BY d_tag",
@@ -580,7 +614,11 @@ mod tests {
         .fetch_all(&pool)
         .await
         .unwrap();
-        let mut expected = vec![first_id.to_string(), second_id.to_string()];
+        let mut expected = vec![
+            first_id.to_string(),
+            second_id.to_string(),
+            third_id.to_string(),
+        ];
         expected.sort();
         assert_eq!(visible_execution_ids, expected);
     }

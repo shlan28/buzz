@@ -164,6 +164,8 @@ pub enum TaskExecutionStatus {
     Finished,
     /// The Agent could not start or continue the turn.
     Failed,
+    /// The requester or Agent owner cancelled the active execution.
+    Cancelled,
 }
 
 impl TaskExecutionStatus {
@@ -173,6 +175,7 @@ impl TaskExecutionStatus {
             Self::Running => "running",
             Self::Finished => "finished",
             Self::Failed => "failed",
+            Self::Cancelled => "cancelled",
         }
     }
 }

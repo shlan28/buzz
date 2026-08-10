@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   assertTaskAssigneeTags,
   buildCreateTaskEvent,
+  buildCancelTaskExecutionEvent,
   buildDeleteTaskEvent,
   buildExecuteTaskEvent,
   buildMutateTaskEvent,
@@ -72,6 +73,27 @@ test("builds a new execution id for every execution request", () => {
   );
 });
 
+test("builds a targeted cancellation for an active execution", () => {
+  const cancellation = buildCancelTaskExecutionEvent({
+    id: "11111111-1111-4111-8111-111111111111",
+    eventId: "e".repeat(64),
+    taskId: "22222222-2222-4222-8222-222222222222",
+    assignee: "d".repeat(64),
+    owner: "a".repeat(64),
+    requester: "b".repeat(64),
+    status: "queued",
+    message: "",
+    updatedAt: 10,
+  });
+  assert.equal(cancellation.kind, 42504);
+  assert.deepEqual(cancellation.tags, [
+    ["t", "task-id:22222222-2222-4222-8222-222222222222"],
+    ["d", "11111111-1111-4111-8111-111111111111"],
+    ["status", "cancelled"],
+    ["p", "d".repeat(64), "", "agent"],
+  ]);
+});
+
 test("parses only Relay-signed execution state", () => {
   const execution = {
     ...event,
@@ -86,6 +108,18 @@ test("parses only Relay-signed execution state", () => {
     ],
   };
   assert.equal(parseTaskExecutionState(execution, relay)?.status, "running");
+  assert.equal(
+    parseTaskExecutionState(
+      {
+        ...execution,
+        tags: execution.tags.map((tag) =>
+          tag[0] === "status" ? ["status", "cancelled"] : tag,
+        ),
+      },
+      relay,
+    )?.status,
+    "cancelled",
+  );
   assert.equal(
     parseTaskExecutionState({ ...execution, pubkey: "f".repeat(64) }, relay),
     null,

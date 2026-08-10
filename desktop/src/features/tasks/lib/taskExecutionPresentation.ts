@@ -2,7 +2,14 @@ import type { TaskExecution, TaskStatus } from "../types";
 
 export type TaskExecutionPresentation = {
   label: string | null;
-  state: "idle" | "queued" | "running" | "finishing" | "finished" | "failed";
+  state:
+    | "idle"
+    | "queued"
+    | "running"
+    | "finishing"
+    | "finished"
+    | "failed"
+    | "cancelled";
   resultAvailable: boolean;
 };
 
@@ -21,6 +28,13 @@ export function taskExecutionPresentation(
       label: "Result delivery failed",
       state: "failed",
       resultAvailable: true,
+    };
+  }
+  if (execution.status === "cancelled") {
+    return {
+      label: "Cancelled",
+      state: "cancelled",
+      resultAvailable: false,
     };
   }
   if (taskStatus === "done") {

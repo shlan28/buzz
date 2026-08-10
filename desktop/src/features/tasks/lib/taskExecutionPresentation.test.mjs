@@ -35,3 +35,14 @@ test("only terminal executions expose an Inbox result", () => {
   });
   assert.equal(taskExecutionPresentation("done").resultAvailable, false);
 });
+
+test("presents cancellation as a restartable terminal without an Inbox result", () => {
+  assert.deepEqual(
+    taskExecutionPresentation("in-progress", { status: "cancelled" }),
+    {
+      label: "Cancelled",
+      state: "cancelled",
+      resultAvailable: false,
+    },
+  );
+});

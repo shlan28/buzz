@@ -1,4 +1,4 @@
-import { Bot, ExternalLink, Loader2, Play } from "lucide-react";
+import { Bot, ExternalLink, Loader2, Play, Square } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import type { TaskExecution } from "../types";
 import type { TaskStatus } from "../types";
@@ -12,6 +12,9 @@ export function TaskExecutionControl({
   error,
   onExecute,
   onOpenResult,
+  onCancel,
+  cancelPending = false,
+  cancelError,
   canStart = true,
   taskStatus,
 }: {
@@ -22,6 +25,9 @@ export function TaskExecutionControl({
   error?: string;
   onExecute: () => void;
   onOpenResult?: () => void;
+  onCancel?: () => void;
+  cancelPending?: boolean;
+  cancelError?: string;
   canStart?: boolean;
   taskStatus: TaskStatus;
 }) {
@@ -30,6 +36,7 @@ export function TaskExecutionControl({
     execution?.status === "queued" || execution?.status === "running";
   const retry = execution?.status === "failed";
   const terminal = execution?.status === "finished" || retry;
+  const restartable = terminal || execution?.status === "cancelled";
   return (
     <section
       className="space-y-3 rounded-lg border border-border bg-muted/30 p-3"
@@ -85,10 +92,31 @@ export function TaskExecutionControl({
               ? "Queued"
               : execution?.status === "running"
                 ? "Running"
-                : terminal
+                : restartable
                   ? "Execute again"
                   : "Execute"}
         </Button>
+      ) : null}
+      {active && onCancel ? (
+        <Button
+          className="w-full"
+          disabled={cancelPending}
+          onClick={onCancel}
+          size="sm"
+          variant="outline"
+        >
+          {cancelPending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Square className="h-4 w-4" />
+          )}
+          {cancelPending ? "Cancelling…" : "Cancel execution"}
+        </Button>
+      ) : null}
+      {execution?.status === "cancelled" ? (
+        <p className="text-xs text-muted-foreground" role="status">
+          Execution cancelled. You can start a new execution when ready.
+        </p>
       ) : null}
       {!online && canStart ? (
         <p className="text-xs text-amber-700 dark:text-amber-300" role="status">
@@ -103,6 +131,11 @@ export function TaskExecutionControl({
       {error ? (
         <p className="text-xs text-destructive" role="alert">
           {error}
+        </p>
+      ) : null}
+      {cancelError ? (
+        <p className="text-xs text-destructive" role="alert">
+          {cancelError}
         </p>
       ) : null}
     </section>

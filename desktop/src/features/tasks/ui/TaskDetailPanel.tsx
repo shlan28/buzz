@@ -51,6 +51,9 @@ export function TaskDetailPanel({
   agentOnline,
   canExecute,
   onExecute,
+  onCancelExecution,
+  cancelExecutionPending,
+  cancelExecutionError,
   onOpenExecutionResult,
 }: {
   task: Task;
@@ -70,6 +73,9 @@ export function TaskDetailPanel({
   agentOnline: boolean;
   canExecute: boolean;
   onExecute: () => void;
+  onCancelExecution: () => void;
+  cancelExecutionPending: boolean;
+  cancelExecutionError?: string;
   onOpenExecutionResult: (eventId: string) => void;
 }) {
   const [deleteOpen, setDeleteOpen] = React.useState(false);
@@ -170,6 +176,9 @@ export function TaskDetailPanel({
             pending={executionPending}
             taskStatus={task.status}
             onExecute={onExecute}
+            onCancel={onCancelExecution}
+            cancelPending={cancelExecutionPending}
+            cancelError={cancelExecutionError}
             onOpenResult={
               execution?.status === "finished" || execution?.status === "failed"
                 ? () => onOpenExecutionResult(execution.eventId)

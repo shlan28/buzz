@@ -4,6 +4,7 @@ import {
   KIND_TASK_DELETE,
   KIND_TASK_EXECUTION_REQUEST,
   KIND_TASK_EXECUTION_STATE,
+  KIND_TASK_EXECUTION_UPDATE,
   KIND_TASK_MUTATE,
   KIND_TASK_STATE,
 } from "@/shared/constants/kinds";
@@ -37,6 +38,7 @@ const EXECUTION_STATUSES = new Set<TaskExecutionStatus>([
   "running",
   "finished",
   "failed",
+  "cancelled",
 ]);
 
 function firstTag(event: RelayEvent, name: string) {
@@ -184,6 +186,19 @@ export function buildExecuteTaskEvent(task: Task) {
   ];
   if (task.channelId) tags.push(["h", task.channelId]);
   return { kind: KIND_TASK_EXECUTION_REQUEST, content: "", tags };
+}
+
+export function buildCancelTaskExecutionEvent(execution: TaskExecution) {
+  return {
+    kind: KIND_TASK_EXECUTION_UPDATE,
+    content: "Cancelled by user",
+    tags: [
+      ["t", `task-id:${execution.taskId}`],
+      ["d", execution.id],
+      ["status", "cancelled"],
+      ["p", execution.assignee, "", "agent"],
+    ],
+  };
 }
 
 export function buildCreateTaskEvent(draft: TaskDraft) {

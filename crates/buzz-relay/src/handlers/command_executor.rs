@@ -59,6 +59,23 @@ fn task_execution_start_allowed(actor: &[u8], agent: &[u8], owner: &[u8]) -> boo
     actor == agent || actor == owner
 }
 
+fn task_edit_allowed(
+    actor: &[u8],
+    creator: Option<&[u8]>,
+    assignee: Option<&[u8]>,
+    creator_owner: Option<&[u8]>,
+    assignee_owner: Option<&[u8]>,
+    actor_is_admin: bool,
+    agent_self_claim: bool,
+) -> bool {
+    creator == Some(actor)
+        || assignee == Some(actor)
+        || creator_owner == Some(actor)
+        || assignee_owner == Some(actor)
+        || actor_is_admin
+        || agent_self_claim
+}
+
 async fn task_track_visible_to_actor(
     tenant: &TenantContext,
     state: &Arc<AppState>,
@@ -647,6 +664,10 @@ async fn handle_task_execution(
 ) -> Result<IngestResult, IngestError> {
     let kind = command.kind.as_u16() as u32;
     let is_request = kind == KIND_TASK_EXECUTION_REQUEST;
+    let requested_status = (!is_request)
+        .then(|| extract_tag(command, "status"))
+        .flatten();
+    let is_cancel = requested_status.as_deref() == Some("cancelled");
     let task_id = buzz_core::task::task_id(command)
         .map_err(|error| IngestError::Rejected(format!("invalid: {error}")))?;
     let execution_id = extract_d_tag(command)
@@ -722,12 +743,6 @@ async fn handle_task_execution(
                 "unavailable: Agent is offline; start the Agent before executing this task".into(),
             ));
         }
-    } else {
-        if actor != assignee {
-            return Err(IngestError::AuthFailed(
-                "restricted: only the assigned Agent may update execution state".into(),
-            ));
-        }
     }
 
     let mut requester_hex = hex::encode(&actor);
@@ -755,17 +770,33 @@ async fn handle_task_execution(
         }
         requester_hex = extract_tag(&current_execution.event, "requester")
             .ok_or_else(|| IngestError::Rejected("invalid: execution missing requester".into()))?;
+        let actor_hex = hex::encode(&actor);
+        if is_cancel {
+            if actor != assignee && actor != owner && actor_hex != requester_hex {
+                return Err(IngestError::AuthFailed(
+                    "restricted: only the assigned Agent, its owner, or the requester may cancel this execution"
+                        .into(),
+                ));
+            }
+        } else if actor != assignee {
+            return Err(IngestError::AuthFailed(
+                "restricted: only the assigned Agent may update execution state".into(),
+            ));
+        }
     }
 
     let status = if is_request {
         "queued".to_string()
     } else {
-        let value = extract_tag(command, "status").ok_or_else(|| {
+        let value = requested_status.ok_or_else(|| {
             IngestError::Rejected("invalid: execution update missing status".into())
         })?;
-        if !matches!(value.as_str(), "running" | "finished" | "failed") {
+        if !matches!(
+            value.as_str(),
+            "running" | "finished" | "failed" | "cancelled"
+        ) {
             return Err(IngestError::Rejected(
-                "invalid: execution status must be running, finished, or failed".into(),
+                "invalid: execution status must be running, finished, failed, or cancelled".into(),
             ));
         }
         value
@@ -1088,6 +1119,8 @@ async fn handle_task_command(
         };
         let creator = tag_value("creator").and_then(|v| hex::decode(v).ok());
         let assignee = tag_value("p").and_then(|v| hex::decode(v).ok());
+        let agent_self_claim =
+            assignee.is_none() && extract_tag(command, "p").as_deref() == Some(actor_hex.as_str());
         let creator_owner = match creator.as_deref() {
             Some(value) => state
                 .db
@@ -1128,20 +1161,19 @@ async fn handle_task_command(
                 ));
             }
         }
-        if creator.as_deref() != Some(actor.as_slice())
-            && assignee.as_deref() != Some(actor.as_slice())
-            && creator_owner.as_deref() != Some(actor.as_slice())
-            && assignee_owner.as_deref() != Some(actor.as_slice())
-        {
-            if actor_is_admin {
-                // Community administrators may repair task state, but the
-                // target Agent's assignment policy is still checked below.
-            } else {
-                return Err(IngestError::AuthFailed(
-                    "restricted: task may only be edited by its creator, assignee, or agent owner"
-                        .into(),
-                ));
-            }
+        if !task_edit_allowed(
+            &actor,
+            creator.as_deref(),
+            assignee.as_deref(),
+            creator_owner.as_deref(),
+            assignee_owner.as_deref(),
+            actor_is_admin,
+            agent_self_claim,
+        ) {
+            return Err(IngestError::AuthFailed(
+                "restricted: task may only be edited by its creator, assignee, or agent owner"
+                    .into(),
+            ));
         }
     }
 
@@ -2862,7 +2894,34 @@ async fn resume_workflow_after_approval(
 
 #[cfg(test)]
 mod task_permission_tests {
-    use super::{agent_assignment_allowed, task_delete_allowed, task_execution_start_allowed};
+    use super::{
+        agent_assignment_allowed, task_delete_allowed, task_edit_allowed,
+        task_execution_start_allowed,
+    };
+
+    #[test]
+    fn unassigned_agent_can_claim_itself_without_opening_general_edit_access() {
+        let creator = [1_u8; 32];
+        let agent = [2_u8; 32];
+        assert!(task_edit_allowed(
+            &agent,
+            Some(&creator),
+            None,
+            None,
+            None,
+            false,
+            true,
+        ));
+        assert!(!task_edit_allowed(
+            &agent,
+            Some(&creator),
+            None,
+            None,
+            None,
+            false,
+            false,
+        ));
+    }
 
     #[test]
     fn execution_is_strictly_agent_or_owner_only() {
