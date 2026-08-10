@@ -1,5 +1,5 @@
 > 更新日期：2026-08-10
-> 更新说明：完成 Agent 自我指派、Task Execution 断线补收和主动取消实现；补充修复 Channel Task Request 未进入 Agent Global 控制订阅的问题。
+> 更新说明：完成 Agent 自我指派、Task Execution 断线补收和主动取消实现；补充修复 Channel Request 与 State 未进入 Global 实时订阅的问题。
 
 # Agent 自我指派与 Task Execution 卡队列修复方案
 
@@ -173,7 +173,8 @@ Relay 只允许 assignee Agent 发布 Execution Update；Desktop Owner 无法结
 ## 九、实现与验证结果
 
 - Relay 仅对“未分配 Task 的 Agent 自我认领”开放旧状态权限例外，不扩大普通编辑权限；定向权限测试通过。
-- Channel Task 的原始 Execute Request 固定发布到 Global control topic，并继续通过 `#p` read gate 限定目标 Agent；Execution State 仍发布到 Channel topic供客户端收敛。
+- Channel Task 的原始 Execute Request 固定发布到 Global control topic，并继续通过 `#p` read gate 限定目标 Agent。
+- Execution State 固定发布到 Global topic，并在 Channel Task 上额外发布到 Channel topic，使 Desktop/Web 状态订阅和 Agent cancellation control 都能实时收敛。
 - ACP 控制订阅保存最后成功投递的时间，并带时钟偏差窗口回放；重复事件继续由去重和数据库原子状态转换保护。
 - queued/running 均可进入 Relay 持久化的 cancelled 终态；目标 Agent 收到 cancellation state 后按 execution UUID 取消 turn 并阻止迟到结果覆盖终态。
 - Desktop 已提供 `Cancel execution`，并支持 `Cancelling…`、`Cancelled` 与再次 Execute。

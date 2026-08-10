@@ -858,12 +858,26 @@ async fn handle_task_execution(
                     warn!(%execution_id, "execution request committed but live publish failed: {error}");
                 }
             }
+            // Execution state is consumed by global Task UI subscriptions and
+            // by the Agent control plane (notably running cancellation). Keep
+            // the channel publish for channel-scoped consumers, but always
+            // publish globally as well. Event-id dedup makes the dual delivery
+            // harmless for clients subscribed through both paths.
             if let Err(error) = state
                 .pubsub
-                .publish_event(tenant, topic, &execution_state)
+                .publish_event(tenant, EventTopic::Global, &execution_state)
                 .await
             {
                 warn!(%execution_id, "execution state committed but live publish failed: {error}");
+            }
+            if let EventTopic::Channel(_) = topic {
+                if let Err(error) = state
+                    .pubsub
+                    .publish_event(tenant, topic, &execution_state)
+                    .await
+                {
+                    warn!(%execution_id, "execution channel state committed but live publish failed: {error}");
+                }
             }
             Ok(IngestResult {
                 event_id: command.id.to_hex(),
