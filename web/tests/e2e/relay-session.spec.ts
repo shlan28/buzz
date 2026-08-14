@@ -37,6 +37,7 @@ import {
   workConsoleCalendarFilters,
   workConsoleCoreFilters,
 } from "../../src/shared/api/communitySession";
+import { asyncStateCopy } from "../../src/shared/ui/AsyncStateView";
 
 test("rejects open-ended Relay filters before opening a socket", async () => {
   await expect(
@@ -95,6 +96,18 @@ test("classifies only recoverable signer transport failures for read retries", (
   expect(
     isSignerTransportError(new Error("event kind 1 is not permitted")),
   ).toBe(false);
+});
+
+test("keeps pairing saved when Desktop is temporarily offline", () => {
+  expect(asyncStateCopy("error", "Remote signer is offline.")).toEqual({
+    title: "Mac signer is offline",
+    description:
+      "Your pairing is still saved. Start or reopen Buzz Desktop, then retry.",
+  });
+  expect(asyncStateCopy("pair-required")).toEqual({
+    title: "Pair with your Mac",
+    description: "This browser has no paired device credential yet.",
+  });
 });
 
 test("builds a payload-bound NIP-98 query authorization", async () => {

@@ -223,7 +223,7 @@ pub async fn confirm_pairing_sas(
     if let Some(authorization) = web_signer_authorization {
         let client_pubkey = client_pubkey.ok_or("paired Web device has no verified public key")?;
         remote_signer
-            .authorize(
+            .authorize_and_persist(
                 state.signing_keys()?,
                 authorization.relay_url,
                 client_pubkey,

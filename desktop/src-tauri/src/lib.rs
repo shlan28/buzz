@@ -421,6 +421,33 @@ pub fn run() {
                 .load(std::sync::atomic::Ordering::Acquire);
             let recovery_mode = identity_lost || keyring_locked;
 
+            // Pairing authorization and runtime availability are separate. A
+            // normal Desktop restart restores the previously authorized Web
+            // client from Keychain; identity recovery modes fail closed and do
+            // not start a signer with an ephemeral key.
+            if !recovery_mode {
+                let signer_handle = app_handle.clone();
+                let signing_keys = state.signing_keys();
+                tauri::async_runtime::spawn(async move {
+                    let keys = match signing_keys {
+                        Ok(keys) => keys,
+                        Err(error) => {
+                            tracing::warn!(%error, "Web signer restore skipped: identity unavailable");
+                            return;
+                        }
+                    };
+                    let signer = signer_handle
+                        .state::<commands::remote_signer::RemoteSignerHandle>();
+                    match signer.restore(keys).await {
+                        Ok(true) => tracing::info!("Web signer authorization restored"),
+                        Ok(false) => {}
+                        Err(error) => {
+                            tracing::warn!(%error, "Web signer authorization restore failed");
+                        }
+                    }
+                });
+            }
+
             // Backfill the pinned persona snapshot for any pre-existing agent
             // that predates the record-authoritative-spawn cutover (persona_id
             // set but no source_version). Must run before
