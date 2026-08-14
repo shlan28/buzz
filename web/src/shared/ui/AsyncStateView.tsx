@@ -1,6 +1,32 @@
 import { Link } from "@tanstack/react-router";
 import { LoaderCircle, RefreshCw, Unplug } from "lucide-react";
 
+export function asyncStateCopy(
+  status: "pair-required" | "error",
+  message?: string,
+) {
+  if (status === "pair-required") {
+    return {
+      title: "Pair with your Mac",
+      description: "This browser has no paired device credential yet.",
+    };
+  }
+  const signerUnavailable =
+    message?.includes("Remote signer") ||
+    message?.includes("Desktop") ||
+    message?.includes("signer");
+  return signerUnavailable
+    ? {
+        title: "Mac signer is offline",
+        description:
+          "Your pairing is still saved. Start or reopen Buzz Desktop, then retry.",
+      }
+    : {
+        title: "Relay data is unavailable",
+        description: message,
+      };
+}
+
 export function AsyncStateView({
   status,
   message,
@@ -21,25 +47,13 @@ export function AsyncStateView({
       </div>
     );
   const pair = status === "pair-required";
-  const signerUnavailable =
-    !pair &&
-    (message?.includes("Remote signer") ||
-      message?.includes("Desktop") ||
-      message?.includes("signer"));
+  const copy = asyncStateCopy(status, message);
   return (
     <div className="flex flex-1 items-center justify-center p-6 text-center">
       <div className="max-w-sm">
         <Unplug className="mx-auto mb-3 size-8 text-muted-foreground" />
-        <h2 className="text-base font-semibold">
-          {pair
-            ? "Pair with your Mac"
-            : signerUnavailable
-              ? "Mac signer is offline"
-              : "Relay data is unavailable"}
-        </h2>
-        <p className="mt-2 text-sm text-muted-foreground">
-          {pair ? "This browser has no paired device credential yet." : message}
-        </p>
+        <h2 className="text-base font-semibold">{copy.title}</h2>
+        <p className="mt-2 text-sm text-muted-foreground">{copy.description}</p>
         {pair ? (
           <Link
             className="mt-4 inline-flex h-9 items-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground"

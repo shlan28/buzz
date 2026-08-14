@@ -57,6 +57,7 @@ mod relay_members;
 mod relay_members_tests;
 mod relay_reconnect;
 pub mod remote_signer;
+mod remote_signer_store;
 mod social;
 mod team_snapshot;
 mod teams;

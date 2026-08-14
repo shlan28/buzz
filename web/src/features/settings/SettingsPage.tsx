@@ -177,7 +177,7 @@ export function SettingsPage() {
             >
               <SettingRow
                 label="Mac signer"
-                value={credential ? "Paired" : "Not paired"}
+                value={credential ? "Pairing saved" : "Not paired"}
                 status={Boolean(credential)}
               />
               <SettingRow
@@ -186,16 +186,23 @@ export function SettingsPage() {
                 mono
               />
               {credential ? (
-                <PanelActions>
-                  <button
-                    className="inline-flex items-center gap-2 rounded-md border border-destructive/40 px-3 py-2 text-sm text-destructive hover:bg-destructive/5"
-                    onClick={() => void clearPairing()}
-                    type="button"
-                  >
-                    <Trash2 className="size-4" />
-                    Clear pairing on this browser
-                  </button>
-                </PanelActions>
+                <>
+                  <p className="py-3 text-sm leading-6 text-muted-foreground">
+                    Closing Web or restarting Desktop does not remove this
+                    pairing. Desktop must be running to sign requests and host
+                    your agents.
+                  </p>
+                  <PanelActions>
+                    <button
+                      className="inline-flex items-center gap-2 rounded-md border border-destructive/40 px-3 py-2 text-sm text-destructive hover:bg-destructive/5"
+                      onClick={() => void clearPairing()}
+                      type="button"
+                    >
+                      <Trash2 className="size-4" />
+                      Clear pairing on this browser
+                    </button>
+                  </PanelActions>
+                </>
               ) : (
                 <PanelActions>
                   <Link

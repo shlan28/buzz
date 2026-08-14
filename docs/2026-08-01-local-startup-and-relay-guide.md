@@ -1,5 +1,5 @@
-> 更新日期：2026-08-10
-> 更新说明：补充本机 Relay 持久化方案，明确 LaunchAgent、Docker 依赖、自启动顺序、版本更新、日志、停用与重启后的验证方法。
+> 更新日期：2026-08-15
+> 更新说明：补充 Web Remote Signer 授权的 Keychain 持久化与 Desktop 重启恢复规则；明确 Desktop/Agent 离线不等于 Pair 失效。
 
 # Buzz 本地启动与 Web 部署指南
 
@@ -14,7 +14,8 @@ https://app.achoverse.xyz/app/channels
 Web 界面不直接获取用户私钥。首次使用时，用户在 Desktop 生成 Web Pair Link，然后在 Web 的 Pair 页面完成 SAS 校验。配对完成后：
 
 - Web 保存本设备可撤销的 device key 和 Remote Signer 连接信息；
-- Desktop 保留 user key，并只为已授权的 Web 设备执行白名单签名；
+- Desktop 在系统 Keychain 保留版本化 Web signer 授权，重启后验证当前身份并自动恢复；
+- Desktop 保留 user key，并只为已授权的 Web 设备执行白名单签名；Web 不保存 user key 或一次性 connect secret；
 - Relay 负责数据与实时事件；
 - Web 使用同一 User Pubkey：通过 NIP-98 签名的 HTTP `/query` 读取 Channels、消息、Calendar、Tasks、Tracks、Profile 和历史搜索结果，并通过 NIP-42 WebSocket AUTH 接收当前会话的实时事件；
 - Pair 和 Remote Signer 使用独立的短时/单播通道，不把私钥发到 Pages 或 Relay 数据库。
@@ -526,7 +527,8 @@ launchctl kickstart -k "gui/$(id -u)/xyz.achoverse.buzz-relay"
 | Pair 成功但页面没有数据 | 先刷新 `/app/channels`；确认 Desktop signer 在线、`VITE_RELAY_URL=wss://achoverse.xyz`，再分别检查 NIP-98 `/query`、NIP-42 AUTH 和浏览器控制台；不要重新导入 user nsec |
 | Web 短时断网或 `/signer` 连接被重置 | Desktop 会以 250ms～5s 退避自动重连，Web 会在下一次只读请求时重新打开 signer socket；等待网络恢复后刷新或重试，不需要重新 Pair |
 | Web 搜索 Channel/Agent 正常，但历史消息搜索失败 | 本地实体搜索不需要新签名；Relay NIP-50 历史搜索需要 Desktop signer 在线并为 NIP-98 `/query` 签名 |
-| 重启 Desktop 后 Web 提示 signer 离线 | Web device credential 虽保存在浏览器 IndexedDB，但 Desktop 授权当前只存在于运行内存；Desktop 进程重启后必须生成新的 Web Pair Link 重新 Pair |
+| 重启 Desktop 后 Web 提示 signer 离线 | 先等待 Desktop 从 Keychain 恢复 signer 授权并点击 Retry；普通重启不需要新 Pair Link。若持续失败，检查 Desktop 日志中的 identity mismatch、Keychain 或 `/signer` 错误 |
+| Desktop 关闭时 Web 无法加载或 Agent 不回复 | 配对仍保留，但 Desktop 负责 signer 和托管 Agent 运行；启动 Desktop 后 Retry，不要重新 Pair |
 | Agent 头像 URL 能直接打开，但 Web 只显示 initials | 检查 Pages CSP 的 `img-src` 是否包含批准的头像域名；当前允许 `https://xianghuzuoyongli.oss-cn-beijing.aliyuncs.com` |
 | Pages 单次地址是新版，自定义域名是旧版 | 对比 hashed asset，等待边缘更新或使用查询参数再验证 |
 | Wrangler 提示未登录 | 执行 `npx --yes wrangler login` 重新授权 |
@@ -543,7 +545,8 @@ Pair 与连接恢复是两件事。Pair 建立 Web device key、Desktop signer p
 | Web 或 Mac 短时断网、Tunnel 重连、WebSocket reset | 否 | 等待自动重连；失败中的操作手工重试或刷新页面 |
 | signer 在发送/签名中途断开 | 通常否 | 为避免重复发送，不自动重放写操作；网络恢复后由用户明确重试 |
 | Pair/Signer sidecar 重启，但 Desktop 进程未退出 | 否 | Desktop signer 自动退避重连，Web 下一次只读请求重新建连 |
-| Desktop 应用进程退出或重启 | **是** | 当前 Desktop signer 授权仅存运行内存，重新生成 Pair Link 并完成 SAS |
+| Desktop 应用进程退出 | 否 | Web 保留 IndexedDB 凭据并显示 Desktop 离线；Desktop 离线期间 signer 和托管 Agent 不可用 |
+| Desktop 应用重新启动 | 否 | Desktop 在身份解析成功后从 Keychain 恢复授权，Web 点击 Retry 或刷新即可 |
 | 用户在 Settings 撤销 Paired device | **是** | 撤销后必须使用新 Pair Link 授权 |
 | 浏览器清除网站数据、IndexedDB 丢失或更换浏览器/Profile | **是** | Web device credential 已丢失，需要重新 Pair |
 | Desktop user key 与已保存的 user pubkey 不一致 | **是** | Web 会清除不匹配凭证，确认账号后重新 Pair |

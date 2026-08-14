@@ -8,6 +8,8 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 use tokio_util::sync::CancellationToken;
 use zeroize::Zeroizing;
 
+use super::remote_signer_store;
+
 const KIND_NOSTR_CONNECT: u16 = 24_133;
 const ALLOWED_SIGN_KINDS: &[u16] = &[9, 22_242, 27_235];
 const SIGNER_READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
@@ -19,8 +21,9 @@ struct SignerTask {
     cancel: CancellationToken,
 }
 
-/// Runtime-only authorization for the Web device paired with this Desktop.
-/// The user's private key never leaves Desktop and the one-time secret is not persisted.
+/// Runtime for the Web device authorized by this Desktop. The authorization is
+/// persisted separately in the system keychain; the user's private key never
+/// leaves Desktop.
 pub struct RemoteSignerHandle {
     task: Mutex<Option<SignerTask>>,
 }
@@ -32,12 +35,69 @@ impl RemoteSignerHandle {
         }
     }
 
-    pub async fn authorize(
+    pub async fn authorize_and_persist(
         &self,
         keys: Keys,
         relay_url: String,
         client_pubkey: PublicKey,
         secret: Zeroizing<String>,
+    ) -> Result<(), String> {
+        let backup = remote_signer_store::save(
+            keys.public_key(),
+            client_pubkey,
+            relay_url.clone(),
+            secret.as_str(),
+        )?;
+        if let Err(error) = self
+            .start(keys.clone(), relay_url, client_pubkey, secret, false)
+            .await
+        {
+            if let Err(rollback_error) = remote_signer_store::rollback(backup) {
+                tracing::error!(%rollback_error, "failed to roll back Web signer authorization");
+            } else if let Ok(Some(previous)) = remote_signer_store::load(keys.public_key()) {
+                if let Err(restore_error) = self
+                    .start(
+                        keys,
+                        previous.relay_url,
+                        previous.client_pubkey,
+                        previous.signer_secret,
+                        true,
+                    )
+                    .await
+                {
+                    tracing::error!(%restore_error, "failed to resume previous Web signer authorization");
+                }
+            }
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    /// Restore a previously paired Web client after Desktop restarts. The
+    /// durable authorization proves the one-time connect exchange completed,
+    /// so the restored task starts in the connected state.
+    pub async fn restore(&self, keys: Keys) -> Result<bool, String> {
+        let Some(authorization) = remote_signer_store::load(keys.public_key())? else {
+            return Ok(false);
+        };
+        self.start(
+            keys,
+            authorization.relay_url,
+            authorization.client_pubkey,
+            authorization.signer_secret,
+            true,
+        )
+        .await?;
+        Ok(true)
+    }
+
+    async fn start(
+        &self,
+        keys: Keys,
+        relay_url: String,
+        client_pubkey: PublicKey,
+        secret: Zeroizing<String>,
+        connected: bool,
     ) -> Result<(), String> {
         let cancel = CancellationToken::new();
         {
@@ -55,6 +115,7 @@ impl RemoteSignerHandle {
             relay_url,
             client_pubkey,
             secret,
+            connected,
             cancel.clone(),
             ready_tx,
         ));
@@ -69,7 +130,7 @@ impl RemoteSignerHandle {
         if let Some(task) = self.task.lock().map_err(|error| error.to_string())?.take() {
             task.cancel.cancel();
         }
-        Ok(())
+        remote_signer_store::delete()
     }
 }
 
@@ -110,10 +171,11 @@ async fn remote_signer_task(
     relay_url: String,
     client_pubkey: PublicKey,
     secret: Zeroizing<String>,
+    initially_connected: bool,
     cancel: CancellationToken,
     ready_tx: oneshot::Sender<()>,
 ) {
-    let mut connected = false;
+    let mut connected = initially_connected;
     let mut ready_tx = Some(ready_tx);
     let mut reconnect_delay = SIGNER_RECONNECT_MIN_DELAY;
     loop {
