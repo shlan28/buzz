@@ -32,6 +32,11 @@ export function AgentInstanceAccessFields({
 }) {
   return (
     <>
+      <OwnerMessageReplyField
+        checked={respondToOwnerMessages}
+        disabled={disabled}
+        onCheckedChange={onRespondToOwnerMessagesChange}
+      />
       <OwnerOnlyAccessField
         accessLocked={accessLocked}
         allowlist={respondToAllowlist}
@@ -39,11 +44,6 @@ export function AgentInstanceAccessFields({
         mode={respondTo}
         onAllowlistChange={onRespondToAllowlistChange}
         onModeChange={onRespondToChange}
-      />
-      <OwnerMessageReplyField
-        checked={respondToOwnerMessages}
-        disabled={disabled}
-        onCheckedChange={onRespondToOwnerMessagesChange}
       />
       <TaskAssignmentAccessField
         allowlist={taskAssignmentAllowlist}

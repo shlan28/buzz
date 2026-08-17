@@ -400,12 +400,14 @@ export function UserProfilePanel({
   });
 
   const handleEditAgent = React.useCallback(() => {
-    if (resolvedPersona) {
-      setPersonaDialogState(editPersonaDialogState(resolvedPersona));
+    if (managedAgent) {
+      setEditAgentOpen(true);
       return;
     }
-    setEditAgentOpen(true);
-  }, [resolvedPersona, setEditAgentOpen]);
+    if (resolvedPersona) {
+      setPersonaDialogState(editPersonaDialogState(resolvedPersona));
+    }
+  }, [managedAgent, resolvedPersona, setEditAgentOpen]);
 
   const { deleteManagedAgentRecord, deleteManagedAgentsForPersona } =
     useProfileAgentDeletion({
@@ -549,7 +551,6 @@ export function UserProfilePanel({
     if (!resolvedPersona) return;
     setPersonaDialogState(editPersonaDialogState(resolvedPersona));
   }, [resolvedPersona]);
-
   const handleDuplicatePersona = React.useCallback(() => {
     if (!resolvedPersona) return;
     setPersonaDialogState(duplicatePersonaDialogState(resolvedPersona));
@@ -560,7 +561,6 @@ export function UserProfilePanel({
       setPersonaToExportSnapshot(resolvedPersona);
     }
   }, [resolvedPersona]);
-
   const handleDeletePersona = React.useCallback(async () => {
     if (!resolvedPersona) return;
 
