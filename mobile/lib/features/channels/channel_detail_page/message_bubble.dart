@@ -34,22 +34,57 @@ class _MessageBubble extends ConsumerWidget {
         (profile?.ownerPubkey != null &&
             profile?.ownerPubkey == currentPubkey?.toLowerCase());
 
-    // Build mention names map from event p-tags.
-    final userCache = ref.watch(userCacheProvider);
-    final knownAgentPubkeys = ref.watch(
-      mentionAgentPubkeysProvider(currentChannelId),
+    // Watch only profiles referenced by this message. A batched profile fetch
+    // should not rebuild every visible message just because an unrelated user
+    // was added to the shared cache.
+    final normalizedMentionPubkeys = {
+      for (final pubkey in message.mentionPubkeys) pubkey.toLowerCase(),
+    };
+    final mentionProfiles = <String, UserProfile?>{
+      for (final pubkey in normalizedMentionPubkeys)
+        pubkey: ref.watch(userCacheProvider.select((cache) => cache[pubkey])),
+    };
+    final knownAgentPubkeys = agentPubkeysWithProfileOwners(
+      knownAgentPubkeys: ref.watch(
+        agentMentionPubkeysProvider(currentChannelId),
+      ),
+      profileOwnedAgentPubkeys: [
+        for (final entry in mentionProfiles.entries)
+          if (entry.value?.ownerPubkey != null) entry.key,
+      ],
     );
     final mentionNames = <String, String>{};
     final agentMentionPubkeys = <String>{};
     for (final mpk in message.mentionPubkeys) {
       final normalizedPubkey = mpk.toLowerCase();
-      final p = userCache[normalizedPubkey];
+      final p = mentionProfiles[normalizedPubkey];
       if (p?.displayName != null) {
         mentionNames[normalizedPubkey] = p!.displayName!;
       }
       if (knownAgentPubkeys.contains(normalizedPubkey)) {
         agentMentionPubkeys.add(normalizedPubkey);
       }
+    }
+    final resolvedMentionNames = mentionNamesWithDirectoryLabels(
+      mentionPubkeys: message.mentionPubkeys,
+      profileMentionNames: mentionNames,
+      directoryDisplayNames: ref.watch(agentDirectoryDisplayNamesProvider),
+      agentMentionPubkeys: agentMentionPubkeys,
+    );
+
+    void openMessageActions(Rect anchorRect) {
+      showMessageActions(
+        context: context,
+        ref: ref,
+        message: message,
+        channelId: currentChannelId,
+        canManageMessage: canManageMessage,
+        allMessages: allMessages,
+        currentPubkey: currentPubkey,
+        isMember: isMember,
+        isArchived: isArchived,
+        anchorRect: anchorRect,
+      );
     }
 
     return Padding(
@@ -61,21 +96,27 @@ class _MessageBubble extends ConsumerWidget {
         // gutter. InkWell still clips its ink to [borderRadius], while leaving
         // overflowing message content visible.
         clipBehavior: Clip.none,
-        child: InkWell(
+        child: MessageLongPressInkWell(
           key: ValueKey('message-row-${message.id}'),
+          onLongPress: openMessageActions,
           borderRadius: BorderRadius.circular(Radii.md),
           highlightColor: context.colors.primary.withValues(alpha: 0.1),
-          onLongPress: () => showMessageActions(
-            context: context,
-            ref: ref,
-            message: message,
-            channelId: currentChannelId,
-            canManageMessage: canManageMessage,
-            allMessages: allMessages,
-            currentPubkey: currentPubkey,
-            isMember: isMember,
-            isArchived: isArchived,
-          ),
+          // Tap opens the thread; long-press still opens the action sheet.
+          // MessageContent handles mention, channel-link, and media taps.
+          onTap: allMessages == null
+              ? null
+              : () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => ThreadDetailPage(
+                      threadHead: message,
+                      allMessages: allMessages!,
+                      channelId: currentChannelId,
+                      currentPubkey: currentPubkey,
+                      isMember: isMember,
+                      isArchived: isArchived,
+                    ),
+                  ),
+                ),
           child: Padding(
             padding: EdgeInsets.only(
               top: showAuthor ? 0 : Grid.xxs,
@@ -150,13 +191,14 @@ class _MessageBubble extends ConsumerWidget {
                           ),
                         MessageContent(
                           content: message.content,
-                          mentionNames: mentionNames,
+                          mentionNames: resolvedMentionNames,
                           agentMentionPubkeys: agentMentionPubkeys,
                           channelNames: channelNames,
                           tags: message.tags,
                           baseStyle: messageBodyTextStyle.copyWith(
                             color: context.colors.onSurface,
                           ),
+                          scaleEmojiOnly: true,
                           mediaCarouselTrailingOverflow: Grid.gutter,
                           onMediaReply: allMessages == null
                               ? null
@@ -202,9 +244,16 @@ class _MessageBubble extends ConsumerWidget {
                         ),
                         if (message.reactions.isNotEmpty)
                           ReactionRow(
+                            messageId: message.id,
                             reactions: message.reactions,
                             onToggle: (emoji) =>
                                 toggleReaction(ref, message, emoji),
+                            showAddButton: isMember && !isArchived,
+                            onAddReaction: () => showAddReactionPicker(
+                              context: context,
+                              ref: ref,
+                              message: message,
+                            ),
                           ),
                       ],
                     ),

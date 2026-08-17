@@ -4,6 +4,7 @@ import { toast } from "sonner";
 
 import { cn } from "@/shared/lib/cn";
 import { copyTextToClipboard } from "@/shared/lib/clipboard";
+
 import { MaskedLinkTooltip } from "./MaskedLinkTooltip";
 import {
   MediaContextMenu,
@@ -11,7 +12,15 @@ import {
   useDismissMediaContextMenu,
 } from "./MediaContextMenu";
 
-/** External Markdown link with Buzz's native-webview context menu. */
+/**
+ * An external `[text](href)` link with a custom right-click menu.
+ *
+ * Buzz renders inside a native webview whose default context menu has no
+ * useful link actions, so a plain right-click on a link is a no-op. This adds
+ * an in-app menu with "Open link" (via the OS opener, matching the anchor's
+ * left-click `target="_blank"` behavior) and "Copy link" (the real href, not
+ * the masked display text).
+ */
 export function ExternalLinkAnchor({
   anchorProps,
   children,
@@ -62,9 +71,9 @@ export function ExternalLinkAnchor({
               label: "Open link",
               onSelect: () => {
                 closeMenu();
-                void openUrl(href).catch(() =>
-                  toast.error("Failed to open link"),
-                );
+                void openUrl(href).catch(() => {
+                  toast.error("Failed to open link");
+                });
               },
             },
             {

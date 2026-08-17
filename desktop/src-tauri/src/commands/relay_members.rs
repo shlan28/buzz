@@ -17,12 +17,15 @@ struct RelayInformationDocument {
 }
 
 #[tauri::command]
-pub async fn relay_requires_membership(state: State<'_, AppState>) -> Result<bool, String> {
-    relay_requires_membership_for_state(&state).await
-}
-
-async fn relay_requires_membership_for_state(state: &AppState) -> Result<bool, String> {
-    let url = format!("{}/info", relay_api_base_url_with_override(state));
+pub async fn relay_requires_membership(
+    relay_url: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    let base_url = relay_url
+        .as_deref()
+        .map(crate::relay::relay_http_base_url)
+        .unwrap_or_else(|| relay_api_base_url_with_override(&state));
+    let url = format!("{}/info", base_url.trim_end_matches('/'));
     let response = state
         .http_client
         .get(url)
@@ -35,6 +38,22 @@ async fn relay_requires_membership_for_state(state: &AppState) -> Result<bool, S
         return Err(relay_error_message(response).await);
     }
 
+    let info = parse_json_response::<RelayInformationDocument>(response).await?;
+    Ok(info.supported_nips.contains(&43))
+}
+
+async fn relay_requires_membership_for_state(state: &AppState) -> Result<bool, String> {
+    let url = format!("{}/info", relay_api_base_url_with_override(state));
+    let response = state
+        .http_client
+        .get(url)
+        .header("Accept", "application/nostr+json")
+        .send()
+        .await
+        .map_err(|error| classify_request_error(&error))?;
+    if !response.status().is_success() {
+        return Err(relay_error_message(response).await);
+    }
     let info = parse_json_response::<RelayInformationDocument>(response).await?;
     Ok(info.supported_nips.contains(&43))
 }
