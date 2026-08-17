@@ -10,16 +10,7 @@ export const KIND_NIP29_DELETE_EVENT = 9005;
 // Tag shapes are pinned by buzz-sdk builders + relay moderation_commands.rs.
 export const KIND_REPORT = 1984;
 export const KIND_PRODUCT_FEEDBACK = 42000;
-export const KIND_TASK_STATE = 30500;
-export const KIND_TASK_CREATE = 42500;
-export const KIND_TASK_MUTATE = 42501;
-export const KIND_TASK_DELETE = 42502;
-export const KIND_TASK_EXECUTION_REQUEST = 42503;
-export const KIND_TASK_EXECUTION_UPDATE = 42504;
-export const KIND_TASK_EXECUTION_STATE = 30501;
-export const KIND_TRACK_STATE = 30510;
-export const KIND_TRACK_CREATE = 42510;
-export const KIND_TRACK_MUTATE = 42511;
+export const KIND_IA_ARCHIVE_REQUEST = 9035;
 export const KIND_MODERATION_BAN = 9040;
 export const KIND_MODERATION_UNBAN = 9041;
 export const KIND_MODERATION_TIMEOUT = 9042;
@@ -44,11 +35,26 @@ export const KIND_APPROVAL_REQUEST = 46010;
 export const KIND_MEMBER_ADDED_NOTIFICATION = 44100;
 export const KIND_MEMBER_REMOVED_NOTIFICATION = 44101;
 export const KIND_TYPING_INDICATOR = 20002;
+export const KIND_PRESENCE_UPDATE = 20001;
 export const KIND_HUDDLE_REACTION = 24810;
 export const KIND_HUDDLE_STARTED = 48100;
 export const KIND_HUDDLE_PARTICIPANT_JOINED = 48101;
 export const KIND_HUDDLE_PARTICIPANT_LEFT = 48102;
 export const KIND_HUDDLE_ENDED = 48103;
+export const KIND_TASK_STATE = 30500;
+export const KIND_TASK_CREATE = 42500;
+export const KIND_TASK_MUTATE = 42501;
+export const KIND_TASK_DELETE = 42502;
+export const KIND_TASK_EXECUTION_REQUEST = 42503;
+export const KIND_TASK_EXECUTION_UPDATE = 42504;
+export const KIND_TASK_EXECUTION_STATE = 30501;
+export const KIND_TRACK_STATE = 30510;
+export const KIND_TRACK_CREATE = 42510;
+export const KIND_TRACK_MUTATE = 42511;
+export const KIND_CALENDAR_DATE_EVENT = 31922;
+export const KIND_CALENDAR_TIME_EVENT = 31923;
+export const KIND_CALENDAR = 31924;
+export const KIND_CALENDAR_RSVP = 31925;
 // NIP-78 application-specific data. All use kind 30078; the relay
 // differentiates them by d-tag ("read-state:<slotId>", "channel-sections", "channel-mutes", "channel-stars", "channel-sort").
 export const KIND_READ_STATE = 30078;
@@ -56,6 +62,7 @@ export const KIND_CHANNEL_SECTIONS = 30078;
 export const KIND_CHANNEL_MUTES = 30078;
 export const KIND_CHANNEL_STARS = 30078;
 export const KIND_CHANNEL_SORT = 30078;
+export const KIND_COMMUNITY_THEME = 30078;
 // NIP-33 persona/team/managed-agent projection events (d-tag keyed). Published
 // backend-side as secrets-stripped snapshots; the inbound sync hook subscribes
 // to all three to patch local records. Mirror of buzz-core's KIND_PERSONA etc.
@@ -66,12 +73,10 @@ export const KIND_USER_STATUS = 30315;
 export const KIND_AGENT_OBSERVER_FRAME = 24200;
 export const KIND_AGENT_TURN_METRIC = 44200;
 export const KIND_EVENT_REMINDER = 30300;
-export const KIND_CALENDAR_DATE_EVENT = 31922;
-export const KIND_CALENDAR_TIME_EVENT = 31923;
-export const KIND_CALENDAR = 31924;
-export const KIND_CALENDAR_RSVP = 31925;
 export const KIND_REPO_ANNOUNCEMENT = 30617;
 export const KIND_REPO_STATE = 30618;
+// NIP-MP: project grouping above NIP-34 repositories.
+export const KIND_PROJECT_ANNOUNCEMENT = 30621;
 export const KIND_GIT_PATCH = 1617;
 export const KIND_GIT_PULL_REQUEST = 1618;
 export const KIND_GIT_PR_UPDATE = 1619;

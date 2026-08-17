@@ -23,18 +23,39 @@ pub enum DeleteTaskResult {
     Deleted,
 }
 
+/// Inputs for atomically persisting a task execution command and derived state.
+pub struct TaskExecutionEvents<'a> {
+    /// Community that owns the task and both events.
+    pub community_id: CommunityId,
+    /// Task receiving the execution.
+    pub task_id: Uuid,
+    /// Stable execution identifier shared by the command and state.
+    pub execution_id: Uuid,
+    /// Actor-signed execution command.
+    pub command: &'a Event,
+    /// Relay-signed materialized execution state.
+    pub state: &'a Event,
+    /// Optional channel containing the task.
+    pub channel_id: Option<Uuid>,
+    /// Whether this command creates a new execution rather than updating one.
+    pub is_new_request: bool,
+}
+
 /// Atomically store an execution command and replace its relay-derived state.
 /// The task advisory lock serializes requests and Agent claims across relay pods.
 pub async fn apply_task_execution_events(
     pool: &PgPool,
-    community_id: CommunityId,
-    task_id: Uuid,
-    execution_id: Uuid,
-    command: &Event,
-    state: &Event,
-    channel_id: Option<Uuid>,
-    is_new_request: bool,
+    events: TaskExecutionEvents<'_>,
 ) -> Result<ApplyTaskResult> {
+    let TaskExecutionEvents {
+        community_id,
+        task_id,
+        execution_id,
+        command,
+        state,
+        channel_id,
+        is_new_request,
+    } = events;
     let mut tx = pool.begin().await?;
     let lock_key = i64::from_le_bytes(
         task_id.as_bytes()[..8]
@@ -497,13 +518,15 @@ mod tests {
         assert_eq!(
             apply_task_execution_events(
                 &pool,
-                community,
-                task_id,
-                first_id,
-                &first_request,
-                &first_queued,
-                None,
-                true,
+                TaskExecutionEvents {
+                    community_id: community,
+                    task_id,
+                    execution_id: first_id,
+                    command: &first_request,
+                    state: &first_queued,
+                    channel_id: None,
+                    is_new_request: true,
+                },
             )
             .await
             .unwrap(),
@@ -514,13 +537,15 @@ mod tests {
         let first_running = execution_event(&relay, first_id, "running");
         apply_task_execution_events(
             &pool,
-            community,
-            task_id,
-            first_id,
-            &first_running_command,
-            &first_running,
-            None,
-            false,
+            TaskExecutionEvents {
+                community_id: community,
+                task_id,
+                execution_id: first_id,
+                command: &first_running_command,
+                state: &first_running,
+                channel_id: None,
+                is_new_request: false,
+            },
         )
         .await
         .unwrap();
@@ -528,13 +553,15 @@ mod tests {
         let first_finished = execution_event(&relay, first_id, "finished");
         apply_task_execution_events(
             &pool,
-            community,
-            task_id,
-            first_id,
-            &first_finished_command,
-            &first_finished,
-            None,
-            false,
+            TaskExecutionEvents {
+                community_id: community,
+                task_id,
+                execution_id: first_id,
+                command: &first_finished_command,
+                state: &first_finished,
+                channel_id: None,
+                is_new_request: false,
+            },
         )
         .await
         .unwrap();
@@ -544,13 +571,15 @@ mod tests {
         assert_eq!(
             apply_task_execution_events(
                 &pool,
-                community,
-                task_id,
-                second_id,
-                &second_request,
-                &second_queued,
-                None,
-                true,
+                TaskExecutionEvents {
+                    community_id: community,
+                    task_id,
+                    execution_id: second_id,
+                    command: &second_request,
+                    state: &second_queued,
+                    channel_id: None,
+                    is_new_request: true,
+                },
             )
             .await
             .unwrap(),
@@ -562,13 +591,15 @@ mod tests {
         assert!(matches!(
             apply_task_execution_events(
                 &pool,
-                community,
-                task_id,
-                third_id,
-                &third_request,
-                &third_queued,
-                None,
-                true,
+                TaskExecutionEvents {
+                    community_id: community,
+                    task_id,
+                    execution_id: third_id,
+                    command: &third_request,
+                    state: &third_queued,
+                    channel_id: None,
+                    is_new_request: true,
+                },
             )
             .await,
             Err(DbError::Conflict(message)) if message == "task already has an active execution"
@@ -578,26 +609,30 @@ mod tests {
         let second_cancelled = execution_event(&relay, second_id, "cancelled");
         apply_task_execution_events(
             &pool,
-            community,
-            task_id,
-            second_id,
-            &second_cancel_command,
-            &second_cancelled,
-            None,
-            false,
+            TaskExecutionEvents {
+                community_id: community,
+                task_id,
+                execution_id: second_id,
+                command: &second_cancel_command,
+                state: &second_cancelled,
+                channel_id: None,
+                is_new_request: false,
+            },
         )
         .await
         .unwrap();
         assert_eq!(
             apply_task_execution_events(
                 &pool,
-                community,
-                task_id,
-                third_id,
-                &third_request,
-                &third_queued,
-                None,
-                true,
+                TaskExecutionEvents {
+                    community_id: community,
+                    task_id,
+                    execution_id: third_id,
+                    command: &third_request,
+                    state: &third_queued,
+                    channel_id: None,
+                    is_new_request: true,
+                },
             )
             .await
             .unwrap(),

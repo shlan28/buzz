@@ -3,9 +3,12 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 
+import remarkChannelDeepLinks from "@/features/messages/lib/remarkChannelDeepLinks";
 import remarkMessageLinks from "@/features/messages/lib/remarkMessageLinks";
+import remarkEntityLinks from "@/features/messages/lib/remarkEntityLinks";
 import remarkLocalMarkdownPaths from "@/features/messages/lib/remarkLocalMarkdownPaths";
 import rehypeImageGallery from "@/shared/lib/rehypeImageGallery";
+import rehypeLeadingInlineContent from "@/shared/lib/rehypeLeadingInlineContent";
 import rehypeSearchHighlight from "@/shared/lib/rehypeSearchHighlight";
 import remarkChannelLinks from "@/shared/lib/remarkChannelLinks";
 import remarkCustomEmoji, {
@@ -14,7 +17,7 @@ import remarkCustomEmoji, {
 import remarkMentions from "@/shared/lib/remarkMentions";
 import remarkSpoilers from "@/shared/lib/remarkSpoilers";
 
-import { messageLinkUrlTransform } from "./utils";
+import { buzzDeepLinkUrlTransform } from "./utils";
 
 /**
  * Parsed-markdown element cache.
@@ -66,6 +69,8 @@ export type MarkdownParseInputs = {
   components: Components;
   content: string;
   customEmoji?: CustomEmoji[];
+  /** Inserts the runtime-provided leading content marker during parsing. */
+  leadingInlineContent?: boolean;
   enableLocalMarkdownPaths?: boolean;
   mentionNames?: string[];
   searchQuery?: string;
@@ -86,6 +91,9 @@ function buildMarkdownElement(input: MarkdownParseInputs): React.ReactElement {
   markdownParseCount += 1;
   // biome-ignore lint/suspicious/noExplicitAny: PluggableList type not directly importable
   const rehypePlugins: any[] = [rehypeImageGallery];
+  if (input.leadingInlineContent) {
+    rehypePlugins.push(rehypeLeadingInlineContent);
+  }
   if (input.searchQuery && input.searchQuery.trim().length >= 2) {
     rehypePlugins.push([rehypeSearchHighlight, { query: input.searchQuery }]);
   }
@@ -93,28 +101,24 @@ function buildMarkdownElement(input: MarkdownParseInputs): React.ReactElement {
   // react-markdown's `Markdown` is synchronous and hook-free (the hook
   // variant is `MarkdownHooks`), so this returns the parsed element tree
   // directly, which is what lets it live in a module-level cache.
-  const remarkPlugins = [
-    remarkGfm,
-    remarkBreaks,
-    remarkSpoilers,
-    remarkMessageLinks,
-  ];
-  if (input.enableLocalMarkdownPaths) {
-    remarkPlugins.push(remarkLocalMarkdownPaths);
-  }
-
   return ReactMarkdown({
     children: input.content,
     components: input.components,
     remarkPlugins: [
-      ...remarkPlugins,
+      remarkGfm,
+      remarkBreaks,
+      remarkSpoilers,
+      remarkChannelDeepLinks,
+      remarkMessageLinks,
+      remarkEntityLinks,
+      ...(input.enableLocalMarkdownPaths ? [remarkLocalMarkdownPaths] : []),
       [remarkMentions, { mentionNames: input.mentionNames }],
       [remarkChannelLinks, { channelNames: input.channelNames }],
       [remarkCustomEmoji, { customEmoji: input.customEmoji }],
       // biome-ignore lint/suspicious/noExplicitAny: PluggableList type not directly importable
     ] as any[],
     rehypePlugins,
-    urlTransform: messageLinkUrlTransform,
+    urlTransform: buzzDeepLinkUrlTransform,
   });
 }
 
@@ -140,6 +144,7 @@ export function renderCachedMarkdown(
   // before it is self-delimiting.
   const key =
     segment(input.variant) +
+    segment(input.leadingInlineContent ? "leading" : "") +
     segment(input.enableLocalMarkdownPaths ? "local-md" : "") +
     listSegment(input.mentionNames) +
     listSegment(input.channelNames) +

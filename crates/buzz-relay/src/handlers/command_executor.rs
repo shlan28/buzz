@@ -19,6 +19,7 @@ use uuid::Uuid;
 
 use buzz_core::kind::*;
 use buzz_core::tenant::{CommunityId, TenantContext};
+use buzz_datastore_tracing::datastore_span;
 use buzz_db::workflow::{ApprovalStatus, RunStatus};
 use buzz_db::DbError;
 use buzz_pubsub::EventTopic;
@@ -829,15 +830,15 @@ async fn handle_task_execution(
     .map_err(|error| IngestError::Internal(format!("error: sign execution state: {error}")))?;
     let result = state
         .db
-        .apply_task_execution_events(
-            tenant.community(),
+        .apply_task_execution_events(buzz_db::tasks::TaskExecutionEvents {
+            community_id: tenant.community(),
             task_id,
             execution_id,
             command,
-            &execution_state,
-            task.channel_id,
-            is_request,
-        )
+            state: &execution_state,
+            channel_id: task.channel_id,
+            is_new_request: is_request,
+        })
         .await;
     match result {
         Ok(buzz_db::tasks::ApplyTaskResult::Applied) => {
@@ -1643,6 +1644,7 @@ enum PersistResult {
 /// persists without the event record. On retry, the event INSERT succeeds
 /// (no conflict), and the mutation re-executes — which is safe for idempotent
 /// operations (open_dm, hide_dm, update_approval, upsert_workflow).
+#[datastore_span(name = "persist_command_event", system = "postgresql")]
 async fn persist_command_event(
     state: &Arc<AppState>,
     tenant: &TenantContext,
@@ -1656,6 +1658,12 @@ async fn persist_command_event(
         .begin_transaction()
         .await
         .map_err(|e| IngestError::Internal(format!("error: begin transaction: {e}")))?;
+    buzz_deletion::store(&state.db)
+        .guard_transaction(&mut tx, tenant.community())
+        .await
+        .map_err(|error| {
+            IngestError::Rejected(format!("restricted: community writes are fenced: {error}"))
+        })?;
 
     // INSERT with ON CONFLICT DO NOTHING — idempotency guard.
     let id_bytes = event.id.as_bytes();
@@ -2502,7 +2510,10 @@ async fn handle_workflow_trigger(
                         RunStatus::Failed,
                         0,
                         &serde_json::json!([]),
-                        Some(&format!("definition parse error: {e}")),
+                        Some(buzz_db::workflow::WorkflowRunFailure {
+                            code: "invalid_definition",
+                            message: &format!("definition parse error: {e}"),
+                        }),
                     )
                     .await
                 {
@@ -2799,7 +2810,10 @@ async fn handle_approval_deny(
                 RunStatus::Cancelled,
                 run.current_step,
                 &run.execution_trace,
-                Some(&cancel_msg),
+                Some(buzz_db::workflow::WorkflowRunFailure {
+                    code: "approval_denied",
+                    message: &cancel_msg,
+                }),
             )
             .await
         {
@@ -2867,7 +2881,10 @@ async fn resume_workflow_after_approval(
                     RunStatus::Failed,
                     run.current_step,
                     &run.execution_trace,
-                    Some(&format!("definition parse error: {e}")),
+                    Some(buzz_db::workflow::WorkflowRunFailure {
+                        code: "invalid_definition",
+                        message: &format!("definition parse error: {e}"),
+                    }),
                 )
                 .await
             {

@@ -1,12 +1,21 @@
 #![recursion_limit = "256"] // Deep Tauri command futures exceed the default layout query depth.
+mod app_menu;
 mod app_state;
 mod archive;
 mod builderlab;
 mod commands;
 mod deep_link;
+mod egress_guard;
 mod event_sync;
 mod events;
 mod huddle;
+mod identity_storage;
+mod initial_window;
+mod key_backup;
+mod link_preview_tags;
+mod linux_media;
+#[cfg(target_os = "macos")]
+mod macos_notifications;
 mod managed_agents;
 mod media_proxy;
 #[cfg(feature = "mesh-llm")]
@@ -28,113 +37,15 @@ mod reset;
 mod secret_store;
 mod shutdown;
 mod templates;
+mod terminal_runtime;
+#[cfg_attr(not(test), allow(dead_code))]
+mod terminal_transport;
+#[cfg(target_os = "macos")]
+mod tray_menu;
 mod util;
 #[cfg(target_os = "linux")]
 pub mod webkit_rendering;
-use app_state::{build_app_state, resolve_persisted_identity, AppState};
-use builderlab::*;
-use commands::*;
-use deep_link::{
-    acknowledge_pending_community_deep_link, handle_deep_link_url,
-    take_pending_community_deep_link, PendingCommunityDeepLinks,
-};
-use huddle::audio_output::{
-    get_audio_output_device, list_audio_output_devices, set_audio_output_device,
-};
-use huddle::reconnect::reconnect_huddle_audio;
-use huddle::{
-    add_agent_to_huddle, check_pipeline_hotstart, confirm_huddle_active, download_voice_models,
-    end_huddle, get_huddle_agent_pubkeys, get_huddle_state, get_model_status, get_voice_input_mode,
-    join_huddle, leave_huddle, push_audio_pcm, set_huddle_transcription_enabled, set_tts_enabled,
-    set_voice_input_mode, speak_agent_message, start_huddle, start_stt_pipeline,
-};
-use managed_agents::{
-    backfill_persona_snapshots, ensure_nest, list_managed_agent_runtimes,
-    put_managed_agent_runtime_lifecycle, reconcile_managed_agent_runtimes,
-    restart_managed_agent_runtime, start_managed_agent_runtime, stop_managed_agent_runtime,
-    try_regenerate_nest,
-};
-#[cfg(not(feature = "mesh-llm"))]
-use mesh_llm_stubs::*;
-#[cfg(all(feature = "mesh-llm", target_os = "macos"))]
-use shutdown::{hard_exit_after_mesh_shutdown, relaunch_after_mesh_shutdown};
-use shutdown::{is_restart_request, shut_down_app};
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
-#[cfg(target_os = "macos")]
-use tauri::Listener;
-use tauri::{Emitter, Manager, RunEvent};
-use tauri_plugin_window_state::StateFlags;
-
-#[cfg(target_os = "macos")]
-const INITIAL_RENDER_READY_EVENT: &str = "initial-render-ready";
-
-fn reveal_initial_window<R: tauri::Runtime>(window: &tauri::Window<R>) {
-    if let Err(error) = window.show() {
-        eprintln!("buzz-desktop: failed to reveal main window: {error}");
-        return;
-    }
-    if let Err(error) = window.set_focus() {
-        eprintln!("buzz-desktop: failed to focus main window: {error}");
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn set_initial_window_backing<R: tauri::Runtime>(window: &tauri::Window<R>) {
-    // The window remains transparent at runtime for vibrancy. Use an opaque
-    // native backing only across the first visible frames so the previous app
-    // cannot show through before WebKit has submitted its first surface.
-    if let Err(error) = window.set_background_color(Some(tauri::window::Color(17, 21, 24, 255))) {
-        eprintln!("buzz-desktop: failed to set initial window backing: {error}");
-    }
-}
-
-#[cfg(target_os = "macos")]
-async fn clear_initial_window_backing<R: tauri::Runtime>(window: &tauri::Window<R>) {
-    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-    if let Err(error) = window.set_background_color(None) {
-        eprintln!("buzz-desktop: failed to clear initial window backing: {error}");
-    }
-}
-
-#[cfg(target_os = "macos")]
-async fn wait_for_stable_initial_window_geometry<R: tauri::Runtime>(window: &tauri::Window<R>) {
-    const MAX_POLLS: usize = 120;
-    const REQUIRED_STABLE_POLLS: usize = 4;
-
-    let mut previous_bounds = None;
-    let mut stable_polls = 0;
-
-    for _ in 0..MAX_POLLS {
-        // Accept whatever geometry the window-state plugin restores — maximized
-        // or a normal saved size. macOS applies the restore asynchronously, so
-        // we only need consecutive identical outer bounds to know it settled.
-        // Gating on `is_maximized()` here would leave `bounds` permanently
-        // `None` for restored non-maximized windows and stall the reveal until
-        // the poll timeout.
-        let bounds = match (window.outer_position(), window.outer_size()) {
-            (Ok(position), Ok(size)) => Some((position.x, position.y, size.width, size.height)),
-            _ => None,
-        };
-
-        if bounds.is_some() && bounds == previous_bounds {
-            stable_polls += 1;
-            if stable_polls >= REQUIRED_STABLE_POLLS {
-                return;
-            }
-        } else {
-            stable_polls = 0;
-        }
-        previous_bounds = bounds;
-
-        tokio::time::sleep(std::time::Duration::from_millis(16)).await;
-    }
-
-    eprintln!("buzz-desktop: initial window geometry did not settle before reveal timeout");
-}
-
+include!("lib_imports.rs");
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // mesh-llm's async chains (model download, node start/join) overflow
@@ -164,7 +75,6 @@ pub fn run() {
             eprintln!("buzz-mesh: failed to build big-stack tokio runtime, using default: {error}");
         }
     }
-
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             // Focus the existing window when a duplicate instance launches.
@@ -194,6 +104,11 @@ pub fn run() {
                     if webview.label() != "main" {
                         return;
                     }
+
+                    // Linux/WebKitGTK needs media-stream settings and a
+                    // permission-request handler for getUserMedia; no-op
+                    // on macOS/Windows.
+                    linux_media::enable_media_capture(&webview);
 
                     // macOS applies the restored geometry asynchronously. Wait
                     // for several identical outer bounds and for React to
@@ -243,8 +158,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init());
 
     // The global-shortcut plugin is omitted from test builds: linking it into
-    // the lib-test binary makes it fail to load on Windows
-    // (STATUS_ENTRYPOINT_NOT_FOUND) before any test runs.
+    // the lib-test binary makes it fail to load on Windows (STATUS_ENTRYPOINT_NOT_FOUND) before any test runs.
     #[cfg(not(test))]
     let builder = builder.plugin({
         use tauri_plugin_global_shortcut::ShortcutState;
@@ -340,11 +254,7 @@ pub fn run() {
     } else {
         builder.plugin(tauri_plugin_updater::Builder::new().build())
     };
-
-    #[cfg(not(buzz_updater_enabled))]
-    let builder = builder;
-
-    let app = builder
+    let app = app_menu::install(builder)
         .register_asynchronous_uri_scheme_protocol("buzz-media", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -355,12 +265,20 @@ pub fn run() {
         .manage(build_app_state())
         .manage(ClipboardState::new())
         .manage(PendingCommunityDeepLinks::default())
+        .manage(PendingNavigationDeepLinks::default())
+        .manage(PendingEntityDeepLinks::default())
         .manage(BuilderlabSession::default())
         .manage(BuilderlabLogin::default())
         .manage(commands::pairing::PairingHandle::new())
         .manage(commands::remote_signer::RemoteSignerHandle::new())
+        .manage(terminal_runtime::TerminalSessions::default())
         .setup(move |app| {
             let app_handle = app.handle().clone();
+            #[cfg(target_os = "macos")]
+            {
+                tray_menu::init(&app_handle)?;
+                macos_notifications::init(&app_handle)?;
+            }
 
             // ── Phase 2: boot-time sentinel wipe ──────────────────────────────
             // Must run before migrations and identity resolution so the wipe
@@ -480,6 +398,18 @@ pub fn run() {
                 *guard = Some(app_handle.clone());
             }
 
+            let (tts_settings, tts_settings_load_error) =
+                huddle::tts_settings::load_for_app(&app_handle);
+            if let Ok(mut guard) = state.huddle_audio.tts.lock() {
+                *guard = tts_settings.clone();
+            }
+            if let Ok(mut guard) = state.huddle_audio.tts_load_error.lock() {
+                *guard = tts_settings_load_error;
+            }
+            if let Ok(mut huddle) = state.huddle_state.lock() {
+                huddle.tts_enabled = tts_settings.agent_text_to_speech;
+            }
+
             // Bring up the runtime-owned shared-compute coordinator before
             // saved agents are restored. Its lifetime is tied to the app, not
             // a UI mount; it publishes discovery and reconciles membership for
@@ -576,15 +506,7 @@ pub fn run() {
             // and on cold start. The single-instance plugin handles forwarding
             // from duplicate launches on Windows/Linux.
             #[cfg(desktop)]
-            {
-                use tauri_plugin_deep_link::DeepLinkExt;
-                let dl_handle = app.handle().clone();
-                app.deep_link().on_open_url(move |event| {
-                    for url in event.urls() {
-                        handle_deep_link_url(&dl_handle, url.as_str());
-                    }
-                });
-            }
+            deep_link::install_deep_link_handlers(app);
 
             // Defer launch-time agent restoration until `apply_workspace` has
             // installed the active workspace relay and identity. Starting here
@@ -663,12 +585,25 @@ pub fn run() {
                     }
                 });
             }
-
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            terminal_runtime::terminal_attach,
+            terminal_runtime::terminal_detach,
+            terminal_runtime::terminal_close,
+            terminal_runtime::terminal_input,
+            terminal_runtime::terminal_resize,
+            terminal_runtime::terminal_scroll,
+            terminal_runtime::terminal_ack,
+            terminal_runtime::terminal_viewport_ready,
+            terminal_runtime::terminal_focus,
             take_pending_community_deep_link,
             acknowledge_pending_community_deep_link,
+            take_pending_navigation_deep_link,
+            acknowledge_pending_navigation_deep_link,
+            clear_pending_navigation_deep_links,
+            take_pending_entity_deep_link,
+            acknowledge_pending_entity_deep_link,
             start_builderlab_login,
             cancel_builderlab_login,
             get_builderlab_auth,
@@ -685,6 +620,10 @@ pub fn run() {
             title_bar_double_click,
             get_identity,
             get_nsec,
+            generate_backup_passphrase,
+            create_ncryptsec_backup,
+            verify_ncryptsec_backup,
+            save_ncryptsec_copy,
             import_identity,
             persist_current_identity,
             get_profile,
@@ -705,8 +644,11 @@ pub fn run() {
             delete_project_remote_branch,
             push_project_local_repository,
             pull_project_local_repository,
+            publish_project_owner_announcement,
             sign_project_pull_request_status,
             sign_project_pull_request_review_request,
+            sign_project_issue_assignment,
+            sign_project_issue_unassignment,
             publish_project_pull_request_merged_status,
             merge_project_pull_request,
             open_project_terminal,
@@ -721,8 +663,8 @@ pub fn run() {
             get_relay_ws_url,
             get_relay_http_url,
             get_media_proxy_port,
-            fetch_link_preview_title,
             read_local_markdown_preview,
+            fetch_link_preview_metadata,
             discover_acp_auth_methods,
             discover_acp_providers,
             discover_git_bash_prerequisite,
@@ -776,16 +718,26 @@ pub fn run() {
             remove_reaction,
             get_event,
             show_native_notification,
+            #[cfg(target_os = "macos")]
+            macos_notifications::take_pending_activations,
+            #[cfg(target_os = "macos")]
+            macos_notifications::notification_permission_state,
+            #[cfg(target_os = "macos")]
+            macos_notifications::request_notification_access,
             upload_media,
             pick_and_upload_media,
             pick_and_upload_image,
             upload_media_bytes,
+            upload_media_bytes_raw,
+            cancel_media_upload,
+            release_media_upload,
             download_image,
             save_png_data_url,
             download_file,
             fetch_media_bytes,
             copy_image_to_clipboard,
             copy_text_to_clipboard,
+            read_clipboard_text,
             fetch_snapshot_bytes,
             relay_requires_membership,
             list_relay_members,
@@ -816,6 +768,7 @@ pub fn run() {
             get_managed_agent_log,
             get_agent_models,
             discover_agent_models,
+            agent_access_owner_only,
             get_agent_config_surface,
             get_runtime_file_config,
             get_baked_build_env_keys,
@@ -850,6 +803,12 @@ pub fn run() {
             update_team,
             delete_team,
             export_agent_snapshot,
+            card_mint_key_status,
+            card_mint_save_openai_key,
+            mint_agent_card,
+            save_agent_card,
+            list_agent_cards,
+            load_agent_card,
             preview_agent_snapshot_import,
             confirm_agent_snapshot_import,
             encode_agent_snapshot_for_send,
@@ -881,6 +840,8 @@ pub fn run() {
             leave_huddle,
             end_huddle,
             get_huddle_state,
+            close_huddle_companion,
+            open_huddle_window,
             push_audio_pcm,
             reconnect_huddle_audio,
             start_stt_pipeline,
@@ -888,18 +849,32 @@ pub fn run() {
             download_voice_models,
             get_model_status,
             set_tts_enabled,
+            huddle::tts_settings::get_tts_settings,
+            huddle::tts_settings::list_voice_registry,
+            huddle::tts_settings::set_pocket_voice,
+            huddle::tts_settings::preview_pocket_voice,
+            huddle::tts_settings::import_pocket_voice,
+            huddle::tts_settings::delete_pocket_voice,
+            huddle::agent_voice::ensure_huddle_agent_voice_settings,
+            huddle::agent_voice::set_huddle_agent_tts_enabled,
+            huddle::agent_voice::set_huddle_agent_voice,
             speak_agent_message,
+            interrupt_huddle_speech,
             add_agent_to_huddle,
+            remove_agent_from_huddle,
+            huddle::agents::sync_agents_to_active_huddle,
             check_pipeline_hotstart,
             confirm_huddle_active,
             perform_sidebar_default_haptic,
             get_huddle_agent_pubkeys,
             set_voice_input_mode,
             get_voice_input_mode,
+            set_huddle_manual_mic_unmuted,
             list_audio_output_devices,
             set_audio_output_device,
             get_audio_output_device,
             start_pairing,
+            start_identity_recovery_pairing,
             confirm_pairing_sas,
             cancel_pairing,
             revoke_web_signer,
@@ -924,12 +899,20 @@ pub fn run() {
             archive::read_archived_observer_events_for_channel,
             archive::index_observer_channel_id,
             archive::read_unindexed_observer_rows,
+            archive::get_agent_usage_series,
             is_auto_update_supported,
             set_window_vibrancy,
+            #[cfg(target_os = "macos")]
+            tray_menu::clear_tray_agent_activity,
+            #[cfg(target_os = "macos")]
+            tray_menu::requeue_tray_actions,
+            #[cfg(target_os = "macos")]
+            tray_menu::take_tray_actions,
+            #[cfg(target_os = "macos")]
+            tray_menu::update_tray_agent_activity,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
-
     let shutdown_done = Arc::new(AtomicBool::new(false));
 
     #[cfg(unix)]
@@ -938,6 +921,45 @@ pub fn run() {
     let run_shutdown_done = Arc::clone(&shutdown_done);
     let restart_requested = Arc::new(AtomicBool::new(false));
     app.run(move |app_handle, event| match event {
+        #[cfg(target_os = "macos")]
+        RunEvent::Reopen { .. } => show_main_window(app_handle),
+        #[cfg(target_os = "macos")]
+        RunEvent::WindowEvent {
+            label,
+            event: WindowEvent::CloseRequested { api, .. },
+            ..
+        } if label == "main" => {
+            // Keep the webview alive so Buzz can be reopened from its tray menu.
+            api.prevent_close();
+            if let Some(window) = app_handle.get_webview_window("main") {
+                if let Err(error) = window.hide() {
+                    eprintln!("buzz-desktop: failed to hide main window: {error}");
+                }
+            }
+        }
+        RunEvent::WindowEvent {
+            label,
+            event: WindowEvent::CloseRequested { .. },
+            ..
+        } if label.starts_with("huddle-") => {
+            let is_active_huddle_window =
+                app_handle
+                    .state::<AppState>()
+                    .huddle()
+                    .ok()
+                    .is_some_and(|huddle| {
+                        !matches!(huddle.phase, HuddlePhase::Idle | HuddlePhase::Leaving)
+                            && huddle
+                                .ephemeral_channel_id
+                                .as_deref()
+                                .is_some_and(|channel_id| label == format!("huddle-{channel_id}"))
+                    });
+            if is_active_huddle_window {
+                if let Err(error) = app_handle.emit("huddle-companion-returned", ()) {
+                    eprintln!("buzz-desktop: failed to restore huddle drawer: {error}");
+                }
+            }
+        }
         RunEvent::ExitRequested { code, .. } => {
             if is_restart_request(code) {
                 restart_requested.store(true, Ordering::SeqCst);
