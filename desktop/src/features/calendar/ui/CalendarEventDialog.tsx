@@ -87,11 +87,6 @@ export function CalendarEventDialog({
   const toggleRepeatValue = (value: number) => {
     if (draft.recurrence.kind === "none" || draft.recurrence.kind === "daily")
       return;
-    const firstValue =
-      draft.recurrence.kind === "weekdays"
-        ? draft.start.getDay()
-        : draft.start.getDate();
-    if (value === firstValue) return;
     const values = draft.recurrence.values.includes(value)
       ? draft.recurrence.values.filter((candidate) => candidate !== value)
       : [...draft.recurrence.values, value];

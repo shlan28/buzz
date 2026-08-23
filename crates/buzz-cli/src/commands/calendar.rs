@@ -382,18 +382,6 @@ fn parse_recurrence(
             ))
         }
     };
-    let first_value = match &rule {
-        RecurrenceRule::Daily => None,
-        RecurrenceRule::Weekdays(values) => {
-            Some((values, first_date.weekday().num_days_from_sunday()))
-        }
-        RecurrenceRule::MonthDays(values) => Some((values, first_date.day())),
-    };
-    if first_value.is_some_and(|(values, first)| !values.contains(&first)) {
-        return Err(CliError::Usage(
-            "the recurrence rule must include the first event date".into(),
-        ));
-    }
     Ok(Some((rule, end)))
 }
 
@@ -929,15 +917,15 @@ mod tests {
     }
 
     #[test]
-    fn weekday_rule_is_sorted_and_requires_first_day() {
-        let monday = NaiveDate::from_ymd_opt(2026, 8, 3).unwrap();
+    fn weekday_rule_is_sorted_and_may_start_on_an_unselected_day() {
+        let sunday = NaiveDate::from_ymd_opt(2026, 8, 2).unwrap();
         let parsed = parse_recurrence(
             None,
             Some("fri,mon,wed,mon".into()),
             None,
             Some(4),
             None,
-            monday,
+            sunday,
         )
         .unwrap();
         assert_eq!(
@@ -947,7 +935,36 @@ mod tests {
                 RecurrenceEnd::Count(4)
             ))
         );
-        assert!(parse_recurrence(None, Some("wed".into()), None, Some(2), None, monday,).is_err());
+        let input = CalendarEventInput {
+            id: "weekdays".into(),
+            title: "Workout".into(),
+            description: String::new(),
+            start: "2026-08-02".into(),
+            end: Some("2026-08-03".into()),
+            all_day: true,
+            start_tzid: None,
+            end_tzid: None,
+            summary: None,
+            locations: vec![],
+            participants: vec![],
+            calendar_ids: vec![],
+            series: None,
+        };
+        let events = expand_recurrence(
+            input,
+            RecurrenceRule::Weekdays(vec![1, 3]),
+            RecurrenceEnd::Count(3),
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .map(|event| event.start.as_str())
+                .collect::<Vec<_>>(),
+            vec!["2026-08-03", "2026-08-05", "2026-08-10"]
+        );
+        assert!(parse_recurrence(None, Some(String::new()), None, Some(2), None, sunday,).is_err());
     }
 
     #[test]

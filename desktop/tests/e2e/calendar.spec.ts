@@ -315,18 +315,20 @@ test("dragging snaps a draft to quarter-hour boundaries", async ({ page }) => {
   expect(end.getTime() - start.getTime()).toBeGreaterThan(30 * 60_000);
 });
 
-test("creates a custom weekday series as independent NIP-52 events", async ({
+test("custom weekdays can remove Sunday and begin on Monday", async ({
   page,
 }) => {
-  await page.goto("/#/calendar?view=week&date=2026-08-03");
+  await page.goto("/#/calendar?view=week&date=2026-08-02");
   await page.getByRole("button", { name: "Create event" }).click();
   const dialog = page.getByTestId("calendar-event-dialog");
   await dialog.getByLabel("Event title").fill("Workout plan");
   await dialog.getByRole("button", { name: "More options" }).click();
   await dialog.getByLabel("Repeat").selectOption("weekdays");
+  await expect(dialog.getByLabel("Sun")).toBeChecked();
+  await dialog.getByLabel("Sun").uncheck();
+  await dialog.getByLabel("Mon").check();
   await dialog.getByLabel("Wed").check();
-  await dialog.getByLabel("Fri").check();
-  await dialog.getByLabel("Occurrences").fill("4");
+  await dialog.getByLabel("Occurrences").fill("3");
   await dialog.getByRole("button", { name: "Save" }).click();
   await expect(dialog).toHaveCount(0);
   const events = await page.evaluate(() =>
@@ -334,15 +336,20 @@ test("creates a custom weekday series as independent NIP-52 events", async ({
       (event) => event.kind === 31923,
     ),
   );
-  expect(events).toHaveLength(4);
+  expect(events).toHaveLength(3);
   expect(
     events.map(
       (event) => event.tags.find((tag) => tag[0] === "buzz_occurrence")?.[1],
     ),
-  ).toEqual(["0", "1", "2", "3"]);
+  ).toEqual(["0", "1", "2"]);
   expect(
     events[0]?.tags.find((tag) => tag[0] === "buzz_repeat_values")?.[1],
-  ).toBe("1,3,5");
+  ).toBe("1,3");
+  expect(
+    new Date(
+      Number(events[0]?.tags.find((tag) => tag[0] === "start")?.[1]) * 1_000,
+    ).getDay(),
+  ).toBe(1);
 });
 
 test("monthly date combinations expose skipped-date semantics", async ({
