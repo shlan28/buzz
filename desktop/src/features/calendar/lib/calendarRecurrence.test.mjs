@@ -68,13 +68,48 @@ test("until is inclusive and ids are retry-stable", () => {
   assert.equal(first.length, 3);
 });
 
-test("rule must include first date", () => {
-  assert.match(
-    validateRecurrence(new Date(2026, 7, 3), {
+test("weekday rule may begin after the start date", () => {
+  const events = expandCalendarDraft(
+    draft(new Date(2026, 7, 2, 9), {
       kind: "weekdays",
-      values: [2],
+      values: [1, 3],
+      end: { kind: "count", count: 3 },
+    }),
+  );
+  assert.deepEqual(
+    events.map((event) => [event.start.getDate(), event.start.getDay()]),
+    [
+      [3, 1],
+      [5, 3],
+      [10, 1],
+    ],
+  );
+});
+
+test("month-day rule may begin after the start date", () => {
+  const events = expandCalendarDraft(
+    draft(new Date(2026, 7, 2, 9), {
+      kind: "month-days",
+      values: [15],
       end: { kind: "count", count: 2 },
     }),
-    /first event date/,
+  );
+  assert.deepEqual(
+    events.map((event) => [event.start.getMonth() + 1, event.start.getDate()]),
+    [
+      [8, 15],
+      [9, 15],
+    ],
+  );
+});
+
+test("custom rule still requires one selected day", () => {
+  assert.match(
+    validateRecurrence(new Date(2026, 7, 2), {
+      kind: "weekdays",
+      values: [],
+      end: { kind: "count", count: 2 },
+    }),
+    /Choose at least one/,
   );
 });

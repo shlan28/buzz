@@ -33,10 +33,6 @@ export function validateRecurrence(
     const max = recurrence.kind === "weekdays" ? 6 : 31;
     if (!values.length || values.some((value) => value < min || value > max))
       return "Choose at least one valid repeat day.";
-    const first =
-      recurrence.kind === "weekdays" ? start.getDay() : start.getDate();
-    if (!values.includes(first))
-      return "The repeat rule must include the first event date.";
   }
   if (recurrence.end.kind === "count") {
     if (
