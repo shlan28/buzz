@@ -42,6 +42,7 @@ function defaultDraft(date: Date, allDay = false): CalendarDraft {
       ? addLocalDays(start, 1)
       : new Date(start.getTime() + 1_800_000),
     allDay,
+    recurrence: { kind: "none" },
   };
 }
 
@@ -70,7 +71,7 @@ export function CalendarScreen() {
   };
   const editSelected = () => {
     if (!selected) return;
-    setDraft({ ...selected });
+    setDraft({ ...selected, recurrence: { kind: "none" } });
     setSelected(null);
   };
   const openSelected = (event: CalendarEvent) => {

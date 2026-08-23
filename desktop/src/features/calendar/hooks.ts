@@ -26,6 +26,7 @@ import type {
   CalendarRange,
   CalendarSource,
 } from "./lib/calendarTypes";
+import { expandCalendarDraft } from "./lib/calendarRecurrence";
 
 const EVENT_KINDS = [
   KIND_CALENDAR_DATE_EVENT,
@@ -58,6 +59,28 @@ function parseEvent(event: RelayEvent): CalendarEvent | null {
       : new Date(Number(rawEnd) * 1_000)
     : new Date(start.getTime() + (allDay ? 86_400_000 : 1_800_000));
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  const seriesId = tagValue(event, "buzz_series");
+  const occurrence = Number(tagValue(event, "buzz_occurrence"));
+  const repeat = tagValue(event, "buzz_repeat");
+  const repeatEnd = tagValue(event, "buzz_repeat_end");
+  const series =
+    seriesId &&
+    Number.isInteger(occurrence) &&
+    occurrence >= 0 &&
+    (repeat === "daily" || repeat === "weekdays" || repeat === "month-days") &&
+    repeatEnd
+      ? {
+          id: seriesId,
+          occurrence,
+          repeat: repeat as "daily" | "weekdays" | "month-days",
+          values: (tagValue(event, "buzz_repeat_values") ?? "")
+            .split(",")
+            .filter(Boolean)
+            .map(Number)
+            .filter(Number.isInteger),
+          end: repeatEnd,
+        }
+      : undefined;
   return {
     id,
     eventId: event.id,
@@ -77,6 +100,7 @@ function parseEvent(event: RelayEvent): CalendarEvent | null {
     allDay,
     kind: event.kind,
     createdAt: event.created_at,
+    series,
   };
 }
 
@@ -110,6 +134,16 @@ function eventTags(draft: CalendarDraft): string[][] {
   for (const participant of draft.participants)
     if (participant.trim()) tags.push(["p", participant.trim()]);
   if (draft.calendarId !== "personal") tags.push(["a", draft.calendarId]);
+  if (draft.series) {
+    tags.push(
+      ["buzz_series", draft.series.id],
+      ["buzz_occurrence", String(draft.series.occurrence)],
+      ["buzz_repeat", draft.series.repeat],
+      ["buzz_repeat_end", draft.series.end],
+    );
+    if (draft.series.values.length)
+      tags.push(["buzz_repeat_values", draft.series.values.join(",")]);
+  }
   return tags;
 }
 
@@ -325,7 +359,20 @@ export function useCalendar(range: CalendarRange) {
     return sourceQueries[index]?.refetch();
   };
   const save = useMutation({
-    mutationFn: publishDraft,
+    mutationFn: async (draft: CalendarDraft) => {
+      const drafts = draft.eventId ? [draft] : expandCalendarDraft(draft);
+      const published: RelayEvent[] = [];
+      for (const occurrence of drafts) {
+        try {
+          published.push(await publishDraft(occurrence));
+        } catch (error) {
+          throw new Error(
+            `Saved ${published.length}/${drafts.length} occurrences. ${error instanceof Error ? error.message : "Failed to save the remaining events."}`,
+          );
+        }
+      }
+      return published;
+    },
     onSuccess: () =>
       queryClient.invalidateQueries({
         queryKey: calendarQueryKey(pubkey ?? ""),

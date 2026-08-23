@@ -320,6 +320,8 @@ type E2eConfig = {
     calendarDeleteSideEffectDelayMs?: number;
     /** Sequenced calendar deletion publish failures. */
     calendarDeleteErrors?: string[];
+    /** Sequenced Calendar create/update failures; null accepts that publish. */
+    calendarPublishErrors?: (string | null)[];
     /** Additional calendar events returned by the mock relay. */
     calendarEvents?: RelayEvent[];
     /** Relay-signed current Task State events returned by mock REQs. */
@@ -3109,6 +3111,7 @@ let mockWebsocketSendMutexWedged = false;
 let mockClosedChannelLiveSubscription = false;
 const mockClosedCalendarHistoryCounts = new Map<string, number>();
 const mockDeletedCalendarCoordinates = new Set<string>();
+const mockCreatedCalendarEvents: RelayEvent[] = [];
 const realSockets = new Map<number, WebSocket>();
 let mockManagedAgents: MockManagedAgent[] = [];
 let mockManagedAgentRuntimes: MockManagedAgentRuntimeRow[] = [];
@@ -10407,6 +10410,7 @@ function sendToMockSocket(args: {
           sig: "mocksig".repeat(20).slice(0, 128),
         },
         ...(getConfig()?.mock?.calendarEvents ?? []),
+        ...mockCreatedCalendarEvents,
       ];
       for (const event of calendarEvents) {
         const dTag = event.tags.find((tag) => tag[0] === "d")?.[1];
@@ -10762,6 +10766,29 @@ function sendToMockSocket(args: {
       }
     }
 
+    if (
+      event.kind === KIND_CALENDAR_DATE_EVENT ||
+      event.kind === KIND_CALENDAR_TIME_EVENT
+    ) {
+      const rejection = getConfig()?.mock?.calendarPublishErrors?.shift();
+      if (rejection) {
+        sendWsText(socket.handler, ["OK", event.id, false, rejection]);
+        return;
+      }
+      const stableId = event.tags.find((tag) => tag[0] === "d")?.[1];
+      const index = mockCreatedCalendarEvents.findIndex(
+        (candidate) =>
+          candidate.kind === event.kind &&
+          candidate.pubkey === event.pubkey &&
+          candidate.tags.some((tag) => tag[0] === "d" && tag[1] === stableId),
+      );
+      if (index >= 0) mockCreatedCalendarEvents.splice(index, 1);
+      mockCreatedCalendarEvents.push(event);
+      emitMockGlobalEvent(event);
+      sendWsText(socket.handler, ["OK", event.id, true, ""]);
+      return;
+    }
+
     if (event.kind === KIND_PERSONA) {
       const sourceId = event.tags.find((tag) => tag[0] === "d")?.[1];
       if (!sourceId) {
@@ -10936,6 +10963,7 @@ export function maybeInstallE2eTauriMocks() {
   mockClosedChannelLiveSubscription = false;
   mockClosedCalendarHistoryCounts.clear();
   mockDeletedCalendarCoordinates.clear();
+  mockCreatedCalendarEvents.length = 0;
   mockWebsocketUnavailable = false;
   mockAuthResponses.length = 0;
   mockChannelHistoryCloses.length = 0;

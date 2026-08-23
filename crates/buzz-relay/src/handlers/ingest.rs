@@ -4574,6 +4574,27 @@ mod tests {
     }
 
     #[test]
+    fn nip52_accepts_buzz_recurring_series_tags_as_client_metadata() {
+        let ev = make_event_with_tags(
+            KIND_CALENDAR_TIME_EVENT,
+            "description",
+            &[
+                &["d", "series-1-0"],
+                &["title", "Planning"],
+                &["start", "1785542400"],
+                &["end", "1785544200"],
+                &["D", "20666"],
+                &["buzz_series", "series-1"],
+                &["buzz_occurrence", "0"],
+                &["buzz_repeat", "weekdays"],
+                &["buzz_repeat_values", "1,3,5"],
+                &["buzz_repeat_end", "count:6"],
+            ],
+        );
+        assert!(validate_calendar_event(&ev).is_ok());
+    }
+
+    #[test]
     fn nip52_time_event_requires_every_intersected_day_tag() {
         let missing_second_day = make_event_with_tags(
             KIND_CALENDAR_TIME_EVENT,

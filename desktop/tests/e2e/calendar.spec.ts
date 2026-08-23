@@ -83,6 +83,9 @@ test.beforeEach(async ({ page }, testInfo) => {
     calendarDeleteErrors: testInfo.title.includes("delete failure restores")
       ? ["mock calendar deletion rejected"]
       : undefined,
+    calendarPublishErrors: testInfo.title.includes("partial recurring failure")
+      ? [null, "mock recurring publish rejected"]
+      : undefined,
     calendarEvents: [
       dailyAssistantEvent("daily-bp", "提交BP到连尚网络", 10),
       dailyAssistantEvent("daily-liuli", "联系刘力", 11),
@@ -310,4 +313,73 @@ test("dragging snaps a draft to quarter-hour boundaries", async ({ page }) => {
   expect(start.getMinutes() % 15).toBe(0);
   expect(end.getMinutes() % 15).toBe(0);
   expect(end.getTime() - start.getTime()).toBeGreaterThan(30 * 60_000);
+});
+
+test("creates a custom weekday series as independent NIP-52 events", async ({
+  page,
+}) => {
+  await page.goto("/#/calendar?view=week&date=2026-08-03");
+  await page.getByRole("button", { name: "Create event" }).click();
+  const dialog = page.getByTestId("calendar-event-dialog");
+  await dialog.getByLabel("Event title").fill("Workout plan");
+  await dialog.getByRole("button", { name: "More options" }).click();
+  await dialog.getByLabel("Repeat").selectOption("weekdays");
+  await dialog.getByLabel("Wed").check();
+  await dialog.getByLabel("Fri").check();
+  await dialog.getByLabel("Occurrences").fill("4");
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await expect(dialog).toHaveCount(0);
+  const events = await page.evaluate(() =>
+    (window.__BUZZ_E2E_SIGNED_EVENTS__ ?? []).filter(
+      (event) => event.kind === 31923,
+    ),
+  );
+  expect(events).toHaveLength(4);
+  expect(
+    events.map(
+      (event) => event.tags.find((tag) => tag[0] === "buzz_occurrence")?.[1],
+    ),
+  ).toEqual(["0", "1", "2", "3"]);
+  expect(
+    events[0]?.tags.find((tag) => tag[0] === "buzz_repeat_values")?.[1],
+  ).toBe("1,3,5");
+});
+
+test("monthly date combinations expose skipped-date semantics", async ({
+  page,
+}) => {
+  await page.goto("/#/calendar?view=month&date=2026-01-31");
+  await page.getByRole("button", { name: "Create event" }).click();
+  const dialog = page.getByTestId("calendar-event-dialog");
+  await dialog.getByLabel("Event title").fill("Month end review");
+  await dialog.getByRole("button", { name: "More options" }).click();
+  await dialog.getByLabel("Repeat").selectOption("month-days");
+  await expect(dialog).toContainText("Dates absent from a month are skipped.");
+  await dialog.getByLabel("Occurrences").fill("2");
+  await dialog.getByRole("button", { name: "Save" }).click();
+  const starts = await page.evaluate(() =>
+    (window.__BUZZ_E2E_SIGNED_EVENTS__ ?? [])
+      .filter((event) => event.kind === 31923)
+      .map((event) =>
+        Number(event.tags.find((tag) => tag[0] === "start")?.[1]),
+      ),
+  );
+  expect(starts).toHaveLength(2);
+  expect(new Date(starts[0] * 1_000).getDate()).toBe(31);
+  expect(new Date(starts[1] * 1_000).getMonth()).toBe(2);
+});
+
+test("partial recurring failure reports progress", async ({ page }) => {
+  await page.goto("/#/calendar?view=week&date=2026-08-03");
+  await page.getByRole("button", { name: "Create event" }).click();
+  const dialog = page.getByTestId("calendar-event-dialog");
+  await dialog.getByLabel("Event title").fill("Daily checkpoint");
+  await dialog.getByRole("button", { name: "More options" }).click();
+  await dialog.getByLabel("Repeat").selectOption("daily");
+  await dialog.getByLabel("Occurrences").fill("3");
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await expect(dialog.getByRole("alert")).toContainText(
+    "Saved 1/3 occurrences",
+  );
+  await expect(dialog).toBeVisible();
 });

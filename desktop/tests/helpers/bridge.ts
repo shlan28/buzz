@@ -265,6 +265,7 @@ type MockBridgeOptions = {
   calendarDeleteSideEffectDelayMs?: number;
   /** Sequenced calendar deletion publish failures. */
   calendarDeleteErrors?: string[];
+  calendarPublishErrors?: (string | null)[];
   /** Additional calendar events returned by the mock relay. */
   calendarEvents?: RelayEvent[];
   /** Relay-signed current Task State events returned by mock REQs. */
