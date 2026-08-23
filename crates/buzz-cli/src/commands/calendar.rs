@@ -1,14 +1,29 @@
 //! `buzz calendar` — private, author-scoped NIP-52 calendar operations.
 
-use chrono::{DateTime, NaiveDate};
+use chrono::{DateTime, Datelike, Duration, FixedOffset, NaiveDate, Offset, TimeZone, Utc};
 use nostr::{Event, PublicKey};
 use serde::Serialize;
 
 use crate::{client::BuzzClient, error::CliError, CalendarCmd};
 use buzz_sdk::{
     build_calendar_event, build_delete_calendar_event, CalendarEventInput, CalendarParticipant,
-    KIND_CALENDAR_DATE, KIND_CALENDAR_TIME,
+    CalendarSeries, KIND_CALENDAR_DATE, KIND_CALENDAR_TIME,
 };
+
+const MAX_OCCURRENCES: u16 = 365;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RecurrenceRule {
+    Daily,
+    Weekdays(Vec<u32>),
+    MonthDays(Vec<u32>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RecurrenceEnd {
+    Count(u16),
+    Until(NaiveDate),
+}
 
 #[derive(Debug, Clone, Serialize)]
 struct CalendarSnapshot {
@@ -27,6 +42,7 @@ struct CalendarSnapshot {
     locations: Vec<String>,
     participants: Vec<String>,
     calendar_ids: Vec<String>,
+    series: Option<CalendarSeries>,
     updated_at: u64,
     event_id: String,
 }
@@ -47,6 +63,11 @@ impl CalendarSnapshot {
         let mut locations = Vec::new();
         let mut participants = Vec::new();
         let mut calendar_ids = Vec::new();
+        let mut series_id = None;
+        let mut series_occurrence = None;
+        let mut series_repeat = None;
+        let mut series_values = None;
+        let mut series_end = None;
         for tag in event.tags.iter() {
             let parts = tag.as_slice();
             let Some(name) = parts.first().map(String::as_str) else {
@@ -64,11 +85,26 @@ impl CalendarSnapshot {
                 "location" => locations.push(value),
                 "p" => participants.push(value),
                 "a" => calendar_ids.push(value),
+                "buzz_series" => series_id = Some(value),
+                "buzz_occurrence" => series_occurrence = value.parse::<u16>().ok(),
+                "buzz_repeat" => series_repeat = Some(value),
+                "buzz_repeat_values" => series_values = Some(value),
+                "buzz_repeat_end" => series_end = Some(value),
                 _ => {}
             }
         }
         let id = id.ok_or_else(|| CliError::Other("calendar event is missing d tag".into()))?;
         let author = event.pubkey.to_hex();
+        let series = match (series_id, series_occurrence, series_repeat, series_end) {
+            (Some(id), Some(occurrence), Some(repeat), Some(end)) => Some(CalendarSeries {
+                id,
+                occurrence,
+                repeat,
+                values: series_values,
+                end,
+            }),
+            _ => None,
+        };
         Ok(Self {
             coordinate: format!("{kind}:{author}:{id}"),
             id,
@@ -86,6 +122,7 @@ impl CalendarSnapshot {
             locations,
             participants,
             calendar_ids,
+            series,
             updated_at: event.created_at.as_secs(),
             event_id: event.id.to_hex(),
         })
@@ -109,6 +146,7 @@ impl CalendarSnapshot {
                 .map(|pubkey| CalendarParticipant { pubkey, role: None })
                 .collect(),
             calendar_ids: self.calendar_ids,
+            series: self.series,
         }
     }
 }
@@ -245,6 +283,252 @@ fn participants(values: Vec<String>) -> Vec<CalendarParticipant> {
         .collect()
 }
 
+fn parse_csv_numbers(value: &str, min: u32, max: u32, field: &str) -> Result<Vec<u32>, CliError> {
+    let mut values = value
+        .split(',')
+        .map(str::trim)
+        .map(|item| {
+            item.parse::<u32>().map_err(|_| {
+                CliError::Usage(format!(
+                    "{field} must be comma-separated values from {min} to {max}"
+                ))
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    values.sort_unstable();
+    values.dedup();
+    if values.is_empty() || values.iter().any(|value| !(min..=max).contains(value)) {
+        return Err(CliError::Usage(format!(
+            "{field} must contain values from {min} to {max}"
+        )));
+    }
+    Ok(values)
+}
+
+fn parse_recurrence(
+    repeat: Option<String>,
+    weekdays: Option<String>,
+    month_days: Option<String>,
+    repeat_count: Option<u16>,
+    repeat_until: Option<String>,
+    first_date: NaiveDate,
+) -> Result<Option<(RecurrenceRule, RecurrenceEnd)>, CliError> {
+    let rule = match (repeat, weekdays, month_days) {
+        (None, None, None) => None,
+        (Some(value), None, None) if value == "daily" => Some(RecurrenceRule::Daily),
+        (Some(_), None, None) => {
+            return Err(CliError::Usage(
+                "--repeat currently accepts only `daily`".into(),
+            ))
+        }
+        (None, Some(value), None) => {
+            let names = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+            let mut values = value
+                .split(',')
+                .map(str::trim)
+                .map(|item| {
+                    names
+                        .iter()
+                        .position(|name| *name == item)
+                        .map(|index| index as u32)
+                        .ok_or_else(|| {
+                            CliError::Usage("--weekdays uses mon,tue,wed,thu,fri,sat,sun".into())
+                        })
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            values.sort_unstable();
+            values.dedup();
+            Some(RecurrenceRule::Weekdays(values))
+        }
+        (None, None, Some(value)) => Some(RecurrenceRule::MonthDays(parse_csv_numbers(
+            &value,
+            1,
+            31,
+            "--month-days",
+        )?)),
+        _ => return Err(CliError::Usage("choose only one recurrence rule".into())),
+    };
+    let Some(rule) = rule else {
+        if repeat_count.is_some() || repeat_until.is_some() {
+            return Err(CliError::Usage(
+                "--repeat-count/--repeat-until requires a recurrence rule".into(),
+            ));
+        }
+        return Ok(None);
+    };
+    let end = match (repeat_count, repeat_until) {
+        (Some(count), None) if (2..=MAX_OCCURRENCES).contains(&count) => {
+            RecurrenceEnd::Count(count)
+        }
+        (Some(_), None) => {
+            return Err(CliError::Usage(format!(
+                "--repeat-count must be between 2 and {MAX_OCCURRENCES}"
+            )))
+        }
+        (None, Some(value)) => {
+            let until = NaiveDate::parse_from_str(&value, "%Y-%m-%d").map_err(|error| {
+                CliError::Usage(format!("invalid --repeat-until date: {error}"))
+            })?;
+            if until < first_date {
+                return Err(CliError::Usage(
+                    "--repeat-until must not be before the first event".into(),
+                ));
+            }
+            RecurrenceEnd::Until(until)
+        }
+        _ => {
+            return Err(CliError::Usage(
+                "a recurrence rule requires exactly one of --repeat-count or --repeat-until".into(),
+            ))
+        }
+    };
+    let first_value = match &rule {
+        RecurrenceRule::Daily => None,
+        RecurrenceRule::Weekdays(values) => {
+            Some((values, first_date.weekday().num_days_from_sunday()))
+        }
+        RecurrenceRule::MonthDays(values) => Some((values, first_date.day())),
+    };
+    if first_value.is_some_and(|(values, first)| !values.contains(&first)) {
+        return Err(CliError::Usage(
+            "the recurrence rule must include the first event date".into(),
+        ));
+    }
+    Ok(Some((rule, end)))
+}
+
+fn rule_matches(rule: &RecurrenceRule, date: NaiveDate) -> bool {
+    match rule {
+        RecurrenceRule::Daily => true,
+        RecurrenceRule::Weekdays(values) => values.contains(&date.weekday().num_days_from_sunday()),
+        RecurrenceRule::MonthDays(values) => values.contains(&date.day()),
+    }
+}
+
+fn expand_recurrence(
+    input: CalendarEventInput,
+    rule: RecurrenceRule,
+    boundary: RecurrenceEnd,
+    fixed_offset: Option<FixedOffset>,
+) -> Result<Vec<CalendarEventInput>, CliError> {
+    let (first_date, local_time, timezone, duration) = if input.all_day {
+        let start = NaiveDate::parse_from_str(&input.start, "%Y-%m-%d")
+            .map_err(|error| CliError::Usage(error.to_string()))?;
+        let end = input
+            .end
+            .as_deref()
+            .map(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d"))
+            .transpose()
+            .map_err(|error| CliError::Usage(error.to_string()))?
+            .unwrap_or(start + Duration::days(1));
+        (
+            start,
+            None,
+            None,
+            end.signed_duration_since(start).num_seconds(),
+        )
+    } else {
+        let offset = fixed_offset.unwrap_or_else(|| Utc.fix());
+        let start_seconds = input
+            .start
+            .parse::<i64>()
+            .map_err(|error| CliError::Usage(error.to_string()))?;
+        let start = Utc
+            .timestamp_opt(start_seconds, 0)
+            .single()
+            .ok_or_else(|| CliError::Usage("invalid start timestamp".into()))?
+            .with_timezone(&offset);
+        let end_seconds = input
+            .end
+            .as_deref()
+            .unwrap_or(&input.start)
+            .parse::<i64>()
+            .map_err(|error| CliError::Usage(error.to_string()))?;
+        (
+            start.date_naive(),
+            Some(start.time()),
+            Some(offset),
+            end_seconds - start_seconds,
+        )
+    };
+    let values = match &rule {
+        RecurrenceRule::Daily => None,
+        RecurrenceRule::Weekdays(values) | RecurrenceRule::MonthDays(values) => Some(
+            values
+                .iter()
+                .map(u32::to_string)
+                .collect::<Vec<_>>()
+                .join(","),
+        ),
+    };
+    let repeat = match rule {
+        RecurrenceRule::Daily => "daily",
+        RecurrenceRule::Weekdays(_) => "weekdays",
+        RecurrenceRule::MonthDays(_) => "month-days",
+    };
+    let end_label = match boundary {
+        RecurrenceEnd::Count(count) => format!("count:{count}"),
+        RecurrenceEnd::Until(until) => format!("until:{}", until.format("%Y-%m-%d")),
+    };
+    let target_count = match boundary {
+        RecurrenceEnd::Count(count) => count as usize,
+        RecurrenceEnd::Until(_) => MAX_OCCURRENCES as usize,
+    };
+    let series_id = input.id.clone();
+    let mut date = first_date;
+    let mut output = Vec::new();
+    for _ in 0..40_000 {
+        if matches!(boundary, RecurrenceEnd::Until(until) if date > until)
+            || output.len() >= target_count
+        {
+            break;
+        }
+        if rule_matches(&rule, date) {
+            let mut occurrence = input.clone();
+            let index = output.len() as u16;
+            occurrence.id = format!("{series_id}-{index}");
+            if input.all_day {
+                occurrence.start = date.format("%Y-%m-%d").to_string();
+                occurrence.end = Some(
+                    (date + Duration::seconds(duration))
+                        .format("%Y-%m-%d")
+                        .to_string(),
+                );
+            } else {
+                let naive = date.and_time(local_time.unwrap_or_default());
+                let instant = timezone
+                    .and_then(|offset| offset.from_local_datetime(&naive).earliest())
+                    .ok_or_else(|| {
+                        CliError::Usage("recurrence falls in an invalid local time".into())
+                    })?;
+                let start = instant.timestamp();
+                occurrence.start = start.to_string();
+                occurrence.end = Some((start + duration).to_string());
+            }
+            occurrence.series = Some(CalendarSeries {
+                id: series_id.clone(),
+                occurrence: index,
+                repeat: repeat.into(),
+                values: values.clone(),
+                end: end_label.clone(),
+            });
+            output.push(occurrence);
+        }
+        date += Duration::days(1);
+    }
+    if output.len() >= MAX_OCCURRENCES as usize
+        && matches!(boundary, RecurrenceEnd::Until(until) if date <= until)
+    {
+        return Err(CliError::Usage(format!(
+            "recurrence exceeds {MAX_OCCURRENCES} occurrences"
+        )));
+    }
+    if output.is_empty() {
+        return Err(CliError::Usage("recurrence creates no events".into()));
+    }
+    Ok(output)
+}
+
 async fn fetch_own(client: &BuzzClient, id: &str) -> Result<Option<Event>, CliError> {
     fetch_by_author(client, id, &client.keys().public_key().to_hex()).await
 }
@@ -328,8 +612,20 @@ pub async fn dispatch(command: CalendarCmd, client: &BuzzClient) -> Result<(), C
             participants: participant_values,
             calendars,
             id,
+            repeat,
+            weekdays,
+            month_days,
+            repeat_count,
+            repeat_until,
         } => {
             validate_timezone(timezone.as_deref(), all_day)?;
+            let fixed_offset = (!all_day)
+                .then(|| {
+                    DateTime::parse_from_rfc3339(&start)
+                        .ok()
+                        .map(|date| *date.offset())
+                })
+                .flatten();
             let (start, end) = normalize_range(&start, end.as_deref(), all_day)?;
             let id = id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
             let input = CalendarEventInput {
@@ -345,19 +641,59 @@ pub async fn dispatch(command: CalendarCmd, client: &BuzzClient) -> Result<(), C
                 locations,
                 participants: participants(participant_values),
                 calendar_ids: calendars,
+                series: None,
             };
             let kind = if all_day {
                 KIND_CALENDAR_DATE
             } else {
                 KIND_CALENDAR_TIME
             };
-            publish(
-                client,
-                build_calendar_event(&input).map_err(|e| CliError::Usage(e.to_string()))?,
-                &id,
-                kind,
-            )
-            .await
+            let first_date = if all_day {
+                NaiveDate::parse_from_str(&input.start, "%Y-%m-%d")
+                    .map_err(|error| CliError::Usage(error.to_string()))?
+            } else {
+                let offset = fixed_offset.unwrap_or_else(|| Utc.fix());
+                Utc.timestamp_opt(
+                    input
+                        .start
+                        .parse::<i64>()
+                        .map_err(|error| CliError::Usage(error.to_string()))?,
+                    0,
+                )
+                .single()
+                .ok_or_else(|| CliError::Usage("invalid start timestamp".into()))?
+                .with_timezone(&offset)
+                .date_naive()
+            };
+            let recurrence = parse_recurrence(
+                repeat,
+                weekdays,
+                month_days,
+                repeat_count,
+                repeat_until,
+                first_date,
+            )?;
+            let inputs = match recurrence {
+                Some((rule, boundary)) => expand_recurrence(input, rule, boundary, fixed_offset)?,
+                None => vec![input],
+            };
+            let total = inputs.len();
+            for (index, occurrence) in inputs.into_iter().enumerate() {
+                publish(
+                    client,
+                    build_calendar_event(&occurrence)
+                        .map_err(|e| CliError::Usage(e.to_string()))?,
+                    &occurrence.id,
+                    kind,
+                )
+                .await
+                .map_err(|error| {
+                    CliError::Other(format!(
+                        "saved {index}/{total} occurrences; retry with the same --id: {error}"
+                    ))
+                })?;
+            }
+            Ok(())
         }
         CalendarCmd::List {
             from,
@@ -579,6 +915,7 @@ mod tests {
             locations: vec![],
             participants: vec![],
             calendar_ids: vec![],
+            series: None,
             updated_at: 0,
             event_id: "event".into(),
         };
@@ -589,5 +926,61 @@ mod tests {
             86_400,
             172_800
         ));
+    }
+
+    #[test]
+    fn weekday_rule_is_sorted_and_requires_first_day() {
+        let monday = NaiveDate::from_ymd_opt(2026, 8, 3).unwrap();
+        let parsed = parse_recurrence(
+            None,
+            Some("fri,mon,wed,mon".into()),
+            None,
+            Some(4),
+            None,
+            monday,
+        )
+        .unwrap();
+        assert_eq!(
+            parsed,
+            Some((
+                RecurrenceRule::Weekdays(vec![1, 3, 5]),
+                RecurrenceEnd::Count(4)
+            ))
+        );
+        assert!(parse_recurrence(None, Some("wed".into()), None, Some(2), None, monday,).is_err());
+    }
+
+    #[test]
+    fn month_day_rule_skips_absent_dates() {
+        let input = CalendarEventInput {
+            id: "month-end".into(),
+            title: "Close".into(),
+            description: String::new(),
+            start: "2027-01-31".into(),
+            end: Some("2027-02-01".into()),
+            all_day: true,
+            start_tzid: None,
+            end_tzid: None,
+            summary: None,
+            locations: vec![],
+            participants: vec![],
+            calendar_ids: vec![],
+            series: None,
+        };
+        let events = expand_recurrence(
+            input,
+            RecurrenceRule::MonthDays(vec![31]),
+            RecurrenceEnd::Count(3),
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .map(|event| event.start.as_str())
+                .collect::<Vec<_>>(),
+            vec!["2027-01-31", "2027-03-31", "2027-05-31"]
+        );
+        assert_eq!(events[2].id, "month-end-2");
     }
 }

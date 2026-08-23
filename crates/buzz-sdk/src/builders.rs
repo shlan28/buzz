@@ -536,6 +536,26 @@ pub fn build_calendar_event(input: &CalendarEventInput) -> Result<EventBuilder, 
         }
         tags.push(tag(&["a", calendar_id])?);
     }
+    if let Some(series) = &input.series {
+        check_calendar_id(&series.id)?;
+        if !matches!(series.repeat.as_str(), "daily" | "weekdays" | "month-days") {
+            return Err(SdkError::InvalidInput(
+                "calendar repeat must be daily, weekdays, or month-days".into(),
+            ));
+        }
+        if !series.end.starts_with("count:") && !series.end.starts_with("until:") {
+            return Err(SdkError::InvalidInput(
+                "calendar repeat end must use count:<n> or until:<YYYY-MM-DD>".into(),
+            ));
+        }
+        tags.push(tag(&["buzz_series", &series.id])?);
+        tags.push(tag(&["buzz_occurrence", &series.occurrence.to_string()])?);
+        tags.push(tag(&["buzz_repeat", &series.repeat])?);
+        if let Some(values) = series.values.as_deref() {
+            tags.push(tag(&["buzz_repeat_values", values])?);
+        }
+        tags.push(tag(&["buzz_repeat_end", &series.end])?);
+    }
     let kind = if input.all_day {
         KIND_CALENDAR_DATE
     } else {
@@ -3094,6 +3114,7 @@ mod tests {
                     role: Some("required".into()),
                 }],
                 calendar_ids: vec![],
+                series: None,
             })
             .unwrap(),
         );
@@ -3121,10 +3142,43 @@ mod tests {
                 locations: vec![],
                 participants: vec![],
                 calendar_ids: vec![],
+                series: None,
             })
             .unwrap(),
         );
         assert_eq!(tag_values(&ev, "D"), vec!["0", "1"]);
+    }
+
+    #[test]
+    fn calendar_recurring_occurrence_keeps_nip52_envelope() {
+        let ev = sign(
+            build_calendar_event(&CalendarEventInput {
+                id: "series-1-0".into(),
+                title: "Planning".into(),
+                description: String::new(),
+                start: "1785547800".into(),
+                end: Some("1785549600".into()),
+                all_day: false,
+                start_tzid: Some("Asia/Shanghai".into()),
+                end_tzid: Some("Asia/Shanghai".into()),
+                summary: None,
+                locations: vec![],
+                participants: vec![],
+                calendar_ids: vec![],
+                series: Some(crate::CalendarSeries {
+                    id: "series-1".into(),
+                    occurrence: 0,
+                    repeat: "weekdays".into(),
+                    values: Some("1,3,5".into()),
+                    end: "count:6".into(),
+                }),
+            })
+            .unwrap(),
+        );
+        assert!(has_tag(&ev, "title", "Planning"));
+        assert!(has_tag(&ev, "buzz_series", "series-1"));
+        assert!(has_tag(&ev, "buzz_repeat_values", "1,3,5"));
+        assert_eq!(tag_values(&ev, "D"), vec!["20666"]);
     }
 
     #[test]
@@ -3143,6 +3197,7 @@ mod tests {
                 locations: vec![],
                 participants: vec![],
                 calendar_ids: vec![],
+                series: None,
             })
             .unwrap(),
         );

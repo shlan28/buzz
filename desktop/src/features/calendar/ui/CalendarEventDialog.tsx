@@ -12,6 +12,10 @@ import {
 import { Input } from "@/shared/ui/input";
 import { Textarea } from "@/shared/ui/textarea";
 import type { CalendarDraft } from "../lib/calendarTypes";
+import {
+  recurrenceUntilDefault,
+  validateRecurrence,
+} from "../lib/calendarRecurrence";
 
 function inputDateTime(date: Date) {
   const offset = date.getTimezoneOffset() * 60_000;
@@ -61,6 +65,50 @@ export function CalendarEventDialog({
     if (!open) setExpanded(false);
   }, [open]);
   if (!draft) return null;
+  const recurrenceError = validateRecurrence(draft.start, draft.recurrence);
+  const setRepeatKind = (
+    kind: "none" | "daily" | "weekdays" | "month-days",
+  ) => {
+    if (kind === "none") {
+      onChange({ ...draft, recurrence: { kind: "none" } });
+      return;
+    }
+    const firstValue =
+      kind === "weekdays" ? draft.start.getDay() : draft.start.getDate();
+    onChange({
+      ...draft,
+      recurrence: {
+        kind,
+        values: kind === "daily" ? [] : [firstValue],
+        end: { kind: "count", count: 2 },
+      },
+    });
+  };
+  const toggleRepeatValue = (value: number) => {
+    if (draft.recurrence.kind === "none" || draft.recurrence.kind === "daily")
+      return;
+    const firstValue =
+      draft.recurrence.kind === "weekdays"
+        ? draft.start.getDay()
+        : draft.start.getDate();
+    if (value === firstValue) return;
+    const values = draft.recurrence.values.includes(value)
+      ? draft.recurrence.values.filter((candidate) => candidate !== value)
+      : [...draft.recurrence.values, value];
+    onChange({
+      ...draft,
+      recurrence: { ...draft.recurrence, values },
+    });
+  };
+  const setRecurrenceEnd = (
+    end: { kind: "count"; count: number } | { kind: "until"; date: string },
+  ) => {
+    if (draft.recurrence.kind === "none") return;
+    onChange({
+      ...draft,
+      recurrence: { ...draft.recurrence, end },
+    });
+  };
   return (
     <Dialog
       open={open}
@@ -160,6 +208,138 @@ export function CalendarEventDialog({
               />
               All day
             </label>
+            {!draft.eventId ? (
+              <div className="space-y-3">
+                <label className="grid gap-1 text-sm">
+                  Repeat
+                  <select
+                    aria-label="Repeat"
+                    className="h-9 rounded-md border border-input bg-background px-3"
+                    value={draft.recurrence.kind}
+                    onChange={(event) =>
+                      setRepeatKind(
+                        event.target.value as
+                          | "none"
+                          | "daily"
+                          | "weekdays"
+                          | "month-days",
+                      )
+                    }
+                  >
+                    <option value="none">Does not repeat</option>
+                    <option value="daily">Daily</option>
+                    <option value="weekdays">Custom weekdays</option>
+                    <option value="month-days">Custom month days</option>
+                  </select>
+                </label>
+                {draft.recurrence.kind === "weekdays" ? (
+                  <fieldset className="flex flex-wrap gap-2">
+                    <legend className="mb-1 text-sm">Repeat on</legend>
+                    {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(
+                      (label, value) => (
+                        <label
+                          className="flex items-center gap-1 text-xs"
+                          key={label}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={
+                              draft.recurrence.kind === "weekdays" &&
+                              draft.recurrence.values.includes(value)
+                            }
+                            onChange={() => toggleRepeatValue(value)}
+                          />
+                          {label}
+                        </label>
+                      ),
+                    )}
+                  </fieldset>
+                ) : null}
+                {draft.recurrence.kind === "month-days" ? (
+                  <fieldset className="flex flex-wrap gap-2">
+                    <legend className="mb-1 text-sm">Days of month</legend>
+                    {Array.from({ length: 31 }, (_, index) => index + 1).map(
+                      (value) => (
+                        <label
+                          className="flex items-center gap-1 text-xs"
+                          key={value}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={
+                              draft.recurrence.kind === "month-days" &&
+                              draft.recurrence.values.includes(value)
+                            }
+                            onChange={() => toggleRepeatValue(value)}
+                          />
+                          {value}
+                        </label>
+                      ),
+                    )}
+                    <p className="w-full text-xs text-muted-foreground">
+                      Dates absent from a month are skipped.
+                    </p>
+                  </fieldset>
+                ) : null}
+                {draft.recurrence.kind !== "none" ? (
+                  <div className="flex items-end gap-2">
+                    <label className="grid gap-1 text-sm">
+                      Ends
+                      <select
+                        aria-label="Repeat ends"
+                        className="h-9 rounded-md border border-input bg-background px-3"
+                        value={draft.recurrence.end.kind}
+                        onChange={(event) =>
+                          setRecurrenceEnd(
+                            event.target.value === "count"
+                              ? { kind: "count", count: 2 }
+                              : {
+                                  kind: "until",
+                                  date: recurrenceUntilDefault(draft.start),
+                                },
+                          )
+                        }
+                      >
+                        <option value="count">After occurrences</option>
+                        <option value="until">On date</option>
+                      </select>
+                    </label>
+                    {draft.recurrence.end.kind === "count" ? (
+                      <Input
+                        aria-label="Occurrences"
+                        min={2}
+                        max={365}
+                        type="number"
+                        value={draft.recurrence.end.count}
+                        onChange={(event) =>
+                          setRecurrenceEnd({
+                            kind: "count",
+                            count: Number(event.target.value),
+                          })
+                        }
+                      />
+                    ) : (
+                      <Input
+                        aria-label="Repeat until"
+                        type="date"
+                        value={draft.recurrence.end.date}
+                        onChange={(event) =>
+                          setRecurrenceEnd({
+                            kind: "until",
+                            date: event.target.value,
+                          })
+                        }
+                      />
+                    )}
+                  </div>
+                ) : null}
+                {recurrenceError ? (
+                  <p className="text-xs text-destructive" role="alert">
+                    {recurrenceError}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
           </>
         ) : null}
         {error ? (
@@ -189,7 +369,10 @@ export function CalendarEventDialog({
               type="button"
               onClick={onSave}
               disabled={
-                pending || !draft.title.trim() || draft.end <= draft.start
+                pending ||
+                !draft.title.trim() ||
+                draft.end <= draft.start ||
+                Boolean(recurrenceError)
               }
             >
               {pending ? "Saving…" : "Save"}

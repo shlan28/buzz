@@ -8,6 +8,7 @@ import {
   DialogTitle,
 } from "@/shared/ui/dialog";
 import type { CalendarEvent } from "../lib/calendarTypes";
+import { recurrenceLabel } from "../lib/calendarRecurrence";
 
 export function CalendarEventPopover({
   event,
@@ -61,6 +62,12 @@ export function CalendarEventPopover({
             {event.location ? (
               <p className="text-sm text-muted-foreground">{event.location}</p>
             ) : null}
+            {event.series ? (
+              <p className="text-sm text-muted-foreground">
+                {recurrenceLabel(event.series)} · occurrence{" "}
+                {event.series.occurrence + 1}
+              </p>
+            ) : null}
             <p className="truncate text-xs text-muted-foreground">
               {event.author === currentPubkey
                 ? "Created by you"
@@ -80,7 +87,9 @@ export function CalendarEventPopover({
                 {deletePending ? "Deleting…" : "Delete"}
               </Button>
               {event.author === currentPubkey && !deletePending ? (
-                <Button onClick={onEdit}>Edit</Button>
+                <Button onClick={onEdit}>
+                  {event.series ? "Edit this event" : "Edit"}
+                </Button>
               ) : null}
             </DialogFooter>
           </>

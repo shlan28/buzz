@@ -1178,6 +1178,21 @@ pub enum CalendarCmd {
         /// Stable id for idempotent retries; generated when omitted.
         #[arg(long)]
         id: Option<String>,
+        /// Daily recurrence. The only accepted value is `daily`.
+        #[arg(long, conflicts_with_all = ["weekdays", "month_days"])]
+        repeat: Option<String>,
+        /// Comma-separated weekdays (`mon`..`sun`).
+        #[arg(long, conflicts_with_all = ["repeat", "month_days"])]
+        weekdays: Option<String>,
+        /// Comma-separated days of month (`1`..`31`).
+        #[arg(long, conflicts_with_all = ["repeat", "weekdays"])]
+        month_days: Option<String>,
+        /// Total occurrences, including the first event.
+        #[arg(long, conflicts_with = "repeat_until")]
+        repeat_count: Option<u16>,
+        /// Inclusive recurrence boundary in YYYY-MM-DD format.
+        #[arg(long, conflicts_with = "repeat_count")]
+        repeat_until: Option<String>,
     },
     /// List your events overlapping a time window.
     List {

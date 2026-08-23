@@ -255,6 +255,21 @@ pub struct CalendarParticipant {
     pub role: Option<String>,
 }
 
+/// Buzz metadata linking one concrete NIP-52 event to a recurring series.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct CalendarSeries {
+    /// Stable identifier shared by every occurrence in the series.
+    pub id: String,
+    /// Zero-based occurrence index.
+    pub occurrence: u16,
+    /// `daily`, `weekdays`, or `month-days`.
+    pub repeat: String,
+    /// Canonical comma-separated weekday or month-day values.
+    pub values: Option<String>,
+    /// Canonical `count:<n>` or `until:<YYYY-MM-DD>` boundary.
+    pub end: String,
+}
+
 /// Complete input used to publish a NIP-52 calendar event.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CalendarEventInput {
@@ -282,6 +297,8 @@ pub struct CalendarEventInput {
     pub participants: Vec<CalendarParticipant>,
     /// Calendar collection identifiers containing this event.
     pub calendar_ids: Vec<String>,
+    /// Optional Buzz recurring-series metadata for this concrete occurrence.
+    pub series: Option<CalendarSeries>,
 }
 
 /// Return a channel name without client-rendered leading hash prefixes.

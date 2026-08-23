@@ -77,6 +77,7 @@ export function CalendarGrid({
       start: atMinute(day, Math.min(startMinute, endMinute)),
       end: atMinute(day, Math.max(startMinute + 30, endMinute)),
       allDay: false,
+      recurrence: { kind: "none" },
     });
   const visible = events.filter((event) => !event.allDay);
   return (
