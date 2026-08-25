@@ -86,12 +86,84 @@ test.beforeEach(async ({ page }, testInfo) => {
     calendarPublishErrors: testInfo.title.includes("partial recurring failure")
       ? [null, "mock recurring publish rejected"]
       : undefined,
+    calendarSubscriptionActive: testInfo.title.includes(
+      "subscription lifecycle",
+    ),
+    calendarSubscriptionErrors: testInfo.title.includes(
+      "subscription status failure",
+    )
+      ? ["mock subscription unavailable"]
+      : undefined,
     calendarEvents: [
       dailyAssistantEvent("daily-bp", "提交BP到连尚网络", 10),
       dailyAssistantEvent("daily-liuli", "联系刘力", 11),
       dailyAssistantEvent("daily-moma", "联系MOMA展览 舒总", 13),
     ],
   });
+});
+
+test("creates a private subscription and never reveals it after reopening", async ({
+  context,
+  page,
+}) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.goto("/#/calendar?view=day&date=2026-08-01");
+  await page.getByTestId("calendar-subscription-trigger").click();
+  const dialog = page.getByTestId("calendar-subscription-dialog");
+  await expect(dialog).toContainText("Treat it like a password");
+  await dialog.getByRole("button", { name: "Create private link" }).click();
+  await expect(dialog).toContainText("Your private subscription link is ready");
+  await expect(dialog).not.toContainText("e2e-private-calendar-token");
+  await dialog.getByRole("button", { name: "Copy", exact: true }).click();
+  await expect(dialog.getByRole("button", { name: "Copied" })).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+    .toContain("e2e-private-calendar-token-1.ics");
+  await dialog.getByRole("button", { name: "Done" }).click();
+  await page.getByTestId("calendar-subscription-trigger").click();
+  await expect(dialog).toContainText(
+    "full private link is no longer available",
+  );
+  await expect(dialog).not.toContainText("e2e-private-calendar-token");
+});
+
+test("subscription lifecycle regenerates and revokes with confirmation", async ({
+  page,
+}) => {
+  await page.goto("/#/calendar?view=day&date=2026-08-01");
+  await page.getByTestId("calendar-subscription-trigger").click();
+  const dialog = page.getByTestId("calendar-subscription-dialog");
+  await expect(dialog).toContainText("Active");
+  await dialog.getByRole("button", { name: "Generate new link" }).click();
+  const confirmation = page.getByRole("alertdialog");
+  await confirmation.getByRole("button", { name: "Generate new link" }).click();
+  await expect(dialog).toContainText("private subscription link is ready");
+  await dialog.getByRole("button", { name: "Done" }).click();
+
+  await page.getByTestId("calendar-subscription-trigger").click();
+  await dialog.getByRole("button", { name: "Revoke link" }).click();
+  await page
+    .getByRole("alertdialog")
+    .getByRole("button", { name: "Revoke link" })
+    .click();
+  await expect(
+    dialog.getByRole("button", { name: "Create private link" }),
+  ).toBeVisible();
+});
+
+test("subscription status failure offers an in-dialog retry", async ({
+  page,
+}) => {
+  await page.goto("/#/calendar?view=day&date=2026-08-01");
+  await page.getByTestId("calendar-subscription-trigger").click();
+  const dialog = page.getByTestId("calendar-subscription-dialog");
+  await expect(dialog).toContainText("Subscription status couldn't be loaded", {
+    timeout: 15_000,
+  });
+  await dialog.getByRole("button", { name: "Retry" }).click();
+  await expect(
+    dialog.getByRole("button", { name: "Create private link" }),
+  ).toBeVisible();
 });
 
 test("calendar navigation restores view and date from URL", async ({

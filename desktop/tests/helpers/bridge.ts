@@ -268,6 +268,12 @@ type MockBridgeOptions = {
   calendarPublishErrors?: (string | null)[];
   /** Additional calendar events returned by the mock relay. */
   calendarEvents?: RelayEvent[];
+  /** Initial state for the mocked Apple Calendar subscription endpoint. */
+  calendarSubscriptionActive?: boolean;
+  /** Delay every mocked Calendar subscription HTTP response. */
+  calendarSubscriptionDelayMs?: number;
+  /** Reject successive Calendar subscription HTTP requests, then resume. */
+  calendarSubscriptionErrors?: (string | null)[];
   /** Relay-signed current Task State events returned by mock REQs. */
   taskEvents?: RelayEvent[];
   /** Relay-signed current Track State events returned by mock REQs. */

@@ -118,6 +118,20 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             post(api::invites::accept_policy),
         )
         .route("/api/invites/claim", post(api::invites::claim_invite))
+        .route(
+            "/api/calendar/subscription",
+            get(api::calendar_subscription::subscription_status)
+                .post(api::calendar_subscription::create_subscription)
+                .delete(api::calendar_subscription::revoke_subscription),
+        )
+        .route(
+            "/api/calendar/subscription/regenerate",
+            post(api::calendar_subscription::regenerate_subscription),
+        )
+        .route(
+            "/calendar/subscriptions/{token}",
+            get(api::calendar_subscription::calendar_feed),
+        )
         // Moderation queue reads (NIP-98 auth + mod-authz gate, L6)
         .route("/moderation/reports", get(api::bridge::moderation_reports))
         .route("/moderation/audit", get(api::bridge::moderation_audit))

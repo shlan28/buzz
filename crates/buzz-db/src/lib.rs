@@ -15,6 +15,8 @@ pub mod admin_moderation;
 pub mod api_token;
 /// Relay-scoped archived identity persistence (NIP-IA).
 pub mod archived_identities;
+/// Private iCalendar subscription persistence.
+pub mod calendar_subscription;
 /// Channel and membership persistence.
 pub mod channel;
 /// Durable whole-community deletion lifecycle and PostgreSQL adapter.
@@ -60,6 +62,9 @@ pub mod user;
 /// Workflow, run, and approval persistence.
 pub mod workflow;
 
+pub use calendar_subscription::{
+    CalendarSubscriptionStatus, CalendarSubscriptionToken, CreateCalendarSubscriptionOutcome,
+};
 pub use error::{DbError, Result};
 pub use event::{EventQuery, ReactionEventInsertOutcome, DEFAULT_MAX_PAGE_LIMIT};
 
@@ -669,6 +674,88 @@ pub struct TokenSummary {
 }
 
 impl Db {
+    /// Create a private Calendar feed credential unless one is already active.
+    pub async fn create_calendar_subscription(
+        &self,
+        community_id: CommunityId,
+        owner_pubkey: &[u8],
+        token_hash: &[u8; 32],
+    ) -> Result<CreateCalendarSubscriptionOutcome> {
+        calendar_subscription::create_calendar_subscription(
+            &self.pool,
+            community_id,
+            owner_pubkey,
+            token_hash,
+        )
+        .await
+    }
+
+    /// Return non-secret state for an owner's active Calendar subscription.
+    pub async fn calendar_subscription_status(
+        &self,
+        community_id: CommunityId,
+        owner_pubkey: &[u8],
+    ) -> Result<Option<CalendarSubscriptionStatus>> {
+        calendar_subscription::calendar_subscription_status(&self.pool, community_id, owner_pubkey)
+            .await
+    }
+
+    /// Atomically revoke an active Calendar credential and install a new hash.
+    pub async fn rotate_calendar_subscription(
+        &self,
+        community_id: CommunityId,
+        owner_pubkey: &[u8],
+        new_token_hash: &[u8; 32],
+    ) -> Result<CalendarSubscriptionStatus> {
+        calendar_subscription::rotate_calendar_subscription(
+            &self.pool,
+            community_id,
+            owner_pubkey,
+            new_token_hash,
+        )
+        .await
+    }
+
+    /// Revoke an owner's active Calendar credential, returning whether it changed.
+    pub async fn revoke_calendar_subscription(
+        &self,
+        community_id: CommunityId,
+        owner_pubkey: &[u8],
+    ) -> Result<bool> {
+        calendar_subscription::revoke_calendar_subscription(&self.pool, community_id, owner_pubkey)
+            .await
+    }
+
+    /// Resolve an active Calendar credential within a host-derived community.
+    pub async fn resolve_calendar_subscription(
+        &self,
+        community_id: CommunityId,
+        token_hash: &[u8; 32],
+    ) -> Result<Option<CalendarSubscriptionToken>> {
+        calendar_subscription::resolve_calendar_subscription(&self.pool, community_id, token_hash)
+            .await
+    }
+
+    /// Record successful use of an active Calendar credential.
+    pub async fn touch_calendar_subscription(
+        &self,
+        community_id: CommunityId,
+        token_hash: &[u8; 32],
+    ) -> Result<()> {
+        calendar_subscription::touch_calendar_subscription(&self.pool, community_id, token_hash)
+            .await
+    }
+
+    /// Read Personal and owned-Agent NIP-52 event heads for a Calendar feed.
+    pub async fn calendar_subscription_events(
+        &self,
+        community_id: CommunityId,
+        owner_pubkey: &[u8],
+    ) -> Result<Vec<StoredEvent>> {
+        calendar_subscription::calendar_subscription_events(&self.pool, community_id, owner_pubkey)
+            .await
+    }
+
     /// Creates a new `Db` by connecting a Postgres pool with the given config.
     ///
     /// When `config.read_database_url` is set, a second pool with the same

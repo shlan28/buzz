@@ -324,6 +324,12 @@ type E2eConfig = {
     calendarPublishErrors?: (string | null)[];
     /** Additional calendar events returned by the mock relay. */
     calendarEvents?: RelayEvent[];
+    /** Initial state for the mocked Apple Calendar subscription endpoint. */
+    calendarSubscriptionActive?: boolean;
+    /** Delay every mocked Calendar subscription HTTP response. */
+    calendarSubscriptionDelayMs?: number;
+    /** Reject successive Calendar subscription HTTP requests, then resume. */
+    calendarSubscriptionErrors?: (string | null)[];
     /** Relay-signed current Task State events returned by mock REQs. */
     taskEvents?: RelayEvent[];
     /** Relay-signed current Track State events returned by mock REQs. */
@@ -1172,6 +1178,7 @@ declare global {
       command: string;
       payload: unknown;
     }>;
+    __BUZZ_E2E_CALENDAR_SUBSCRIPTION_REQUESTS__?: string[];
     /** Release a mock media proxy held at port 0 and return its ready port. */
     __BUZZ_E2E_RELEASE_MEDIA_PROXY__?: () => number;
     /** Release mock send events that were stored but withheld from live subscribers. */
@@ -11010,6 +11017,68 @@ export function maybeInstallE2eTauriMocks() {
   window.__BUZZ_E2E_COMMANDS__ = [];
   window.__BUZZ_E2E_COMMAND_PAYLOADS__ = [];
   window.__BUZZ_E2E_COMMAND_LOG__ = [];
+  window.__BUZZ_E2E_CALENDAR_SUBSCRIPTION_REQUESTS__ = [];
+  let calendarSubscriptionActive =
+    config.mock?.calendarSubscriptionActive ?? false;
+  let calendarSubscriptionCreatedAt = calendarSubscriptionActive
+    ? "2026-08-25T02:39:00Z"
+    : null;
+  let calendarSubscriptionGeneration = 0;
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = async (input, init) => {
+    const requestUrl =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
+    const url = new URL(requestUrl, window.location.href);
+    if (url.pathname.startsWith("/api/calendar/subscription")) {
+      const method = (init?.method ?? "GET").toUpperCase();
+      window.__BUZZ_E2E_CALENDAR_SUBSCRIPTION_REQUESTS__?.push(
+        `${method} ${url.pathname}`,
+      );
+      const delayMs = config.mock?.calendarSubscriptionDelayMs ?? 0;
+      if (delayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+      const error = config.mock?.calendarSubscriptionErrors?.shift();
+      if (error) {
+        return new Response(JSON.stringify({ error }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (method === "GET") {
+        return Response.json({
+          active: calendarSubscriptionActive,
+          created_at: calendarSubscriptionCreatedAt,
+        });
+      }
+      if (method === "DELETE") {
+        calendarSubscriptionActive = false;
+        calendarSubscriptionCreatedAt = null;
+        return Response.json({ active: false, created_at: null });
+      }
+      if (method === "POST") {
+        calendarSubscriptionGeneration += 1;
+        calendarSubscriptionActive = true;
+        calendarSubscriptionCreatedAt = "2026-08-25T02:39:00Z";
+        const token = `e2e-private-calendar-token-${calendarSubscriptionGeneration}`;
+        return Response.json({
+          active: true,
+          created_at: calendarSubscriptionCreatedAt,
+          https_url: `${url.origin}/calendar/subscriptions/${token}.ics`,
+          webcal_url: `webcal://${url.host}/calendar/subscriptions/${token}.ics`,
+        });
+      }
+      return new Response(JSON.stringify({ error: "Method not allowed" }), {
+        status: 405,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return originalFetch(input, init);
+  };
   mockMediaProxyPort = config.mock?.mediaProxyInitiallyUnavailable
     ? 0
     : MOCK_MEDIA_PROXY_PORT;
