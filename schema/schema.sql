@@ -501,6 +501,34 @@ CREATE TABLE api_tokens (
 
 CREATE UNIQUE INDEX idx_api_tokens_hash ON api_tokens (community_id, token_hash);
 
+-- ── Calendar subscription tokens ────────────────────────────────────────────
+-- The bearer secret is returned once; only its community-scoped SHA-256 hash
+-- is stored. Calendar feed tokens are intentionally separate from API tokens.
+
+CREATE TABLE calendar_subscription_tokens (
+    community_id UUID NOT NULL,
+    owner_pubkey BYTEA NOT NULL,
+    token_hash BYTEA NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_used_at TIMESTAMPTZ,
+    revoked_at TIMESTAMPTZ,
+    PRIMARY KEY (community_id, token_hash),
+    CONSTRAINT calendar_subscription_tokens_owner_fk
+        FOREIGN KEY (community_id, owner_pubkey)
+        REFERENCES users (community_id, pubkey) ON DELETE CASCADE,
+    CONSTRAINT calendar_subscription_tokens_hash_len
+        CHECK (LENGTH(token_hash) = 32),
+    CONSTRAINT calendar_subscription_tokens_owner_len
+        CHECK (LENGTH(owner_pubkey) = 32)
+);
+
+CREATE UNIQUE INDEX idx_calendar_subscription_tokens_active_owner
+    ON calendar_subscription_tokens (community_id, owner_pubkey)
+    WHERE revoked_at IS NULL;
+
+CREATE INDEX idx_calendar_subscription_tokens_owner_history
+    ON calendar_subscription_tokens (community_id, owner_pubkey, created_at DESC);
+
 -- ── Rate limit violations ─────────────────────────────────────────────────────
 -- OPERATOR-GLOBAL: a deployment-health / abuse table, never tenant-observable.
 -- Listed in the lint allowlist. Carries community_id as an attribution label
@@ -1652,6 +1680,7 @@ $$;
 SELECT attach_community_write_fence('api_tokens');
 SELECT attach_community_write_fence('archived_identities');
 SELECT attach_community_write_fence('audit_log');
+SELECT attach_community_write_fence('calendar_subscription_tokens');
 SELECT attach_community_write_fence('channel_members');
 SELECT attach_community_write_fence('channels');
 SELECT attach_community_write_fence('community_bans');

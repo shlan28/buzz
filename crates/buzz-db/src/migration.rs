@@ -625,7 +625,7 @@ mod tests {
         let mut migrations: Vec<_> = MIGRATOR.iter().collect();
         migrations.sort_by_key(|migration| migration.version);
 
-        assert_eq!(migrations.len(), 34);
+        assert_eq!(migrations.len(), 35);
         assert_eq!(migrations[0].version, 1);
         assert_eq!(&*migrations[0].description, "initial schema");
         assert!(migrations[0]
@@ -1535,6 +1535,9 @@ mod tests {
         let mut expected_fences = migration.fence_attachments.clone();
         expected_fences.remove("product_feedback");
         expected_fences.remove("rate_limit_violations");
+        // Migration 0035 adds this community-scoped table after the deletion
+        // control plane was introduced and attaches the same write fence.
+        expected_fences.insert("calendar_subscription_tokens".to_owned());
         assert_eq!(
             expected_fences, schema.fence_attachments,
             "write-fence attachment targets differ after recovery policy"

@@ -12,13 +12,15 @@ import type {
   CalendarEvent,
   CalendarView,
 } from "../lib/calendarTypes";
-import { useCalendar } from "../hooks";
+import { useCommunities } from "@/features/communities/useCommunities";
+import { useCalendar, useCalendarSubscription } from "../hooks";
 import { CalendarToolbar } from "./CalendarToolbar";
 import { CalendarSidebar } from "./CalendarSidebar";
 import { CalendarGrid } from "./CalendarGrid";
 import { CalendarMonthView } from "./CalendarMonthView";
 import { CalendarEventDialog } from "./CalendarEventDialog";
 import { CalendarEventPopover } from "./CalendarEventPopover";
+import { CalendarSubscriptionDialog } from "./CalendarSubscriptionDialog";
 
 function defaultDraft(date: Date, allDay = false): CalendarDraft {
   const start = allDay
@@ -54,6 +56,9 @@ export function CalendarScreen() {
   const date = parseDateKey(search.date) ?? new Date();
   const range = React.useMemo(() => getCalendarRange(date, view), [date, view]);
   const calendar = useCalendar(range);
+  const subscription = useCalendarSubscription();
+  const { activeCommunity } = useCommunities();
+  const [subscriptionOpen, setSubscriptionOpen] = React.useState(false);
   const [draft, setDraft] = React.useState<CalendarDraft | null>(null);
   const [selected, setSelected] = React.useState<CalendarEvent | null>(null);
   const [saveError, setSaveError] = React.useState<string>();
@@ -92,6 +97,7 @@ export function CalendarScreen() {
         onRetrySource={(sourcePubkey) => {
           void calendar.retrySource(sourcePubkey);
         }}
+        onOpenSubscription={() => setSubscriptionOpen(true)}
       />
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
         <CalendarToolbar
@@ -209,6 +215,15 @@ export function CalendarScreen() {
               ),
           });
         }}
+      />
+      <CalendarSubscriptionDialog
+        create={subscription.create}
+        key={activeCommunity?.id ?? "no-community"}
+        onOpenChange={setSubscriptionOpen}
+        open={subscriptionOpen}
+        regenerate={subscription.regenerate}
+        revoke={subscription.revoke}
+        status={subscription.status}
       />
     </div>
   );

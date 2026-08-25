@@ -1,6 +1,7 @@
 import {
   AlertTriangle,
   Bot,
+  CalendarPlus,
   ChevronLeft,
   ChevronRight,
   LoaderCircle,
@@ -21,6 +22,7 @@ export function CalendarSidebar({
   sourcesLoading,
   onToggleSource,
   onRetrySource,
+  onOpenSubscription,
 }: {
   date: Date;
   onSelectDate: (date: Date) => void;
@@ -28,6 +30,7 @@ export function CalendarSidebar({
   sourcesLoading: boolean;
   onToggleSource: (pubkey: string) => void;
   onRetrySource: (pubkey: string) => void;
+  onOpenSubscription: () => void;
 }) {
   const monthStart = startOfMonth(date);
   const gridStart = startOfWeek(monthStart);
@@ -142,6 +145,16 @@ export function CalendarSidebar({
             </div>
           ) : null}
         </div>
+        <Button
+          className="mt-4 w-full justify-start"
+          data-testid="calendar-subscription-trigger"
+          onClick={onOpenSubscription}
+          size="sm"
+          variant="outline"
+        >
+          <CalendarPlus />
+          Subscribe on iPhone
+        </Button>
       </div>
     </aside>
   );

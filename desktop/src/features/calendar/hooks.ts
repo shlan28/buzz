@@ -14,6 +14,14 @@ import {
 } from "@/features/agents/hooks";
 import { mergeOwnedAgentPubkeys } from "@/features/agents/knownAgentPubkeys";
 import { getUsersBatch } from "@/shared/api/tauriProfiles";
+import {
+  createCalendarSubscription,
+  getCalendarSubscription,
+  regenerateCalendarSubscription,
+  revokeCalendarSubscription,
+  type CalendarSubscriptionStatus,
+} from "@/shared/api/calendarSubscription";
+import { useCommunities } from "@/features/communities/useCommunities";
 import type { RelayEvent } from "@/shared/api/types";
 import {
   KIND_CALENDAR_DATE_EVENT,
@@ -32,6 +40,37 @@ const EVENT_KINDS = [
   KIND_CALENDAR_DATE_EVENT,
   KIND_CALENDAR_TIME_EVENT,
 ] as const;
+
+export function useCalendarSubscription() {
+  const { activeCommunity } = useCommunities();
+  const queryClient = useQueryClient();
+  const queryKey = [
+    "calendar-subscription",
+    activeCommunity?.id ?? "none",
+  ] as const;
+  const status = useQuery({
+    enabled: Boolean(activeCommunity),
+    queryKey,
+    queryFn: getCalendarSubscription,
+    retry: false,
+  });
+  const updateStatus = (next: CalendarSubscriptionStatus) => {
+    queryClient.setQueryData(queryKey, next);
+  };
+  const create = useMutation({
+    mutationFn: createCalendarSubscription,
+    onSuccess: updateStatus,
+  });
+  const regenerate = useMutation({
+    mutationFn: regenerateCalendarSubscription,
+    onSuccess: updateStatus,
+  });
+  const revoke = useMutation({
+    mutationFn: revokeCalendarSubscription,
+    onSuccess: updateStatus,
+  });
+  return { status, create, regenerate, revoke };
+}
 
 function tagValue(event: RelayEvent, name: string): string | undefined {
   return event.tags.find((tag) => tag[0] === name)?.[1];
