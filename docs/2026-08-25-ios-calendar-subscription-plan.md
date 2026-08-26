@@ -1,5 +1,5 @@
-> 更新日期：2026-08-25 16:14 CST
-> 更新说明：完成 Calendar 私密订阅的 Relay、数据库与 Desktop 实现，补充真实 Router、数据库隔离及 Desktop E2E 验证结果，并记录仓库基线检查阻断和待执行的 iOS 实机验收。
+> 更新日期：2026-08-26 11:10 CST
+> 更新说明：完成 WebKit CORS `Authorization` non-wildcard 修复及 Router 回归测试；记录 Release Relay 部署验证状态。
 
 # Buzz Calendar iOS 订阅方案
 
@@ -545,3 +545,33 @@ ETag 由 canonical serialization 或确定性 snapshot metadata 计算。事件�
 第二，建议上线前实际测量 Apple Calendar 对订阅更新和删除的刷新延迟。若真实延迟经常达到数小时，产品仍可用，但应在 UI 中给出预期；不要通过频繁改变 ETag 或响应头假装能够控制 Apple 的调度。
 
 第三，若未来要按 Agent 或 Calendar 分别订阅，应扩展 token scope，而不是把筛选条件直接放进可篡改 URL query。服务端持久 scope 才能保证链接被转发后仍遵守最初授权。
+
+## 十五、Desktop 实机联调故障与修复计划
+
+2026-08-26 在真实 Tauri Desktop 中打开订阅弹窗时，状态请求持续显示 `Subscription status couldn't be loaded`。排查证据如下：
+
+- Desktop WebView 来源 `http://localhost:1420` 已加入 `BUZZ_CORS_ORIGINS`；Relay 预检返回 `200` 和正确的 `Access-Control-Allow-Origin`。
+- macOS WebKit Network 日志仍记录 `NetworkCORSPreflightChecker ... AccessControl error` 与 `success=0`。
+- 预检响应的 `Access-Control-Allow-Headers` 为 `*`，但 Fetch/CORS 规范把 `Authorization` 视为 non-wildcard request-header name；Safari/WKWebView 不允许用通配符授权该 header。
+- 因预检失败，带 NIP-98 `Authorization` 的 Calendar GET 没有到达 Relay handler；这不是 token 表、membership 或 NIP-98 签名失败。
+
+修复应在全局 Relay CORS 层显式允许实际使用的请求头，至少包含 `Authorization` 与 `Content-Type`，而不是依赖 `allow_headers(Any)`。这同时修复 Calendar subscription 和其他 Desktop 直连的 NIP-98 HTTP API。允许来源仍严格由 `BUZZ_CORS_ORIGINS` 控制，不改成任意 origin。
+
+逐文件 Todolist：
+
+- [x] `crates/buzz-relay/src/router.rs`：显式配置 CORS allow headers，并新增测试证明带 `Authorization` 的 Desktop origin 预检返回可被 WebKit 接受的响应。
+- [x] `docs/2026-08-25-ios-calendar-subscription-plan.md`：记录 Router 测试及 Release Relay 部署验证；真实 Desktop Retry 结果在用户复测后补充。
+
+验收步骤：
+
+1. Router 单元测试断言预检响应明确列出 `authorization`，不只返回 `*`。
+2. 运行 Rust fmt、Clippy 与相关 Relay tests。
+3. 构建 Release Relay，执行 migration-safe 的 LaunchAgent 重启。
+4. 用 `curl OPTIONS` 检查公网响应头，并在真实 Tauri Desktop 点击 Retry。
+5. Relay 日志应出现已签名 Calendar GET，弹窗进入 empty 或 active 状态。
+
+修复验证：
+
+- `cargo test -p buzz-relay router::tests::cors_preflight_explicitly_allows_nip98_authorization --lib`：通过。
+- `cargo clippy -p buzz-relay --lib -- -D warnings`：通过。
+- `cargo fmt --all -- --check`：通过。
