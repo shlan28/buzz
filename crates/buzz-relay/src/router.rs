@@ -6,7 +6,7 @@ use std::sync::Arc;
 use axum::{
     body::Body,
     extract::{ConnectInfo, FromRequest, State, WebSocketUpgrade},
-    http::{HeaderMap, Request, StatusCode},
+    http::{header, HeaderMap, HeaderName, Request, StatusCode},
     middleware,
     response::{IntoResponse, Json},
     routing::{get, post, put},
@@ -451,8 +451,21 @@ async fn mesh_status_handler(State(state): State<Arc<AppState>>) -> impl IntoRes
 
 /// Build a CORS layer from the configured origins list.
 fn build_cors_layer(cors_origins: &[String]) -> CorsLayer {
+    // `Authorization` is a CORS non-wildcard request-header name: browsers do
+    // not treat `Access-Control-Allow-Headers: *` as permission to send it.
+    // Keep this explicit so NIP-98 requests work in strict WebKit webviews.
+    let allowed_headers = [
+        header::ACCEPT,
+        header::AUTHORIZATION,
+        header::CACHE_CONTROL,
+        header::CONTENT_TYPE,
+        header::IF_NONE_MATCH,
+        header::RANGE,
+        HeaderName::from_static("x-pubkey"),
+    ];
+
     if cors_origins.is_empty() {
-        return CorsLayer::permissive();
+        return CorsLayer::permissive().allow_headers(allowed_headers);
     }
 
     let origins: Vec<axum::http::HeaderValue> = cors_origins
@@ -472,7 +485,7 @@ fn build_cors_layer(cors_origins: &[String]) -> CorsLayer {
     CorsLayer::new()
         .allow_origin(AllowOrigin::list(origins))
         .allow_methods(tower_http::cors::Any)
-        .allow_headers(tower_http::cors::Any)
+        .allow_headers(allowed_headers)
 }
 
 #[cfg(test)]
@@ -489,6 +502,50 @@ mod tests {
     use tracing_subscriber::prelude::*;
 
     use super::*;
+
+    #[tokio::test]
+    async fn cors_preflight_explicitly_allows_nip98_authorization() {
+        let app = Router::new()
+            .route(
+                "/api/calendar/subscription",
+                get(|| async { StatusCode::OK }),
+            )
+            .layer(build_cors_layer(&["http://localhost:1420".to_owned()]));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("OPTIONS")
+                    .uri("/api/calendar/subscription")
+                    .header(header::ORIGIN, "http://localhost:1420")
+                    .header(header::ACCESS_CONTROL_REQUEST_METHOD, "GET")
+                    .header(header::ACCESS_CONTROL_REQUEST_HEADERS, "authorization")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get(header::ACCESS_CONTROL_ALLOW_ORIGIN),
+            Some(&axum::http::HeaderValue::from_static(
+                "http://localhost:1420"
+            ))
+        );
+        let allowed = response
+            .headers()
+            .get(header::ACCESS_CONTROL_ALLOW_HEADERS)
+            .and_then(|value| value.to_str().ok())
+            .unwrap();
+        assert!(
+            allowed
+                .split(',')
+                .any(|name| name.trim().eq_ignore_ascii_case("authorization")),
+            "preflight must explicitly allow Authorization, got {allowed}"
+        );
+        assert_ne!(allowed.trim(), "*");
+    }
 
     #[test]
     fn invite_landing_path_requires_exactly_one_nonempty_code_segment() {
