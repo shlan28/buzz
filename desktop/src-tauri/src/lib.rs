@@ -662,6 +662,7 @@ pub fn run() {
             is_shared_identity,
             get_relay_ws_url,
             get_relay_http_url,
+            calendar_subscription_request,
             get_media_proxy_port,
             read_local_markdown_preview,
             fetch_link_preview_metadata,

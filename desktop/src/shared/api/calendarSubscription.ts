@@ -1,8 +1,4 @@
-import { getRelayHttpUrl, signRelayEvent } from "@/shared/api/tauri";
-
-const NIP98_KIND = 27235;
-const REQUEST_TIMEOUT_MS = 15_000;
-const SUBSCRIPTION_PATH = "/api/calendar/subscription";
+import { invokeTauri } from "@/shared/api/tauri";
 
 type RawCalendarSubscriptionStatus = {
   active: boolean;
@@ -26,46 +22,14 @@ export type CalendarSubscriptionSecret = CalendarSubscriptionStatus & {
 
 type CalendarSubscriptionMethod = "GET" | "POST" | "DELETE";
 
-async function nip98Header(
-  url: string,
-  method: CalendarSubscriptionMethod,
-): Promise<string> {
-  const authEvent = await signRelayEvent({
-    kind: NIP98_KIND,
-    content: "",
-    tags: [
-      ["u", url],
-      ["method", method],
-      ["nonce", crypto.randomUUID()],
-    ],
-  });
-  return `Nostr ${btoa(JSON.stringify(authEvent))}`;
-}
-
 async function request<T>(
   method: CalendarSubscriptionMethod,
   suffix = "",
 ): Promise<T> {
-  const base = (await getRelayHttpUrl()).replace(/\/+$/, "");
-  const url = `${base}${SUBSCRIPTION_PATH}${suffix}`;
-  const authorization = await nip98Header(url, method);
-  const response = await fetch(url, {
+  return invokeTauri<T>("calendar_subscription_request", {
     method,
-    headers: { Authorization: authorization },
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    suffix,
   });
-  const json = (await response.json().catch(() => ({}))) as Record<
-    string,
-    unknown
-  >;
-  if (!response.ok) {
-    const message =
-      typeof json.error === "string"
-        ? json.error
-        : `Calendar subscription request failed (${response.status}).`;
-    throw new Error(message);
-  }
-  return json as T;
 }
 
 function mapStatus(
