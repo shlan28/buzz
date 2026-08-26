@@ -12935,6 +12935,47 @@ export function maybeInstallE2eTauriMocks() {
       }
       case "get_relay_http_url":
         return getRelayHttpUrl(activeConfig);
+      case "calendar_subscription_request": {
+        const { method, suffix = "" } = payload as {
+          method: "GET" | "POST" | "DELETE";
+          suffix?: string;
+        };
+        const path = `/api/calendar/subscription${suffix}`;
+        window.__BUZZ_E2E_CALENDAR_SUBSCRIPTION_REQUESTS__?.push(
+          `${method} ${path}`,
+        );
+        const delayMs = activeConfig?.mock?.calendarSubscriptionDelayMs ?? 0;
+        if (delayMs > 0) {
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+        const error = activeConfig?.mock?.calendarSubscriptionErrors?.shift();
+        if (error) throw new Error(error);
+        if (method === "GET" && suffix === "") {
+          return {
+            active: calendarSubscriptionActive,
+            created_at: calendarSubscriptionCreatedAt,
+          };
+        }
+        if (method === "DELETE" && suffix === "") {
+          calendarSubscriptionActive = false;
+          calendarSubscriptionCreatedAt = null;
+          return { active: false, created_at: null };
+        }
+        if (method === "POST" && (suffix === "" || suffix === "/regenerate")) {
+          calendarSubscriptionGeneration += 1;
+          calendarSubscriptionActive = true;
+          calendarSubscriptionCreatedAt = "2026-08-25T02:39:00Z";
+          const token = `e2e-private-calendar-token-${calendarSubscriptionGeneration}`;
+          const relayUrl = new URL(getRelayHttpUrl(activeConfig));
+          return {
+            active: true,
+            created_at: calendarSubscriptionCreatedAt,
+            https_url: `${relayUrl.origin}/calendar/subscriptions/${token}.ics`,
+            webcal_url: `webcal://${relayUrl.host}/calendar/subscriptions/${token}.ics`,
+          };
+        }
+        throw new Error("unsupported Calendar subscription request");
+      }
       case "relay_requires_membership":
         return activeConfig?.mock?.relayRequiresMembership ?? false;
       case "discover_acp_providers":

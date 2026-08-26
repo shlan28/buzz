@@ -575,3 +575,15 @@ ETag 由 canonical serialization 或确定性 snapshot metadata 计算。事件�
 - `cargo test -p buzz-relay router::tests::cors_preflight_explicitly_allows_nip98_authorization --lib`：通过。
 - `cargo clippy -p buzz-relay --lib -- -D warnings`：通过。
 - `cargo fmt --all -- --check`：通过。
+
+进一步真实 Desktop 复测显示，当前 macOS WebKit 即使收到显式的 `authorization` allow-header，仍将该跨域预检判定为 `AccessControl error`，实际 GET 依旧未到达 Relay。最终修复不再让安全关键的 NIP-98 管理请求依赖 WebView CORS，而是复用 Desktop Rust 层现有的 Relay URL、签名密钥、`build_nip98_auth_header`、HTTP client 与错误分类能力。
+
+原生请求修复 Todolist：
+
+- [x] `desktop/src-tauri/src/commands/calendar_subscription.rs`：新增固定路由、固定 method/suffix 组合的原生 NIP-98 Calendar 管理命令，禁止任意 URL 代理。
+- [x] `desktop/src-tauri/src/commands/mod.rs`：导出 Calendar subscription command。
+- [x] `desktop/src-tauri/src/lib.rs`：注册 Calendar subscription Tauri command。
+- [x] `desktop/src/shared/api/calendarSubscription.ts`：改用原生 command，不再从 WebView 直接 fetch Relay。
+- [x] `desktop/src/testing/e2eBridge.ts`：让既有 Calendar subscription E2E mock 覆盖新的 Tauri command 路径。
+
+原生请求验证：Tauri command 单测、Tauri Clippy、Desktop TypeScript、Biome 和 17 个 Calendar E2E 全部通过。该变更包含 Rust native command，真实 Desktop 必须完整重启并重新编译，Vite hot reload 不能加载它。
