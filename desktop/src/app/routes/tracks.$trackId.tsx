@@ -8,14 +8,21 @@ const TrackDetailScreen = React.lazy(async () => {
 });
 
 export const Route = createFileRoute("/tracks/$trackId")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    task:
+      typeof search.task === "string" && search.task.length > 0
+        ? search.task
+        : undefined,
+  }),
   component: TrackDetailRoute,
 });
 
 function TrackDetailRoute() {
   const { trackId } = Route.useParams();
+  const { task } = Route.useSearch();
   return (
     <React.Suspense fallback={<ViewLoadingFallback kind="projects" />}>
-      <TrackDetailScreen trackId={trackId} />
+      <TrackDetailScreen taskId={task} trackId={trackId} />
     </React.Suspense>
   );
 }

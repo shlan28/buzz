@@ -189,6 +189,46 @@ test("Track detail shows its tasks and opens a filtered Tasks view", async ({
   ).toBeVisible();
 });
 
+test("Track detail opens and edits tasks in place from board, list, and deep links", async ({
+  page,
+}) => {
+  const taskId = "48499a3a-4e63-4e3e-a6d2-ad82450c0cc4";
+  await installTracks(page);
+  await page.goto(`/#/tracks/${ACTIVE_TRACK}`);
+
+  await page.getByTestId(`task-card-${taskId}`).getByRole("button").click();
+  await expect(page).toHaveURL(
+    new RegExp(`/tracks/${ACTIVE_TRACK}\\?task=${taskId}$`),
+  );
+  const detail = page.getByTestId("task-detail-panel");
+  await expect(detail).toBeVisible();
+  await detail.getByLabel("Title").fill("Prepare final launch checklist");
+  await detail.getByRole("button", { name: "Save text" }).click();
+  await expect(detail.getByLabel("Title")).toHaveValue(
+    "Prepare final launch checklist",
+  );
+
+  await detail.getByRole("button", { name: "Close task details" }).click();
+  await expect(page).toHaveURL(new RegExp(`/tracks/${ACTIVE_TRACK}$`));
+  await expect(detail).toHaveCount(0);
+  await expect(
+    page.getByText("Prepare final launch checklist", { exact: true }),
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "List view" }).click();
+  await page.getByTestId(`task-list-row-${taskId}`).click();
+  await expect(detail).toBeVisible();
+  await expect(page).toHaveURL(
+    new RegExp(`/tracks/${ACTIVE_TRACK}\\?task=${taskId}$`),
+  );
+
+  await page.goto(`/#/tracks/${ACTIVE_TRACK}?task=${taskId}`);
+  await expect(detail).toBeVisible();
+  await expect(detail.getByLabel("Title")).toHaveValue(
+    "Prepare final launch checklist",
+  );
+});
+
 test("Track detail creates a task in the current Track", async ({ page }) => {
   await installTracks(page, ["temporary: task could not be stored", null]);
   await page.goto(`/#/tracks/${ACTIVE_TRACK}`);
