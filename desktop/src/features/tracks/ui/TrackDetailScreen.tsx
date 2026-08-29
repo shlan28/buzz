@@ -16,6 +16,7 @@ import { useTasks } from "@/features/tasks/hooks";
 import { buildTaskStatusColumns } from "@/features/tasks/lib/taskBoard";
 import { CreateTaskDialog } from "@/features/tasks/ui/CreateTaskDialog";
 import { TaskBoardView } from "@/features/tasks/ui/TaskBoardView";
+import { TaskDetailPanel } from "@/features/tasks/ui/TaskDetailPanel";
 import { TaskListView } from "@/features/tasks/ui/TaskListView";
 import { Button } from "@/shared/ui/button";
 import { Progress } from "@/shared/ui/progress";
@@ -25,7 +26,13 @@ import type { TrackPatch } from "../types";
 import { TrackEditorDialog } from "./TrackEditorDialog";
 import { formatDate, TrackStatusBadge } from "./TrackList";
 
-export function TrackDetailScreen({ trackId }: { trackId: string }) {
+export function TrackDetailScreen({
+  trackId,
+  taskId,
+}: {
+  trackId: string;
+  taskId?: string;
+}) {
   const navigate = useNavigate();
   const tracksQuery = useTracks();
   const tasksQuery = useTasks();
@@ -34,6 +41,7 @@ export function TrackDetailScreen({ trackId }: { trackId: string }) {
   const [creatingTask, setCreatingTask] = React.useState(false);
   const [mutationError, setMutationError] = React.useState<string>();
   const [taskMutationError, setTaskMutationError] = React.useState<string>();
+  const [taskDetailError, setTaskDetailError] = React.useState<string>();
   const track = tracksQuery.tracks.find((item) => item.id === trackId);
   const tasks = React.useMemo(
     () =>
@@ -76,6 +84,17 @@ export function TrackDetailScreen({ trackId }: { trackId: string }) {
     () => [...new Set(tasksQuery.tasks.flatMap((task) => task.labels))].sort(),
     [tasksQuery.tasks],
   );
+  const selectedTask = tasks.find((task) => task.id === taskId) ?? null;
+
+  const openTask = (nextTaskId: string | null) => {
+    setTaskDetailError(undefined);
+    void navigate({
+      to: "/tracks/$trackId",
+      params: { trackId },
+      search: nextTaskId ? { task: nextTaskId } : {},
+      replace: true,
+    } as never);
+  };
 
   if (tracksQuery.isLoading || tasksQuery.isLoading) {
     return <Centered>Loading track…</Centered>;
@@ -298,9 +317,7 @@ export function TrackDetailScreen({ trackId }: { trackId: string }) {
           columns={columns}
           executions={tasksQuery.executions}
           groupBy="status"
-          onOpen={(taskId) =>
-            void navigate({ to: "/tasks", search: { task: taskId } } as never)
-          }
+          onOpen={(nextTaskId) => openTask(nextTaskId)}
           onReassign={(task, assignee) =>
             tasksQuery.update.mutate({ task, patch: { assignee } })
           }
@@ -329,9 +346,7 @@ export function TrackDetailScreen({ trackId }: { trackId: string }) {
         <TaskListView
           assignees={tasksQuery.assignees}
           executions={tasksQuery.executions}
-          onOpen={(taskId) =>
-            void navigate({ to: "/tasks", search: { task: taskId } } as never)
-          }
+          onOpen={(nextTaskId) => openTask(nextTaskId)}
           tasks={tasks}
         />
       )}
@@ -368,6 +383,64 @@ export function TrackDetailScreen({ trackId }: { trackId: string }) {
         trackLocked
         tracks={trackOptions}
       />
+      {selectedTask ? (
+        <TaskDetailPanel
+          agentOnline={tasksQuery.isAgentOnline(selectedTask.assignee)}
+          assignees={tasksQuery.assignees}
+          cancelExecutionError={
+            tasksQuery.cancelExecution.error
+              ? message(tasksQuery.cancelExecution.error)
+              : undefined
+          }
+          cancelExecutionPending={tasksQuery.cancelExecution.isPending}
+          canExecute={tasksQuery.canExecute(selectedTask)}
+          deleteError={
+            tasksQuery.deleteTask.error
+              ? message(tasksQuery.deleteTask.error)
+              : undefined
+          }
+          deletePending={tasksQuery.deleteTask.isPending}
+          error={taskDetailError}
+          execution={tasksQuery.executions.get(selectedTask.id)}
+          executionError={
+            tasksQuery.execute.error
+              ? message(tasksQuery.execute.error)
+              : undefined
+          }
+          executionPending={tasksQuery.execute.isPending}
+          onCancelExecution={() => {
+            const execution = tasksQuery.executions.get(selectedTask.id);
+            if (execution) tasksQuery.cancelExecution.mutate(execution);
+          }}
+          onClose={() => openTask(null)}
+          onDelete={() =>
+            tasksQuery.deleteTask.mutate(selectedTask, {
+              onSuccess: () => openTask(null),
+            })
+          }
+          onExecute={() => tasksQuery.execute.mutate(selectedTask)}
+          onOpenExecutionResult={(eventId) => {
+            void navigate({
+              to: "/",
+              search: { item: eventId },
+            } as never);
+          }}
+          onUpdate={(patch, onSuccess) => {
+            setTaskDetailError(undefined);
+            tasksQuery.update.mutate(
+              { task: selectedTask, patch },
+              {
+                onSuccess,
+                onError: (error) => setTaskDetailError(message(error)),
+              },
+            );
+          }}
+          pending={tasksQuery.update.isPending}
+          tagSuggestions={tagSuggestions}
+          task={selectedTask}
+          tracks={trackOptions}
+        />
+      ) : null}
     </div>
   );
 }
@@ -378,4 +451,8 @@ function Centered({ children }: { children: React.ReactNode }) {
       {children}
     </div>
   );
+}
+
+function message(error: unknown) {
+  return error instanceof Error ? error.message : "Could not save task.";
 }
