@@ -165,8 +165,134 @@ pub async fn handle_command(
         KIND_TRACK_CREATE | KIND_TRACK_MUTATE => {
             handle_track_command(tenant, state, &event, &auth).await
         }
+        KIND_TRACK_DELETE => handle_track_delete(tenant, state, &event, &auth).await,
         _ => Err(IngestError::Rejected(format!(
             "unknown command kind: {kind}"
+        ))),
+    }
+}
+
+async fn handle_track_delete(
+    tenant: &TenantContext,
+    state: &Arc<AppState>,
+    command: &Event,
+    auth: &IngestAuth,
+) -> Result<IngestResult, IngestError> {
+    if !command.content.is_empty() {
+        return Err(IngestError::Rejected(
+            "invalid: Track delete content must be empty".into(),
+        ));
+    }
+    let track_id = buzz_core::track::track_id(command)
+        .map_err(|error| IngestError::Rejected(format!("invalid: {error}")))?;
+    let track_refs = command
+        .tags
+        .iter()
+        .filter(|tag| {
+            let parts = tag.as_slice();
+            parts.len() == 2 && parts[0] == "t" && parts[1].starts_with("track-id:")
+        })
+        .count();
+    if track_refs != 1 {
+        return Err(IngestError::Rejected(
+            "invalid: Track delete requires exactly one track-id tag".into(),
+        ));
+    }
+    let previous_tags = command
+        .tags
+        .iter()
+        .filter(|tag| {
+            tag.as_slice()
+                .first()
+                .is_some_and(|value| value == "previous")
+        })
+        .collect::<Vec<_>>();
+    if previous_tags.len() != 1 {
+        return Err(IngestError::Rejected(
+            "invalid: Track delete requires exactly one previous tag".into(),
+        ));
+    }
+    let expected_hex = extract_tag(command, "previous").ok_or_else(|| {
+        IngestError::Rejected("invalid: Track delete requires a previous event id".into())
+    })?;
+    let expected = hex::decode(&expected_hex)
+        .map_err(|_| IngestError::Rejected("invalid: previous must be a hex event id".into()))?;
+    if expected.len() != 32 {
+        return Err(IngestError::Rejected(
+            "invalid: previous must be a 32-byte event id".into(),
+        ));
+    }
+    let previous_refs = command
+        .tags
+        .iter()
+        .filter(|tag| {
+            let parts = tag.as_slice();
+            parts.len() == 4
+                && parts[0] == "e"
+                && parts[1] == expected_hex
+                && parts[3] == "previous"
+        })
+        .count();
+    if previous_refs != 1 {
+        return Err(IngestError::Rejected(
+            "invalid: Track delete previous references do not match".into(),
+        ));
+    }
+
+    let mut query = buzz_db::EventQuery::for_community(tenant.community());
+    query.kinds = Some(vec![KIND_TRACK_STATE as i32]);
+    query.d_tag = Some(track_id.to_string());
+    query.limit = Some(1);
+    let current = state
+        .db
+        .query_events(&query)
+        .await
+        .map_err(|error| IngestError::Internal(format!("error: query Track state: {error}")))?
+        .into_iter()
+        .next()
+        .ok_or_else(|| IngestError::Rejected("not found: Track does not exist".into()))?;
+    let owner_hex = extract_tag(&current.event, "p")
+        .ok_or_else(|| IngestError::Internal("error: Track State has no valid owner".into()))?;
+    if auth.pubkey().to_hex() != owner_hex {
+        return Err(IngestError::AuthFailed(
+            "restricted: only the Track owner may delete".into(),
+        ));
+    }
+
+    match state
+        .db
+        .delete_track_events(tenant.community(), track_id, &expected, command)
+        .await
+    {
+        Ok(buzz_db::tracks::DeleteTrackResult::Deleted) => {
+            if let Err(error) = state
+                .pubsub
+                .publish_event(tenant, EventTopic::Global, command)
+                .await
+            {
+                warn!(track_id = %track_id, "Track deleted but live marker publish failed: {error}");
+            }
+            Ok(IngestResult {
+                event_id: command.id.to_hex(),
+                accepted: true,
+                message: format!(
+                    "response:{}",
+                    serde_json::json!({"track_id": track_id, "deleted": true})
+                ),
+            })
+        }
+        Ok(buzz_db::tracks::DeleteTrackResult::LinkedTasks) => Err(IngestError::Rejected(
+            "conflict: Track still has linked tasks. Move or delete them before deleting the Track."
+                .into(),
+        )),
+        Err(DbError::Conflict(message)) => {
+            Err(IngestError::Rejected(format!("conflict: {message}")))
+        }
+        Err(DbError::NotFound(_)) => Err(IngestError::Rejected(
+            "not found: Track does not exist".into(),
+        )),
+        Err(error) => Err(IngestError::Internal(format!(
+            "error: delete Track: {error}"
         ))),
     }
 }

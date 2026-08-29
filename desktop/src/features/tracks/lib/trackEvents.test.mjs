@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   buildCreateTrackEvent,
   buildMutateTrackEvent,
+  isArchivableStatus,
   parseTrackState,
   uniqueMembers,
 } from "./trackEvents.ts";
@@ -50,6 +51,19 @@ test("parses a Relay-signed track state", () => {
     canRead: true,
     canManage: false,
   });
+});
+
+test("accepts paused as a non-archivable Track status", () => {
+  const pausedEvent = {
+    ...event,
+    tags: event.tags.map((tag) =>
+      tag[0] === "t" && tag[1]?.startsWith("track-status:")
+        ? ["t", "track-status:paused"]
+        : tag,
+    ),
+  };
+  assert.equal(parseTrackState(pausedEvent, relay)?.status, "paused");
+  assert.equal(isArchivableStatus("paused"), false);
 });
 
 test("rejects untrusted and malformed track states", () => {

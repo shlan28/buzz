@@ -13,13 +13,16 @@ import { signRelayEvent } from "@/shared/api/tauri";
 import type { RelayEvent } from "@/shared/api/types";
 import {
   type KIND_TRACK_CREATE,
+  KIND_TRACK_DELETE,
   type KIND_TRACK_MUTATE,
   KIND_TRACK_STATE,
 } from "@/shared/constants/kinds";
 import {
+  buildDeleteTrackEvent,
   buildCreateTrackEvent,
   buildMutateTrackEvent,
   parseTrackState,
+  trackIdFromDeleteEvent,
 } from "./lib/trackEvents";
 import { buildTrackIdentityOptions } from "./lib/trackIdentityOptions";
 import type { Track, TrackDraft, TrackOwnerOption, TrackPatch } from "./types";
@@ -51,7 +54,10 @@ async function fetchTracks(relaySelfPubkey: string): Promise<Track[]> {
 }
 
 async function publishTrackCommand(input: {
-  kind: typeof KIND_TRACK_CREATE | typeof KIND_TRACK_MUTATE;
+  kind:
+    | typeof KIND_TRACK_CREATE
+    | typeof KIND_TRACK_MUTATE
+    | typeof KIND_TRACK_DELETE;
   content: string;
   tags: string[][];
 }) {
@@ -104,8 +110,15 @@ export function useTracks() {
     let dispose: (() => void) | undefined;
     void relayClient
       .subscribeLive(
-        { kinds: [KIND_TRACK_STATE], limit: 0 },
-        (_event: RelayEvent) => {
+        { kinds: [KIND_TRACK_STATE, KIND_TRACK_DELETE], limit: 0 },
+        (event: RelayEvent) => {
+          const deletedId = trackIdFromDeleteEvent(event);
+          if (deletedId) {
+            queryClient.setQueriesData<Track[]>(
+              { queryKey: tracksQueryKey },
+              (old) => old?.filter((track) => track.id !== deletedId),
+            );
+          }
           void queryClient.invalidateQueries({ queryKey: tracksQueryKey });
         },
       )
@@ -186,6 +199,18 @@ export function useTracks() {
       void queryClient.invalidateQueries({ queryKey: tracksQueryKey });
     },
   });
+  const deleteTrack = useMutation({
+    mutationFn: (track: Track) =>
+      publishTrackCommand(buildDeleteTrackEvent(track)),
+    onSuccess: (_result, track) => {
+      queryClient.setQueriesData<Track[]>({ queryKey: tracksQueryKey }, (old) =>
+        old?.filter((item) => item.id !== track.id),
+      );
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: tracksQueryKey });
+    },
+  });
 
   return {
     tracks,
@@ -194,6 +219,7 @@ export function useTracks() {
     refetch: query.refetch,
     create,
     update,
+    deleteTrack,
     owners,
     currentPubkey: identity.data?.pubkey,
   };

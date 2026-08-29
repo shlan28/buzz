@@ -56,6 +56,7 @@ test("derives progress only from visible, non-archived tasks", () => {
 
 test("separates current, completed, and archived scopes", () => {
   assert.equal(trackMatchesScope(track("active", "active"), "current"), true);
+  assert.equal(trackMatchesScope(track("paused", "paused"), "current"), true);
   assert.equal(
     trackMatchesScope(track("done", "completed"), "completed"),
     true,
@@ -70,10 +71,11 @@ test("separates current, completed, and archived scopes", () => {
   );
 });
 
-test("sorts current work by active first and ending date", () => {
+test("sorts current work by active, paused, planned, and ending date", () => {
   const result = sortTracks(
     [
       track("planned", "planned"),
+      track("paused", "paused"),
       track("later", "active"),
       track("active", "active"),
     ],
@@ -81,7 +83,7 @@ test("sorts current work by active first and ending date", () => {
   );
   assert.deepEqual(
     result.map((item) => item.id),
-    ["active", "later", "planned"],
+    ["active", "later", "paused", "planned"],
   );
 });
 

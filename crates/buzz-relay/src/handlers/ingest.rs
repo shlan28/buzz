@@ -34,9 +34,10 @@ use buzz_core::kind::{
     KIND_STREAM_MESSAGE_DIFF, KIND_STREAM_MESSAGE_EDIT, KIND_STREAM_MESSAGE_PINNED,
     KIND_STREAM_MESSAGE_SCHEDULED, KIND_STREAM_MESSAGE_V2, KIND_STREAM_REMINDER, KIND_TASK_CREATE,
     KIND_TASK_DELETE, KIND_TASK_EXECUTION_REQUEST, KIND_TASK_EXECUTION_UPDATE, KIND_TASK_MUTATE,
-    KIND_TEAM, KIND_TEAM_CATALOG, KIND_TEXT_NOTE, KIND_TRACK_CREATE, KIND_TRACK_MUTATE,
-    KIND_USER_STATUS, KIND_WORKFLOW_DEF, KIND_WORKFLOW_TRIGGER, RELAY_ADMIN_ADD_MEMBER,
-    RELAY_ADMIN_CHANGE_ROLE, RELAY_ADMIN_REMOVE_MEMBER, RELAY_ADMIN_SET_WORKSPACE_PROFILE,
+    KIND_TEAM, KIND_TEAM_CATALOG, KIND_TEXT_NOTE, KIND_TRACK_CREATE, KIND_TRACK_DELETE,
+    KIND_TRACK_MUTATE, KIND_USER_STATUS, KIND_WORKFLOW_DEF, KIND_WORKFLOW_TRIGGER,
+    RELAY_ADMIN_ADD_MEMBER, RELAY_ADMIN_CHANGE_ROLE, RELAY_ADMIN_REMOVE_MEMBER,
+    RELAY_ADMIN_SET_WORKSPACE_PROFILE,
 };
 use buzz_core::tenant::TenantContext;
 use buzz_core::verification::verify_event;
@@ -460,7 +461,8 @@ fn required_scope_for_kind(kind: u32, event: &Event) -> Result<Scope, &'static s
         | KIND_TASK_EXECUTION_REQUEST
         | KIND_TASK_EXECUTION_UPDATE
         | KIND_TRACK_CREATE
-        | KIND_TRACK_MUTATE => Ok(Scope::MessagesWrite),
+        | KIND_TRACK_MUTATE
+        | KIND_TRACK_DELETE => Ok(Scope::MessagesWrite),
         _ => Err("restricted: unknown event kind"),
     }
 }
@@ -623,6 +625,7 @@ pub(crate) fn is_global_only_kind(kind: u32) -> bool {
             // a command must never narrow its authorization or persistence.
             | KIND_TRACK_CREATE
             | KIND_TRACK_MUTATE
+            | KIND_TRACK_DELETE
             // NIP-PL leases are author-owned, addressable global state.
             | super::push_lease::KIND_PUSH_LEASE
     )

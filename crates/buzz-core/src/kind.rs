@@ -115,9 +115,16 @@ pub const KIND_TRACK_STATE: u32 = 30510;
 pub const KIND_TRACK_CREATE: u32 = 42510;
 /// Buzz Tracks: actor-signed mutation command.
 pub const KIND_TRACK_MUTATE: u32 = 42511;
+/// Buzz Tracks: actor-signed owner-only soft-delete command.
+pub const KIND_TRACK_DELETE: u32 = 42512;
 
 /// All Buzz Tracks event kinds.
-pub const TRACK_KINDS: &[u32] = &[KIND_TRACK_CREATE, KIND_TRACK_MUTATE, KIND_TRACK_STATE];
+pub const TRACK_KINDS: &[u32] = &[
+    KIND_TRACK_CREATE,
+    KIND_TRACK_MUTATE,
+    KIND_TRACK_DELETE,
+    KIND_TRACK_STATE,
+];
 
 /// All Buzz Tasks event kinds.
 pub const TASK_KINDS: &[u32] = &[
@@ -716,6 +723,7 @@ pub const ALL_KINDS: &[u32] = &[
     KIND_TRACK_STATE,
     KIND_TRACK_CREATE,
     KIND_TRACK_MUTATE,
+    KIND_TRACK_DELETE,
     KIND_AGENT_ENGRAM,
     KIND_EVENT_REMINDER,
     KIND_PERSONA,
@@ -895,6 +903,7 @@ pub const fn is_command_kind(kind: u32) -> bool {
             | KIND_TASK_EXECUTION_UPDATE
             | KIND_TRACK_CREATE
             | KIND_TRACK_MUTATE
+            | KIND_TRACK_DELETE
     )
 }
 
@@ -990,6 +999,7 @@ mod tests {
     fn track_kinds_have_command_and_state_roles() {
         assert!(is_command_kind(KIND_TRACK_CREATE));
         assert!(is_command_kind(KIND_TRACK_MUTATE));
+        assert!(is_command_kind(KIND_TRACK_DELETE));
         assert!(!is_command_kind(KIND_TRACK_STATE));
         assert!(is_relay_only_kind(KIND_TRACK_STATE));
         assert!(is_parameterized_replaceable(KIND_TRACK_STATE));

@@ -16,7 +16,7 @@ function trackState(input: {
   id: string;
   eventId: string;
   name: string;
-  status: "planned" | "active" | "completed" | "canceled";
+  status: "planned" | "active" | "paused" | "completed" | "canceled";
   archived?: boolean;
   createdAt?: number;
   owner?: string;
@@ -263,6 +263,55 @@ test("Track detail creates a task in the current Track", async ({ page }) => {
   ).toHaveCount(0);
 });
 
+test("Track owner pauses current work without making it archivable", async ({
+  page,
+}) => {
+  await installTracks(page);
+  await page.goto(`/#/tracks/${ACTIVE_TRACK}`);
+  await page.getByRole("button", { name: "Edit" }).click();
+  await page.getByLabel("Status").selectOption("paused");
+  await page.getByRole("button", { name: "Save changes" }).click();
+
+  await expect(page.getByText("Paused", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Back to Tracks" }).click();
+  const row = page.getByTestId(`track-row-${ACTIVE_TRACK}`);
+  await expect(row).toContainText("Paused");
+  await expect(row.getByRole("button", { name: "Archive" })).toHaveCount(0);
+});
+
+test("Track owner cannot delete a Track that still has linked Tasks", async ({
+  page,
+}) => {
+  await installTracks(page);
+  await page.goto(`/#/tracks/${ACTIVE_TRACK}`);
+  await page.getByRole("button", { name: "Delete Track" }).click();
+  const dialog = page.getByTestId("delete-track-dialog");
+  await dialog.getByRole("button", { name: "Delete Track" }).click();
+  await expect(dialog.getByRole("alert")).toContainText(
+    "Track still has linked tasks",
+  );
+  await expect(page.getByTestId("track-detail-screen")).toContainText(
+    "Desktop launch",
+  );
+});
+
+test("Track owner directly deletes an unlinked Track without archiving", async ({
+  page,
+}) => {
+  await installTracks(page);
+  await page.goto(`/#/tracks/${COMPLETED_TRACK}`);
+  await page.getByRole("button", { name: "Delete Track" }).click();
+  const dialog = page.getByTestId("delete-track-dialog");
+  await expect(dialog).toContainText("cannot be restored");
+  await dialog.getByRole("button", { name: "Delete Track" }).click();
+
+  await expect(page).toHaveURL(/\/tracks$/);
+  await page.getByRole("tab", { name: "Completed" }).click();
+  await expect(page.getByText("Relay hardening", { exact: true })).toHaveCount(
+    0,
+  );
+});
+
 test("Track members can read details and linked tasks but cannot manage the Track", async ({
   page,
 }) => {
@@ -290,6 +339,9 @@ test("Track members can read details and linked tasks but cannot manage the Trac
     "Read only",
   );
   await expect(page.getByRole("button", { name: "Edit" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Delete Track" })).toHaveCount(
+    0,
+  );
   await expect(
     page.getByRole("button", { name: "Add task to track" }),
   ).toBeVisible();
@@ -384,6 +436,9 @@ test("owner Agent inherits management UI from its owner", async ({ page }) => {
   await page.goto(`/#/tracks/${ACTIVE_TRACK}`);
 
   await expect(page.getByRole("button", { name: "Edit" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Delete Track" })).toHaveCount(
+    0,
+  );
   await page.getByRole("button", { name: "Edit" }).click();
   await expect(page.getByTestId("track-editor-dialog")).toBeVisible();
   await expect(page.getByLabel("Add track members")).toBeEnabled();

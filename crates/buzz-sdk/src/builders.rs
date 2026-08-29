@@ -13,8 +13,8 @@ use buzz_core::{
         KIND_MODERATION_BAN, KIND_MODERATION_RESOLVE_REPORT, KIND_MODERATION_TIMEOUT,
         KIND_MODERATION_UNBAN, KIND_MODERATION_UNTIMEOUT, KIND_PRESENCE_UPDATE, KIND_PROJECT,
         KIND_TASK_CREATE, KIND_TASK_DELETE, KIND_TASK_EXECUTION_REQUEST,
-        KIND_TASK_EXECUTION_UPDATE, KIND_TASK_MUTATE, KIND_TRACK_CREATE, KIND_TRACK_MUTATE,
-        KIND_USER_STATUS, KIND_WORKFLOW_DEF, KIND_WORKFLOW_TRIGGER,
+        KIND_TASK_EXECUTION_UPDATE, KIND_TASK_MUTATE, KIND_TRACK_CREATE, KIND_TRACK_DELETE,
+        KIND_TRACK_MUTATE, KIND_USER_STATUS, KIND_WORKFLOW_DEF, KIND_WORKFLOW_TRIGGER,
     },
     observer::{
         content_looks_like_nip44, OBSERVER_AGENT_TAG, OBSERVER_FRAME_CONTROL, OBSERVER_FRAME_TAG,
@@ -27,7 +27,7 @@ use uuid::Uuid;
 use crate::{
     CalendarEventInput, ChannelKind, CustomEmoji, DiffMeta, MemberRole, SdkError, TaskCreateInput,
     TaskDeleteInput, TaskExecutionRequestInput, TaskExecutionUpdateInput, TaskMutateInput,
-    ThreadRef, TrackCreateInput, TrackMutateInput, Visibility, VoteDirection,
+    ThreadRef, TrackCreateInput, TrackDeleteInput, TrackMutateInput, Visibility, VoteDirection,
 };
 
 /// NIP-52 date-based calendar event kind.
@@ -361,6 +361,17 @@ pub fn build_track_mutate(input: &TrackMutateInput) -> Result<EventBuilder, SdkE
         ));
     }
     Ok(EventBuilder::new(Kind::Custom(KIND_TRACK_MUTATE as u16), content).tags(tags))
+}
+
+/// Build an owner-signed Track soft-delete command.
+pub fn build_track_delete(input: &TrackDeleteInput) -> Result<EventBuilder, SdkError> {
+    check_hex_len(&input.previous_event, 64, "previous event")?;
+    let tags = vec![
+        tag(&["t", &format!("track-id:{}", input.id)])?,
+        tag(&["previous", &input.previous_event])?,
+        tag(&["e", &input.previous_event, "", "previous"])?,
+    ];
+    Ok(EventBuilder::new(Kind::Custom(KIND_TRACK_DELETE as u16), "").tags(tags))
 }
 
 /// Build an actor-signed task soft-delete command.
@@ -2924,6 +2935,34 @@ mod tests {
                 .count(),
             1
         );
+
+        let pause = sign(
+            build_track_mutate(&TrackMutateInput {
+                id,
+                previous_event: "ef".repeat(32),
+                status: Some(buzz_core::track::TrackStatus::Paused),
+                ..TrackMutateInput::default()
+            })
+            .unwrap(),
+        );
+        assert!(pause
+            .tags
+            .iter()
+            .any(|tag| tag.as_slice() == ["t", "track-status:paused"]));
+
+        let delete = sign(
+            build_track_delete(&TrackDeleteInput {
+                id,
+                previous_event: "12".repeat(32),
+            })
+            .unwrap(),
+        );
+        assert_eq!(delete.kind.as_u16() as u32, KIND_TRACK_DELETE);
+        assert_eq!(delete.content, "");
+        assert!(delete
+            .tags
+            .iter()
+            .any(|tag| tag.as_slice() == ["previous", &"12".repeat(32)]));
 
         let restore = sign(
             build_track_mutate(&TrackMutateInput {

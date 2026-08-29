@@ -1354,6 +1354,9 @@ async fn event_visible_under_track_acl(
     if !buzz_core::filter::kind_requires_track_acl(kind) {
         return true;
     }
+    if kind == buzz_core::kind::KIND_TRACK_DELETE {
+        return event.pubkey.to_bytes().as_slice() == requester_pubkey_bytes;
+    }
     let track_id = if TRACK_KINDS.contains(&kind) {
         match buzz_core::track::track_id(event) {
             Ok(id) => Some(id),

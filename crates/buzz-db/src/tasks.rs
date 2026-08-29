@@ -201,6 +201,31 @@ pub async fn apply_task_events(
     channel_id: Option<Uuid>,
 ) -> Result<ApplyTaskResult> {
     let mut tx = pool.begin().await?;
+    let target_track = state.tags.iter().find_map(|tag| {
+        let parts = tag.as_slice();
+        (parts.len() == 2 && parts[0] == "t")
+            .then(|| parts[1].strip_prefix("track-id:"))
+            .flatten()
+            .and_then(|value| Uuid::parse_str(value).ok())
+    });
+    if let Some(track_id) = target_track {
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(crate::tracks::track_lock_key(track_id)?)
+            .execute(tx.as_mut())
+            .await?;
+        let exists = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM events WHERE community_id = $1 AND kind = $2 \
+             AND d_tag = $3 AND deleted_at IS NULL)",
+        )
+        .bind(community_id.as_uuid())
+        .bind(buzz_core::kind::KIND_TRACK_STATE as i32)
+        .bind(track_id.to_string())
+        .fetch_one(tx.as_mut())
+        .await?;
+        if !exists {
+            return Err(DbError::Conflict("task Track no longer exists".into()));
+        }
+    }
     let lock_key = i64::from_le_bytes(
         task_id.as_bytes()[..8]
             .try_into()

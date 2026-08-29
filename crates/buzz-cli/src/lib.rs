@@ -1425,7 +1425,7 @@ pub enum TracksCmd {
         /// Date-only value in YYYY-MM-DD format; cannot precede start date.
         #[arg(long)]
         end_date: String,
-        #[arg(long, default_value = "planned", value_parser = ["planned", "active", "completed", "canceled"])]
+        #[arg(long, default_value = "planned", value_parser = ["planned", "active", "paused", "completed", "canceled"])]
         status: String,
     },
     /// Get the current state of a Track.
@@ -1438,7 +1438,7 @@ pub enum TracksCmd {
         /// Product-list scope. Archived Tracks retain their lifecycle status.
         #[arg(long, default_value = "current", value_parser = ["current", "completed", "archived"])]
         scope: String,
-        #[arg(long, value_parser = ["planned", "active", "completed", "canceled"])]
+        #[arg(long, value_parser = ["planned", "active", "paused", "completed", "canceled"])]
         status: Option<String>,
         /// `me` or a 64-hex person/Agent pubkey.
         #[arg(long)]
@@ -1472,7 +1472,7 @@ pub enum TracksCmd {
         start_date: Option<String>,
         #[arg(long)]
         end_date: Option<String>,
-        #[arg(long, value_parser = ["planned", "active", "completed", "canceled"])]
+        #[arg(long, value_parser = ["planned", "active", "paused", "completed", "canceled"])]
         status: Option<String>,
     },
     /// Hide a completed or canceled Track from daily views.
@@ -1484,6 +1484,13 @@ pub enum TracksCmd {
     },
     /// Return an archived Track to its lifecycle-status view.
     Restore {
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        expected_event: String,
+    },
+    /// Permanently delete an unlinked Track. Only the current Track owner may delete.
+    Delete {
         #[arg(long)]
         id: String,
         #[arg(long)]

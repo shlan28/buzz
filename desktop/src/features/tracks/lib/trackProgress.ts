@@ -21,15 +21,19 @@ export function trackMatchesScope(track: Track, scope: TrackScope) {
   if (scope === "archived") return track.archived;
   if (track.archived) return false;
   return scope === "current"
-    ? track.status === "active" || track.status === "planned"
+    ? track.status === "active" ||
+        track.status === "paused" ||
+        track.status === "planned"
     : track.status === "completed" || track.status === "canceled";
 }
 
 export function sortTracks(tracks: readonly Track[], scope: TrackScope) {
   return [...tracks].sort((left, right) => {
     if (scope === "current") {
-      const leftRank = left.status === "active" ? 0 : 1;
-      const rightRank = right.status === "active" ? 0 : 1;
+      const rank = (status: Track["status"]) =>
+        status === "active" ? 0 : status === "paused" ? 1 : 2;
+      const leftRank = rank(left.status);
+      const rightRank = rank(right.status);
       return leftRank - rightRank || left.endDate.localeCompare(right.endDate);
     }
     return right.updatedAt - left.updatedAt;

@@ -21,6 +21,10 @@ export const TRACK_STATUS_PRESENTATION: Record<
     label: "Active",
     className: "bg-blue-500/10 text-blue-600 dark:text-blue-300",
   },
+  paused: {
+    label: "Paused",
+    className: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  },
   completed: {
     label: "Completed",
     className: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-300",
