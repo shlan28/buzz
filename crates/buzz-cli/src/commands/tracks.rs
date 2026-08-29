@@ -8,7 +8,8 @@ use crate::client::BuzzClient;
 use crate::error::CliError;
 use crate::TracksCmd;
 use buzz_sdk::{
-    build_track_create, build_track_mutate, TrackCreateInput, TrackMutateInput, TrackStatus,
+    build_track_create, build_track_delete, build_track_mutate, TrackCreateInput, TrackDeleteInput,
+    TrackMutateInput, TrackStatus,
 };
 
 const KIND_TRACK_STATE: u16 = buzz_core::kind::KIND_TRACK_STATE as u16;
@@ -326,7 +327,8 @@ pub async fn dispatch(command: TracksCmd, client: &BuzzClient) -> Result<(), Cli
             tracks.retain(|track| {
                 let scope_matches = match scope.as_str() {
                     "current" => {
-                        !track.archived && matches!(track.status.as_str(), "planned" | "active")
+                        !track.archived
+                            && matches!(track.status.as_str(), "planned" | "active" | "paused")
                     }
                     "completed" => {
                         !track.archived && matches!(track.status.as_str(), "completed" | "canceled")
@@ -340,7 +342,11 @@ pub async fn dispatch(command: TracksCmd, client: &BuzzClient) -> Result<(), Cli
             });
             match scope.as_str() {
                 "current" => tracks.sort_by(|left, right| {
-                    let rank = |status: &str| if status == "active" { 0 } else { 1 };
+                    let rank = |status: &str| match status {
+                        "active" => 0,
+                        "paused" => 1,
+                        _ => 2,
+                    };
                     rank(&left.status)
                         .cmp(&rank(&right.status))
                         .then_with(|| left.end_date.cmp(&right.end_date))
@@ -409,6 +415,16 @@ pub async fn dispatch(command: TracksCmd, client: &BuzzClient) -> Result<(), Cli
         }
         TracksCmd::Restore { id, expected_event } => {
             mutate_archived(client, id, expected_event, false).await
+        }
+        TracksCmd::Delete { id, expected_event } => {
+            let id = parse_track_id(&id)?;
+            validate_event_id(&expected_event)?;
+            let builder = build_track_delete(&TrackDeleteInput {
+                id,
+                previous_event: expected_event,
+            })
+            .map_err(|error| CliError::Usage(error.to_string()))?;
+            publish_command(client, &id.to_string(), builder).await
         }
     }
 }

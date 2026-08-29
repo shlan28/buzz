@@ -131,6 +131,15 @@ pub struct TrackMutateInput {
     pub archived: Option<bool>,
 }
 
+/// Minimal input for an owner-signed Track soft-delete command.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackDeleteInput {
+    /// Stable Track UUID.
+    pub id: uuid::Uuid,
+    /// Current Track State event ID used for optimistic concurrency.
+    pub previous_event: String,
+}
+
 /// Minimal input for an actor-signed task soft-delete command.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TaskDeleteInput {

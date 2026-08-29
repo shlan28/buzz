@@ -1,4 +1,9 @@
-export type TrackStatus = "planned" | "active" | "completed" | "canceled";
+export type TrackStatus =
+  | "planned"
+  | "active"
+  | "paused"
+  | "completed"
+  | "canceled";
 
 export type TrackScope = "current" | "completed" | "archived";
 

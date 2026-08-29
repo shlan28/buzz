@@ -16,6 +16,23 @@ pub enum ApplyTrackResult {
     Duplicate,
 }
 
+/// Result of atomically soft-deleting a Track.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeleteTrackResult {
+    /// Current state and actor-authored history were hidden and the marker stored.
+    Deleted,
+    /// At least one current Task State still references the Track.
+    LinkedTasks,
+}
+
+pub(crate) fn track_lock_key(track_id: Uuid) -> Result<i64> {
+    Ok(i64::from_le_bytes(
+        track_id.as_bytes()[..8]
+            .try_into()
+            .map_err(|_| DbError::InvalidData("track UUID could not produce lock key".into()))?,
+    ))
+}
+
 /// Store an actor command and replace its relay-signed Track State under one lock.
 pub async fn apply_track_events(
     pool: &PgPool,
@@ -26,11 +43,7 @@ pub async fn apply_track_events(
     state: &Event,
 ) -> Result<ApplyTrackResult> {
     let mut tx = pool.begin().await?;
-    let lock_key = i64::from_le_bytes(
-        track_id.as_bytes()[..8]
-            .try_into()
-            .map_err(|_| DbError::InvalidData("track UUID could not produce lock key".into()))?,
-    );
+    let lock_key = track_lock_key(track_id)?;
     sqlx::query("SELECT pg_advisory_xact_lock($1)")
         .bind(lock_key)
         .execute(tx.as_mut())
@@ -45,6 +58,21 @@ pub async fn apply_track_events(
     .await?;
     if duplicate {
         return Ok(ApplyTrackResult::Duplicate);
+    }
+
+    if expected_state_id.is_none() {
+        let deleted = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM events WHERE community_id = $1 AND kind = $2 \
+             AND tags @> $3)",
+        )
+        .bind(community_id.as_uuid())
+        .bind(buzz_core::kind::KIND_TRACK_DELETE as i32)
+        .bind(serde_json::json!([["t", format!("track-id:{track_id}")]]))
+        .fetch_one(tx.as_mut())
+        .await?;
+        if deleted {
+            return Err(DbError::Conflict("track id was permanently deleted".into()));
+        }
     }
 
     let current = sqlx::query(
@@ -80,6 +108,66 @@ pub async fn apply_track_events(
     insert_raw(&mut tx, community_id, state, Some(track_id.to_string())).await?;
     tx.commit().await?;
     Ok(ApplyTrackResult::Applied)
+}
+
+/// Soft-delete a Track when no current Task State references it, retaining a
+/// minimal signed marker that prevents the stable ID from being recreated.
+pub async fn delete_track_events(
+    pool: &PgPool,
+    community_id: CommunityId,
+    track_id: Uuid,
+    expected_state_id: &[u8],
+    delete_marker: &Event,
+) -> Result<DeleteTrackResult> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(track_lock_key(track_id)?)
+        .execute(tx.as_mut())
+        .await?;
+
+    let current_id = sqlx::query_scalar::<_, Vec<u8>>(
+        "SELECT id FROM events WHERE community_id = $1 AND kind = $2 AND d_tag = $3 \
+         AND deleted_at IS NULL FOR UPDATE",
+    )
+    .bind(community_id.as_uuid())
+    .bind(buzz_core::kind::KIND_TRACK_STATE as i32)
+    .bind(track_id.to_string())
+    .fetch_optional(tx.as_mut())
+    .await?
+    .ok_or_else(|| DbError::NotFound("track not found".into()))?;
+    if current_id.as_slice() != expected_state_id {
+        return Err(DbError::Conflict("track state changed".into()));
+    }
+
+    let track_tag = serde_json::json!([["t", format!("track-id:{track_id}")]]);
+    let linked_tasks = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM events WHERE community_id = $1 AND kind = $2 \
+         AND deleted_at IS NULL AND tags @> $3)",
+    )
+    .bind(community_id.as_uuid())
+    .bind(buzz_core::kind::KIND_TASK_STATE as i32)
+    .bind(&track_tag)
+    .fetch_one(tx.as_mut())
+    .await?;
+    if linked_tasks {
+        return Ok(DeleteTrackResult::LinkedTasks);
+    }
+
+    sqlx::query(
+        "UPDATE events SET deleted_at = NOW() WHERE community_id = $1 AND deleted_at IS NULL \
+         AND ((kind = $2 AND d_tag = $3) OR (kind IN ($4, $5) AND tags @> $6))",
+    )
+    .bind(community_id.as_uuid())
+    .bind(buzz_core::kind::KIND_TRACK_STATE as i32)
+    .bind(track_id.to_string())
+    .bind(buzz_core::kind::KIND_TRACK_CREATE as i32)
+    .bind(buzz_core::kind::KIND_TRACK_MUTATE as i32)
+    .bind(track_tag)
+    .execute(tx.as_mut())
+    .await?;
+    insert_raw(&mut tx, community_id, delete_marker, None).await?;
+    tx.commit().await?;
+    Ok(DeleteTrackResult::Deleted)
 }
 
 async fn insert_raw(

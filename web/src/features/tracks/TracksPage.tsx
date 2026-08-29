@@ -20,8 +20,11 @@ export function TracksPage() {
                 ? track.archived
                 : !track.archived &&
                   (scope === "completed"
-                    ? track.status === "completed"
-                    : track.status !== "completed")) &&
+                    ? track.status === "completed" ||
+                      track.status === "canceled"
+                    : track.status === "planned" ||
+                      track.status === "active" ||
+                      track.status === "paused")) &&
               `${track.name} ${track.description}`
                 .toLowerCase()
                 .includes(query.toLowerCase()),

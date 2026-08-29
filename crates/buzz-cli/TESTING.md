@@ -109,8 +109,19 @@ buzz tasks update --id "$TASK_ID" --expected-event "$TASK_HEAD" --clear-track | 
 buzz tasks get --id "$TASK_ID" | jq -e '.track_id == null'
 ```
 
-Only completed or canceled Tracks can be archived. Restore keeps the lifecycle
+Paused Tracks remain in the `current` scope and cannot be archived. Only
+completed or canceled Tracks can be archived. Restore keeps the lifecycle
 status unchanged:
+
+Track deletion does not require archive, but only the exact current owner may
+delete and any current linked Task blocks it. For an unlinked Track, fetch its
+latest state id and verify direct deletion:
+
+```bash
+TRACK_HEAD="$(buzz --format compact tracks get --id "$TRACK_ID" | jq -r '.state_event_id')"
+buzz --format compact tracks delete --id "$TRACK_ID" --expected-event "$TRACK_HEAD"
+buzz --format compact tracks get --id "$TRACK_ID" # expect not found
+```
 
 ```bash
 TRACK_HEAD="$(buzz tracks get --id "$TRACK_ID" | jq -r .state_event_id)"

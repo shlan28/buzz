@@ -8,6 +8,7 @@ import {
   Pencil,
   Plus,
   RotateCcw,
+  Trash2,
   UsersRound,
   UserRound,
 } from "lucide-react";
@@ -24,6 +25,7 @@ import { useTracks } from "../hooks";
 import { visibleTrackProgress } from "../lib/trackProgress";
 import type { TrackPatch } from "../types";
 import { TrackEditorDialog } from "./TrackEditorDialog";
+import { TrackDeleteDialog } from "./TrackDeleteDialog";
 import { formatDate, TrackStatusBadge } from "./TrackList";
 
 export function TrackDetailScreen({
@@ -42,6 +44,8 @@ export function TrackDetailScreen({
   const [mutationError, setMutationError] = React.useState<string>();
   const [taskMutationError, setTaskMutationError] = React.useState<string>();
   const [taskDetailError, setTaskDetailError] = React.useState<string>();
+  const [deleting, setDeleting] = React.useState(false);
+  const [deleteError, setDeleteError] = React.useState<string>();
   const track = tracksQuery.tracks.find((item) => item.id === trackId);
   const tasks = React.useMemo(
     () =>
@@ -85,6 +89,8 @@ export function TrackDetailScreen({
     [tasksQuery.tasks],
   );
   const selectedTask = tasks.find((task) => task.id === taskId) ?? null;
+  const canDelete =
+    tracksQuery.currentPubkey?.toLowerCase() === track?.owner.toLowerCase();
 
   const openTask = (nextTaskId: string | null) => {
     setTaskDetailError(undefined);
@@ -199,6 +205,19 @@ export function TrackDetailScreen({
             >
               <Pencil className="h-4 w-4" />
               Edit
+            </Button>
+          ) : null}
+          {canDelete ? (
+            <Button
+              onClick={() => {
+                setDeleteError(undefined);
+                setDeleting(true);
+              }}
+              size="sm"
+              variant="destructive"
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete Track
             </Button>
           ) : null}
           {!track.archived ? (
@@ -358,6 +377,20 @@ export function TrackDetailScreen({
         open={editing}
         owners={tracksQuery.owners}
         pending={tracksQuery.update.isPending}
+        track={track}
+      />
+      <TrackDeleteDialog
+        error={deleteError}
+        onClose={() => setDeleting(false)}
+        onDelete={() => {
+          setDeleteError(undefined);
+          tracksQuery.deleteTrack.mutate(track, {
+            onSuccess: () => void navigate({ to: "/tracks" } as never),
+            onError: (error) => setDeleteError(message(error)),
+          });
+        }}
+        open={deleting}
+        pending={tracksQuery.deleteTrack.isPending}
         track={track}
       />
       <CreateTaskDialog

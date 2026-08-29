@@ -51,6 +51,7 @@ export const KIND_TASK_EXECUTION_STATE = 30501;
 export const KIND_TRACK_STATE = 30510;
 export const KIND_TRACK_CREATE = 42510;
 export const KIND_TRACK_MUTATE = 42511;
+export const KIND_TRACK_DELETE = 42512;
 export const KIND_CALENDAR_DATE_EVENT = 31922;
 export const KIND_CALENDAR_TIME_EVENT = 31923;
 export const KIND_CALENDAR = 31924;

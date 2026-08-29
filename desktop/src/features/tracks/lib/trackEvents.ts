@@ -1,6 +1,7 @@
 import type { RelayEvent } from "@/shared/api/types";
 import {
   KIND_TRACK_CREATE,
+  KIND_TRACK_DELETE,
   KIND_TRACK_MUTATE,
   KIND_TRACK_STATE,
 } from "@/shared/constants/kinds";
@@ -9,6 +10,7 @@ import type { Track, TrackDraft, TrackPatch, TrackStatus } from "../types";
 const TRACK_STATUSES = new Set<TrackStatus>([
   "planned",
   "active",
+  "paused",
   "completed",
   "canceled",
 ]);
@@ -130,6 +132,23 @@ export function buildMutateTrackEvent(track: Track, patch: TrackPatch) {
     content: patch.description ?? "",
     tags,
   };
+}
+
+export function buildDeleteTrackEvent(track: Track) {
+  return {
+    kind: KIND_TRACK_DELETE as typeof KIND_TRACK_DELETE,
+    content: "",
+    tags: [
+      ["t", `track-id:${track.id}`],
+      ["previous", track.eventId],
+      ["e", track.eventId, "", "previous"],
+    ],
+  };
+}
+
+export function trackIdFromDeleteEvent(event: RelayEvent) {
+  if (event.kind !== KIND_TRACK_DELETE || event.content !== "") return null;
+  return semanticTag(event, "track-id:") ?? null;
 }
 
 export function validateTrackDraft(

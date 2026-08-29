@@ -1,3 +1,10 @@
+export type TrackStatus =
+  | "planned"
+  | "active"
+  | "paused"
+  | "completed"
+  | "canceled";
+
 export type Track = {
   id: string;
   name: string;
@@ -6,7 +13,7 @@ export type Track = {
   members: string[];
   startDate?: string;
   endDate?: string;
-  status: string;
+  status: TrackStatus;
   archived: boolean;
   updatedAt: number;
 };

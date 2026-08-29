@@ -59,6 +59,7 @@ import {
   KIND_TASK_STATE,
   KIND_TEXT_NOTE,
   KIND_TRACK_CREATE,
+  KIND_TRACK_DELETE,
   KIND_TRACK_MUTATE,
   KIND_TRACK_STATE,
   KIND_USER_STATUS,
@@ -10557,6 +10558,47 @@ function sendToMockSocket(args: {
 
   if (type === "EVENT") {
     const event = rest[0] as RelayEvent;
+
+    if (event.kind === KIND_TRACK_DELETE) {
+      const trackId = taskSemanticTag(event, "track-id:")?.slice(
+        "track-id:".length,
+      );
+      const trackIndex = mockTrackEvents.findIndex(
+        (candidate) => taskTag(candidate, "d") === trackId,
+      );
+      const current = mockTrackEvents[trackIndex];
+      if (
+        !trackId ||
+        !current ||
+        current.tags.find((tag) => tag[0] === "p")?.[1] !== event.pubkey
+      ) {
+        sendWsText(socket.handler, [
+          "OK",
+          event.id,
+          false,
+          "restricted: only the Track owner may delete",
+        ]);
+        return;
+      }
+      const hasLinkedTasks = mockTaskEvents.some(
+        (task) =>
+          taskSemanticTag(task, "track-id:")?.slice("track-id:".length) ===
+          trackId,
+      );
+      if (hasLinkedTasks) {
+        sendWsText(socket.handler, [
+          "OK",
+          event.id,
+          false,
+          "conflict: Track still has linked tasks. Move or delete them before deleting the Track.",
+        ]);
+        return;
+      }
+      mockTrackEvents.splice(trackIndex, 1);
+      emitMockGlobalEvent(event);
+      sendWsText(socket.handler, ["OK", event.id, true, "stored"]);
+      return;
+    }
 
     if (event.kind === KIND_TRACK_CREATE || event.kind === KIND_TRACK_MUTATE) {
       if (event.kind === KIND_TRACK_MUTATE) {

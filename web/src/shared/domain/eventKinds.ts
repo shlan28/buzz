@@ -13,6 +13,7 @@ export const KINDS = {
   taskExecutionRequest: 42_503,
   taskExecutionUpdate: 42_504,
   trackState: 30_510,
+  trackDelete: 42_512,
 } as const;
 
 export const MESSAGE_KINDS = [KINDS.channelMessage, KINDS.agentMessage];

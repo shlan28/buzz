@@ -161,6 +161,26 @@ test("parses task and track state with semantic tags", () => {
     archived: false,
   });
   expect(
+    parseTrack(
+      event(30_510, [
+        ["d", "paused-track"],
+        ["title", "Paused launch"],
+        ["t", "track-status:paused"],
+        ["archived", "false"],
+      ]),
+    ),
+  ).toMatchObject({ status: "paused" });
+  expect(
+    parseTrack(
+      event(30_510, [
+        ["d", "unknown-track"],
+        ["title", "Unknown"],
+        ["t", "track-status:future"],
+        ["archived", "false"],
+      ]),
+    ),
+  ).toBeNull();
+  expect(
     parseTask(
       event(30_510, [
         ["d", "wrong"],

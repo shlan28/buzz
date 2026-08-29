@@ -37,9 +37,11 @@ YAML 定义的自动化。触发源可以是消息、reaction、schedule 或 web
 
 ## Track、Task 与 Tag
 
-Track 是 community 内用于协调一组相关工作的上层容器。每个 Track 有稳定 UUID、名称、负责人、只读成员、开始日期、结束日期和 `planned / active / completed / canceled` 状态；归档是独立属性，只有 completed 或 canceled Track 可以归档。归档后不会从系统删除，仍可从 Archived 范围、详情深链或 Restore 操作找回。
+Track 是 community 内用于协调一组相关工作的上层容器。每个 Track 有稳定 UUID、名称、负责人、只读成员、开始日期、结束日期和 `planned / active / paused / completed / canceled` 状态；`paused` 表示暂时停止推进但预期恢复，仍属于 Current。归档是独立属性，只有 completed 或 canceled Track 可以归档。归档后不会从系统删除，仍可从 Archived 范围、详情深链或 Restore 操作找回。
 
 Track 不是 community 全员可见。只有 creator、当前 owner、显式 Track members，以及 Buzz 身份关系中归属于当前 owner 的托管 Agent 可以读取。只有当前 owner 与这些 owner Agents 可以编辑、转派、管理成员、归档或恢复；creator、members 和 community owner/admin 不因其身份自动获得管理权。
+
+Track 当前 owner 本人可以从任意生命周期状态直接永久删除，不要求先归档；owner Agent 及 community 管理员不能代删。只要仍有当前 Task 关联该 Track（包括已归档 Task），Relay 就拒绝删除。删除不可恢复，原 Track UUID 也不能重新创建。
 
 Task 是 community 内由人和 Agent 共用的通用工作项。Task 有稳定 UUID、单一负责人、状态、优先级、截止时间，以及可选的单一 Track、Project、Channel、来源消息关联；按负责人展示时，拖到另一列表示转派，而不是改变状态。把 Task 指派给 Agent 只表示责任归属，不会自动启动 Agent。
 

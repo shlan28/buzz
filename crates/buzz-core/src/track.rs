@@ -64,6 +64,8 @@ pub enum TrackStatus {
     Planned,
     /// Work is currently underway.
     Active,
+    /// Work is temporarily paused and expected to resume.
+    Paused,
     /// The intended work has finished.
     Completed,
     /// Work was intentionally stopped.
@@ -76,6 +78,7 @@ impl TrackStatus {
         match self {
             Self::Planned => "planned",
             Self::Active => "active",
+            Self::Paused => "paused",
             Self::Completed => "completed",
             Self::Canceled => "canceled",
         }
@@ -94,6 +97,7 @@ impl std::str::FromStr for TrackStatus {
         match value {
             "planned" => Ok(Self::Planned),
             "active" => Ok(Self::Active),
+            "paused" => Ok(Self::Paused),
             "completed" => Ok(Self::Completed),
             "canceled" => Ok(Self::Canceled),
             _ => Err(TrackError::InvalidStatus),
@@ -227,6 +231,10 @@ mod tests {
             TrackError::InvalidArchiveState
         );
         validate_archive(TrackStatus::Completed, true).unwrap();
+        assert_eq!(
+            validate_archive(TrackStatus::Paused, true).unwrap_err(),
+            TrackError::InvalidArchiveState
+        );
         validate_archive(TrackStatus::Active, false).unwrap();
     }
 

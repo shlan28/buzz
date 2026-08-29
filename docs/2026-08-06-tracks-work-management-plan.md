@@ -874,3 +874,11 @@ buzz tasks list ... [--track <uuid>]
 - [x] 确认 Track Create / Mutate 允许 Owner 指向当前签名者，保留业务所需的 `p` self-tag，Relay 必填字段规则保持不变。
 - [x] 确认 Task Assignee 采用与 Track Owner / Member 相同的身份摘要样式，同时保留 Unassigned、Agent assignment policy、不可分配原因和 compact 模式。
 - [x] 确认 Track 详情页增加 `+ Task`；沿用现有 Task 创建权限、固定关联当前 Track，并在 Track 归档时隐藏入口。
+
+## 12. Paused 状态演进（2026-08-29）
+
+Track 在首版四状态基础上增加 `paused`：它表示工作暂时不推进但预期恢复，属于 Current，排序位于 Active 之后、Planned 之前。Paused 不是终态，不能归档，也不会自动取消或阻止关联 Task 与 Agent Execution。协议继续使用 `t=track-status:paused`，Relay、CLI、Desktop 与 Web 同步识别。
+
+## 13. Owner 直接删除演进（2026-08-29）
+
+Track 当前 owner 本人可从任意状态直接永久删除，不要求先归档；owner Agent、member、creator 和 community admin 不能代删。任何仍有关联 Task 的 Track 都由 Relay 拒绝删除。成功删除会隐藏 Track 当前状态和历史命令、保留最小删除标记，并永久禁止复用原 Track UUID。
